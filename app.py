@@ -5,7 +5,7 @@ from config import get_kraken_connection
 import time
 import datetime
 
-# 1. STYLE VISUEL BLEU PRO
+# 1. STYLE VISUEL BLEU PRO (STABLE)
 st.set_page_config(page_title="XRP Auto-Bot Pro", layout="wide")
 
 st.markdown("""
@@ -18,13 +18,15 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 18px !important; }
     [data-testid="stMetricValue"] { color: #00FFCC !important; font-size: 35px !important; }
+    /* Fixe l'interface pour éviter la vague */
+    .main { background-color: #F0F2F6; }
     </style>
     """, unsafe_allow_html=True)
 
-# Connexion via ton fichier config.py
+# Connexion Kraken
 kraken = get_kraken_connection()
 
-# Initialisation de la mémoire du bot (Session State)
+# Initialisation Session State
 if 'last_balance_update' not in st.session_state:
     st.session_state.last_balance_update = 0
     st.session_state.cached_balance = {}
@@ -34,34 +36,34 @@ with st.sidebar:
     st.header("🤖 Robot de Trading")
     bot_actif = st.toggle("ACTIVER LE BOT", value=False)
     st.divider()
-    seuil_achat = st.number_input("Acheter si <", value=1.3000, format="%.4f")
-    seuil_vente = st.number_input("Vendre si >", value=1.5500, format="%.4f")
-    budget_usdc = st.number_input("Budget Achat (USDC)", min_value=25.0, value=30.0)
+    # Tes cibles : ex Achat 1.50 / Vente 1.60
+    p_achat_cible = st.number_input("ACHAT SI PRIX <", value=1.5000, format="%.4f")
+    p_vente_cible = st.number_input("VENTE SI PRIX >", value=1.6000, format="%.4f")
+    budget_usdc = st.number_input("Budget Achat (USDC)", min_value=10.0, value=30.0)
 
-st.title("📈 Terminal XRP - Flux Sécurisé")
-
-# Zone de rafraîchissement
+# Zone d'affichage fixe (Anti-vague)
 zone_live = st.empty()
 
 while True:
     try:
-        # 1. LECTURE DU PRIX (Toutes les 10s)
-        ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        prix_bid = ob['bids'][0][0]
-        prix_ask = ob['asks'][0][0]
-        prix_reel = (prix_bid + prix_ask) / 2
+        # --- PARTIE PRIX (NE PAS TOUCHER - FONCTIONNE) ---
+        params = {'nonce': str(int(time.time() * 1000))}
+        ticker = kraken.fetch_ticker('XRP/USDC', params=params)
+        prix_reel = ticker['last']
         
-        # 2. LECTURE DU SOLDE (Toutes les 30s pour éviter le BAN)
+        # --- PARTIE SOLDE (TOUTES LES 30S) ---
         maintenant = time.time()
         if maintenant - st.session_state.last_balance_update > 30:
             st.session_state.cached_balance = kraken.fetch_balance()
-            st.session_state.last_balance_update = maintenant # <-- CORRIGÉ : signe = ajouté
+            st.session_state.last_balance_update = maintenant
         
         balance = st.session_state.cached_balance
         usdc_libre = balance.get('free', {}).get('USDC', 0)
         xrp_libre = balance.get('free', {}).get('XRP', 0)
         
+        # --- AFFICHAGE DASHBOARD ---
         with zone_live.container():
+            st.title("📈 Terminal XRP - Mode Automatique")
             c1, c2, c3 = st.columns(3)
             c1.metric("PORTFOLIO USDC", f"{usdc_libre:,.2f} $")
             c2.metric("STOCK XRP", f"{xrp_libre:,.2f}")
@@ -69,28 +71,41 @@ while True:
 
             st.write(f"⏱️ Flux Kraken : **{datetime.datetime.now().strftime('%H:%M:%S')}**")
             
-            # --- LOGIQUE DU BOT ---
+            # --- LOGIQUE ACHAT / VENTE (1.5 / 1.6) ---
             if bot_actif:
-                st.warning(f"🕵️ Surveillance : ACHAT < {seuil_achat}$ | VENTE > {seuil_vente}$")
+                st.info(f"🕵️ Stratégie : ACHAT à {p_achat_cible}$ | VENTE à {p_vente_cible}$")
                 
-                # ACHAT
-                if prix_reel <= seuil_achat and usdc_libre >= budget_usdc:
-                    st.toast("🚀 ACHAT DÉCLENCHÉ !")
-                    qty = budget_usdc / prix_ask
-                    res = kraken.create_order('XRP/USDC', 'market', 'buy', qty)
-                    st.success(f"✅ BOT : Achat réussi (ID: {res['id']})")
-                    st.session_state.last_balance_update = 0 # Force refresh solde au prochain tour
-                    time.sleep(15)
+                # 1. LOGIQUE ACHAT (On a des dollars -> On veut du XRP)
+                if prix_reel <= p_achat_cible and usdc_libre >= budget_usdc:
+                    try:
+                        st.toast("🚀 CONDITION ACHAT REMPLIE !")
+                        # Calcul quantité avec précision Kraken
+                        qty = float(kraken.amount_to_precision('XRP/USDC', budget_usdc / prix_reel))
+                        px = float(kraken.price_to_precision('XRP/USDC', p_achat_cible))
+                        
+                        # Ordre Limite pour garantir le prix
+                        res = kraken.create_order('XRP/USDC', 'limit', 'buy', qty, px)
+                        st.success(f"✅ BOT : Ordre Achat placé ({qty} XRP à {px}$)")
+                        st.session_state.last_balance_update = 0 # Force refresh solde
+                        time.sleep(15)
+                    except Exception as e:
+                        st.error(f"Erreur Achat : {e}")
                 
-                # VENTE
-                elif prix_reel >= seuil_vente and xrp_libre >= 15:
-                    st.toast("💰 VENTE DÉCLENCHÉE !")
-                    res = kraken.create_order('XRP/USDC', 'market', 'sell', xrp_libre)
-                    st.success(f"✅ BOT : Vente réussie (ID: {res['id']})")
-                    st.session_state.last_balance_update = 0 # Force refresh solde
-                    time.sleep(15)
+                # 2. LOGIQUE VENTE (On a du XRP -> On veut du profit)
+                elif prix_reel >= p_vente_cible and xrp_libre >= 15:
+                    try:
+                        st.toast("💰 CONDITION VENTE REMPLIE !")
+                        qty = float(kraken.amount_to_precision('XRP/USDC', xrp_libre))
+                        px = float(kraken.price_to_precision('XRP/USDC', p_vente_cible))
+                        
+                        res = kraken.create_order('XRP/USDC', 'limit', 'sell', qty, px)
+                        st.success(f"✅ BOT : Ordre Vente placé ({qty} XRP à {px}$)")
+                        st.session_state.last_balance_update = 0
+                        time.sleep(15)
+                    except Exception as e:
+                        st.error(f"Erreur Vente : {e}")
                 else:
-                    st.info("⌛ En attente du bon prix...")
+                    st.write("⌛ *En attente des cibles de prix...*")
 
             st.divider()
             st.subheader("📝 Mes Avoirs")
@@ -98,12 +113,8 @@ while True:
             st.table(df[df['Total'] > 0].reset_index(drop=True))
 
     except Exception as e:
-        if "Rate limit exceeded" in str(e):
-            st.error("⚠️ Kraken saturé ! Pause de 30 secondes...")
-            time.sleep(30)
-        else:
-            st.error(f"Erreur : {e}")
-            time.sleep(10)
+        st.error(f"Erreur Système : {e}")
+        time.sleep(10)
 
-    # Pause de sécurité (10 secondes recommandée)
+    # Pause entre deux scans (10s pour la stabilité)
     time.sleep(10)
