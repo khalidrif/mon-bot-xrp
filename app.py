@@ -3,145 +3,154 @@ import pandas as pd
 import ccxt
 import time
 import datetime
+import json
+import os
 from config import get_kraken_connection
 
-# 1. STYLE "GOLD TRADER"
-st.set_page_config(page_title="XRP Gold Loop", layout="wide")
-
+# 1. STYLE PRO CRYSTAL
+st.set_page_config(page_title="XRP Crystal Loop", layout="wide")
 st.markdown("""
     <style>
-    .main { background-color: #000000; }
+    .main { background-color: #050A0E; }
     [data-testid="stMetric"] {
-        background-color: #1A1A00; 
-        border: 2px solid #FFD700; 
-        padding: 20px;
-        border-radius: 15px;
+        background-color: #0E161F; 
+        border: 1px solid #00FF88; 
+        padding: 15px;
+        border-radius: 10px;
     }
-    [data-testid="stMetricLabel"] { color: #FFFFFF !important; }
+    [data-testid="stMetricLabel"] { color: #8E9AAF !important; font-size: 14px !important; }
     [data-testid="stMetricValue"] { 
-        color: #FFFF00 !important; 
-        font-family: 'Courier New', monospace; 
-        font-size: 30px !important;
-        text-shadow: 0px 0px 5px #FFFF00;
+        color: #00FF88 !important; 
+        font-family: 'Segoe UI', sans-serif; 
+        font-size: 26px !important;
+        font-weight: 700 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# Connexion
+# 2. MÉMOIRE PERMANENTE
+FILE_MEMOIRE = "etat_bots.json"
+
+def sauvegarder_donnees(bots, profit_total):
+    data = {"bots": bots, "profit_total": profit_total}
+    with open(FILE_MEMOIRE, "w") as f:
+        json.dump(data, f)
+
+def charger_donnees():
+    if os.path.exists(FILE_MEMOIRE):
+        try:
+            with open(FILE_MEMOIRE, "r") as f:
+                return json.load(f)
+        except: return None
+    return None
+
+# Initialisation
+memoire = charger_donnees()
+if 'bots' not in st.session_state:
+    if memoire:
+        st.session_state.bots = memoire["bots"]
+        st.session_state.profit_total = memoire["profit_total"]
+    else:
+        st.session_state.bots = {f"Bot_{i+1}": {"id": None, "status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0} for i in range(10)}
+        st.session_state.profit_total = 0.0
+
+# Connexion Kraken
 kraken = get_kraken_connection()
 kraken.options['nonce'] = lambda: int(time.time() * 1000)
 
-# --- MÉMOIRE DES BOTS ---
-if 'bots' not in st.session_state:
-    st.session_state.bots = {
-        f"Bot_{i+1}": {
-            "id": None, "status": "LIBRE", 
-            "p_achat": 0.0, "p_vente": 0.0,
-            "cycles": 0, "gain": 0.0
-        } for i in range(10)
-    }
-
-# --- BARRE LATÉRALE ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("🟡 Gold Pilot")
+    st.header("💎 Crystal Pilot")
     mode_reel = st.toggle("💰 ARGENT RÉEL", value=False)
-    p_achat_input = st.number_input("Prix d'Achat ($)", value=1.3560, format="%.4f")
-    p_vente_input = st.number_input("Prix de Vente ($)", value=1.3650, format="%.4f")
-    budget_input = st.number_input("Budget ($)", value=10.0)
+    p_achat_in = st.number_input("Prix Achat ($)", value=1.3560, format="%.4f")
+    p_vente_in = st.number_input("Prix Vente ($)", value=1.3650, format="%.4f")
+    budget_in = st.number_input("Budget ($)", value=10.0)
 
     st.divider()
-    st.write("Lancer / Arrêter :")
-    # On crée 10 lignes simples pour éviter les erreurs de colonnes imbriquées
     for i in range(10):
         name = f"Bot_{i+1}"
-        col_l, col_s = st.columns(2)
+        c_l, c_s = st.columns(2)
         if st.session_state.bots[name]["status"] == "LIBRE":
-            if col_l.button(f"LANCER {i+1}", key=f"l_{i}"):
+            if c_l.button(f"LANCER {i+1}", key=f"l_{i}"):
                 try:
                     kraken.load_markets()
-                    qty = budget_input / p_achat_input
-                    pa = float(kraken.price_to_precision('XRP/USDC', p_achat_input))
-                    pv = float(kraken.price_to_precision('XRP/USDC', p_vente_input))
+                    qty = budget_in / p_achat_in
+                    pa = float(kraken.price_to_precision('XRP/USDC', p_achat_in))
+                    pv = float(kraken.price_to_precision('XRP/USDC', p_vente_in))
                     q = float(kraken.amount_to_precision('XRP/USDC', qty))
                     res = kraken.create_order('XRP/USDC', 'limit', 'buy', q, pa, {'validate': not mode_reel})
                     st.session_state.bots[name].update({"id": res['id'], "status": "ATTENTE_ACHAT", "p_achat": pa, "p_vente": pv})
+                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                     st.rerun()
                 except Exception as e: st.error(f"Erreur: {e}")
         else:
-            if col_s.button(f"STOP {i+1}", key=f"stop_{i}"):
+            if c_s.button(f"STOP {i+1}", key=f"stop_{i}"):
                 try: kraken.cancel_order(st.session_state.bots[name]["id"])
                 except: pass
                 st.session_state.bots[name].update({"id": None, "status": "LIBRE"})
+                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-st.title("🛰️ XRP Gold Terminal")
+# --- ZONE LIVE ---
+st.title("🛰️ Terminal Crystal Loop")
 zone_live = st.empty()
 
 while True:
     try:
-        # Récupération Prix et Solde
+        # PRIX ET SOLDE
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        p_ask = float(ob['asks'][0][0])
-        p_bid = float(ob['bids'][0][0])
-        prix_reel = (p_ask + p_bid) / 2
-        
+        p_reel = (float(ob['asks'][0][0]) + float(ob['bids'][0][0])) / 2
         balance = kraken.fetch_balance()
         usdc = balance.get('free', {}).get('USDC', balance.get('free', {}).get('ZUSD', 0))
 
         with zone_live.container():
             c1, c2, c3 = st.columns(3)
             c1.metric("SOLDE USDC", f"{usdc:,.2f} $")
-            c2.metric("PRIX XRP LIVE", f"{prix_reel:.4f} $")
-            total_gain = sum(b["gain"] for b in st.session_state.bots.values())
-            c3.metric("GAINS CUMULÉS", f"+{total_gain:.4f} $")
+            c2.metric("PRIX XRP", f"{p_reel:.4f} $")
+            c3.metric("GAINS TOTAUX", f"+{st.session_state.profit_total:.4f} $")
             
             st.divider()
             
-            # --- AFFICHAGE DES 10 ROBOTS (Correction des colonnes) ---
-            # On crée 5 colonnes pour la première rangée
-            row1 = st.columns(5)
-            for i in range(5):
+            # --- AFFICHAGE DES 10 ROBOTS ---
+            r1 = st.columns(5)
+            r2 = st.columns(5)
+            all_cols = r1 + r2
+
+            for i in range(10):
                 name = f"Bot_{i+1}"
                 bot = st.session_state.bots[name]
-                with row1[i]:
-                    st.write(f"### 🟡 {i+1}")
+                with all_cols[i]:
+                    st.write(f"### 🤖 {i+1}")
                     if bot["status"] == "ATTENTE_ACHAT":
-                        st.warning(f"📥 ACHAT @{bot['p_achat']}")
+                        st.warning(f"📥 @{bot['p_achat']}")
                         info = kraken.fetch_order(bot['id'], 'XRP/USDC')
                         if info['status'] == 'closed':
                             res_v = kraken.create_order('XRP/USDC', 'limit', 'sell', info['filled'], bot['p_vente'], {'validate': not mode_reel})
                             st.session_state.bots[name].update({"id": res_v['id'], "status": "ATTENTE_VENTE"})
+                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                             st.rerun()
                     elif bot["status"] == "ATTENTE_VENTE":
-                        st.success(f"📤 VENTE @{bot['p_vente']}")
+                        st.success(f"📤 @{bot['p_vente']}")
                         info_v = kraken.fetch_order(bot['id'], 'XRP/USDC')
                         if info_v['status'] == 'closed':
-                            profit_cycle = (bot['p_vente'] - bot['p_achat']) * info_v['filled']
-                            st.session_state.bots[name]["gain"] += profit_cycle
+                            gain = (bot['p_vente'] - bot['p_achat']) * info_v['filled']
+                            st.session_state.profit_total += gain
+                            st.session_state.bots[name]["gain"] += gain
                             st.session_state.bots[name]["cycles"] += 1
-                            st.balloons()
-                            qty = budget_input / bot['p_achat']
-                            q = float(kraken.amount_to_precision('XRP/USDC', qty))
-                            res_new = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
-                            st.session_state.bots[name].update({"id": res_new['id'], "status": "ATTENTE_ACHAT"})
+                            # BOUCLE INFINIE
+                            res_n = kraken.create_order('XRP/USDC', 'limit', 'buy', info_v['filled'], bot['p_achat'], {'validate': not mode_reel})
+                            st.session_state.bots[name].update({"id": res_n['id'], "status": "ATTENTE_ACHAT"})
+                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                             st.rerun()
                     st.write(f"🔄 {bot['cycles']} | 💰 {bot['gain']:.4f}$")
-
-            # Deuxième rangée (Bots 6 à 10)
-            row2 = st.columns(5)
-            for i in range(5, 10):
-                name = f"Bot_{i+1}"
-                bot = st.session_state.bots[name]
-                with row2[i-5]:
-                    st.write(f"### 🟡 {i+1}")
-                    if bot["status"] == "ATTENTE_ACHAT":
-                        st.warning(f"📥 ACHAT @{bot['p_achat']}")
-                    elif bot["status"] == "ATTENTE_VENTE":
-                        st.success(f"📤 VENTE @{bot['p_vente']}")
-                    st.write(f"🔄 {bot['cycles']} | 💰 {bot['gain']:.4f}$")
+                    # Petite pause pour ne pas saturer l'API dans la boucle
+                    time.sleep(0.5) 
 
     except Exception as e:
-        if "Rate limit" in str(e): time.sleep(10)
+        if "Rate limit" in str(e): 
+            st.error("⏳ Kraken demande une pause (Rate Limit). Repos de 30s...")
+            time.sleep(30)
         else: st.write(f"Flux... {e}")
-    
-    time.sleep(10)
+
+    # PAUSE DE SÉCURITÉ AUGMENTÉE (20 SECONDES)
+    time.sleep(20)
