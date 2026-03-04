@@ -46,12 +46,12 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire["bots"])
         st.session_state.profit_total = memoire["profit_total"]
 
-# --- SIDEBAR (Réglages 1.12 / 1.44) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("🎯 Cibles")
     mode_reel = st.toggle("Argent Réel", value=True)
-    p_in = st.number_input("Achat (ex: 1.12)", value=1.1200, format="%.4f")
-    p_out = st.number_input("Vente (ex: 1.44)", value=1.4400, format="%.4f")
+    p_in = st.number_input("Achat", value=1.1200, format="%.4f")
+    p_out = st.number_input("Vente", value=1.4400, format="%.4f")
     budget = st.number_input("Budget ($)", value=10.0)
     
     st.divider()
@@ -63,7 +63,8 @@ with st.sidebar:
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
                     qty = (budget + st.session_state.bots[name]["gain"]) / p_in
-                    pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in)), float(kraken.price_to_precision('XRP/USDC', p_out))
+                    pa = float(kraken.price_to_precision('XRP/USDC', p_in))
+                    pv = float(kraken.price_to_precision('XRP/USDC', p_out))
                     res = kraken.create_order('XRP/USDC', 'limit', 'buy', float(kraken.amount_to_precision('XRP/USDC', qty)), pa, {'validate': not mode_reel})
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
@@ -80,14 +81,19 @@ with st.sidebar:
                 st.rerun()
 
 # --- MAIN ---
-st.title("🛰️ XRP Precision Terminal")
+st.title("🛰️ XRP Zen Precision")
 live = st.empty()
 
 while True:
     try:
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        px = (float(ob['asks']) + float(ob['bids'])) / 2
+        
+        # --- FIX DÉFINITIF PRIX ---
+        p_ask = float(ob['asks'][0][0]) if isinstance(ob['asks'], list) and len(ob['asks']) > 0 else 0.0
+        p_bid = float(ob['bids'][0][0]) if isinstance(ob['bids'], list) and len(ob['bids']) > 0 else 0.0
+        px = (p_ask + p_bid) / 2
+        
         bal = kraken.fetch_balance()
         usdc = bal.get('free', {}).get('USDC', bal.get('free', {}).get('ZUSD', 0))
 
@@ -98,9 +104,9 @@ while True:
             m3.metric("GAINS", f"+{st.session_state.profit_total:.4f} $")
             
             st.divider()
-            cols = st.columns(5)
-            cols2 = st.columns(5)
-            all_c = cols + cols2
+            grid = st.columns(5)
+            grid2 = st.columns(5)
+            all_c = grid + grid2
 
             for i in range(10):
                 name = f"Bot_{i+1}"
@@ -108,7 +114,7 @@ while True:
                 with all_c[i]:
                     st.write(f"**Bot {i+1}**")
                     if bot["status"] != "LIBRE":
-                        # CALCUL FOURCHETTE (Position entre 1.12 et 1.44)
+                        # FOURCHETTE (Position entre Achat et Vente)
                         low, high = bot['p_achat'], bot['p_vente']
                         prog = (px - low) / (high - low) if (high - low) != 0 else 0
                         st.progress(min(max(prog, 0.0), 1.0))
@@ -129,7 +135,6 @@ while True:
                                 st.session_state.profit_total += g
                                 st.session_state.bots[name]["gain"] += g
                                 st.session_state.bots[name]["cycles"] += 1
-                                # BOULE DE NEIGE
                                 q = float(kraken.amount_to_precision('XRP/USDC', (budget + st.session_state.bots[name]["gain"]) / bot['p_achat']))
                                 res_n = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
                                 st.session_state.bots[name].update({"id": res_n['id'], "status": "ACHAT"})
@@ -137,7 +142,7 @@ while True:
                                 st.rerun()
                     else:
                         st.write("---")
-                    st.caption(f"Cycles: {bot['cycles']} | +{bot['gain']:.2f}$")
+                    st.caption(f"Cyc: {bot['cycles']} | +{bot['gain']:.2f}$")
 
     except Exception as e:
         if "nonce" in str(e).lower(): time.sleep(1); continue
