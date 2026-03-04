@@ -8,21 +8,16 @@ import os
 from config import get_kraken_connection
 
 # 1. STYLE "TARGET VISION"
-st.set_page_config(page_title="XRP Gold Targets", layout="wide")
+st.set_page_config(page_title="XRP Gold Real Money", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #000000; }
     [data-testid="stMetric"] { background-color: #1A1A00; border: 1px solid #FFD700; padding: 10px; border-radius: 10px; }
-    
     .bot-number { color: #00FFFF !important; font-size: 18px !important; font-weight: bold; border-bottom: 1px solid #00FFFF; margin-bottom: 5px; }
-    
-    /* Style pour afficher les cibles Achat/Vente */
     .target-box { font-size: 11px; color: #888888; margin-top: 5px; line-height: 1.2; }
     .target-buy { color: #FFA500; font-weight: bold; }
     .target-sell { color: #00FF88; font-weight: bold; }
-    
     .highlight-val { background-color: #FFFF00; color: #000000; padding: 1px 5px; border-radius: 3px; font-weight: bold; font-family: monospace; font-size: 12px; }
-    
     [data-testid="stMetricValue"] { color: #FFFF00 !important; font-family: 'Courier New', monospace; font-size: 24px !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -52,8 +47,11 @@ kraken = get_kraken_connection()
 
 # 3. SIDEBAR
 with st.sidebar:
-    st.header("🟡 Gold Control")
-    mode_reel = st.toggle("💰 RÉEL", value=False)
+    st.header("🟡 Gold Real Control")
+    # --- CHANGEMENT ICI : value=True pour laisser activé ---
+    mode_reel = st.toggle("💰 ARGENT RÉEL", value=True) 
+    
+    st.divider()
     p_achat_in = st.number_input("Achat ($)", value=1.3560, format="%.4f")
     p_vente_in = st.number_input("Vente ($)", value=1.3650, format="%.4f")
     budget_in = st.number_input("Budget ($)", value=10.0)
@@ -68,6 +66,7 @@ with st.sidebar:
                     kraken.load_markets()
                     qty = (budget_in + st.session_state.bots[name]["gain"]) / p_achat_in
                     pa, pv = float(kraken.price_to_precision('XRP/USDC', p_achat_in)), float(kraken.price_to_precision('XRP/USDC', p_vente_in))
+                    # L'ordre est REEL si mode_reel est coché (il l'est par défaut maintenant)
                     res = kraken.create_order('XRP/USDC', 'limit', 'buy', float(kraken.amount_to_precision('XRP/USDC', qty)), pa, {'validate': not mode_reel})
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
@@ -84,15 +83,18 @@ with st.sidebar:
                 st.rerun()
 
 # 4. ZONE LIVE
-st.title("🛰️ Terminal : Targets & Gains")
+st.title("🛰️ Quantum Gold : Mode Réel")
 zone_live = st.empty()
 
 while True:
     try:
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
+        # --- CORRECTIF PRIX (Extraction sécurisée) ---
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        p_ask, p_bid = float(ob['asks']), float(ob['bids'])
+        p_ask = float(ob['asks'][0][0])
+        p_bid = float(ob['bids'][0][0])
         prix_reel = (p_ask + p_bid) / 2
+        
         balance = kraken.fetch_balance()
         usdc = balance.get('free', {}).get('USDC', balance.get('free', {}).get('ZUSD', 0))
 
@@ -112,7 +114,6 @@ while True:
                 bot = st.session_state.bots[name]
                 with all_cols[i]:
                     st.markdown(f'<p class="bot-number">BOT {i+1}</p>', unsafe_allow_html=True)
-                    
                     val_live = budget_in + bot['gain']
                     
                     if bot["status"] == "ACHAT":
@@ -140,12 +141,11 @@ while True:
                             st.rerun()
                     else: st.caption("Repos")
 
-                    # AFFICHAGE DES CIBLES FIXÉES
                     if bot["status"] != "LIBRE":
                         st.markdown(f'''
                         <div class="target-box">
-                            Cible In: <span class="target-buy">{bot['p_achat']}</span><br>
-                            Cible Out: <span class="target-sell">{bot['p_vente']}</span>
+                            In: <span class="target-buy">{bot['p_achat']}</span> | 
+                            Out: <span class="target-sell">{bot['p_vente']}</span>
                         </div>
                         ''', unsafe_allow_html=True)
 
