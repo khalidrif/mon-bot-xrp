@@ -12,8 +12,6 @@ st.set_page_config(page_title="XRP Quantum Elite", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #000000; color: #FFFFFF; }
-    
-    /* Cartes style "Verre" avec bordure Or */
     [data-testid="stMetric"] {
         background: rgba(255, 215, 0, 0.05);
         border: 1px solid rgba(255, 215, 0, 0.3);
@@ -21,18 +19,14 @@ st.markdown("""
         padding: 15px;
         border-radius: 12px;
     }
-    
-    /* Titre des Bots avec lueur bleue */
     .bot-header {
         color: #00FBFF;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Segoe UI', sans-serif;
         font-size: 16px;
         font-weight: 800;
         text-shadow: 0px 0px 8px rgba(0, 251, 255, 0.6);
         margin-bottom: 8px;
     }
-    
-    /* Valeur en surbrillance Or */
     .val-box {
         background: linear-gradient(90deg, #FFD700, #B8860B);
         color: #000000;
@@ -42,7 +36,6 @@ st.markdown("""
         font-size: 13px;
         display: inline-block;
     }
-
     [data-testid="stMetricValue"] { 
         color: #FFD700 !important; 
         text-shadow: 0px 0px 10px rgba(255, 215, 0, 0.4);
@@ -50,7 +43,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MÉMOIRE & SCANNER
+# 2. MÉMOIRE & SAUVEGARDE
 FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder_donnees(bots, profit_total):
     with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": profit_total}, f)
@@ -64,13 +57,6 @@ def charger_donnees():
 
 kraken = get_kraken_connection()
 
-def scanner_ordres():
-    try:
-        kraken.options['nonce'] = lambda: int(time.time() * 1000)
-        open_orders = kraken.fetch_open_orders('XRP/USDC')
-        return open_orders
-    except: return []
-
 # Initialisation
 memoire = charger_donnees()
 if 'bots' not in st.session_state:
@@ -82,7 +68,7 @@ if 'bots' not in st.session_state:
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🛰️ Quantum Sidebar")
+    st.header("🛰️ Quantum Sidebar")
     mode_reel = st.toggle("💰 MODE RÉEL", value=True)
     p_in = st.number_input("Achat", value=1.4420, format="%.4f")
     p_out = st.number_input("Vente", value=1.4460, format="%.4f")
@@ -96,8 +82,10 @@ with st.sidebar:
             if col1.button(f"⚡ GO {i+1}", key=f"go_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
+                    kraken.load_markets()
                     qty = (budget + st.session_state.bots[name]["gain"]) / p_in
-                    pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in)), float(kraken.price_to_precision('XRP/USDC', p_out))
+                    pa = float(kraken.price_to_precision('XRP/USDC', p_in))
+                    pv = float(kraken.price_to_precision('XRP/USDC', p_out))
                     res = kraken.create_order('XRP/USDC', 'limit', 'buy', float(kraken.amount_to_precision('XRP/USDC', qty)), pa, {'validate': not mode_reel})
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
@@ -119,9 +107,15 @@ live = st.empty()
 
 while True:
     try:
+        # --- CORRECTIF NONCE & PRIX ---
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        px = (float(ob['asks']) + float(ob['bids'])) / 2
+        
+        # Extraction sécurisée (évite l'erreur 'list')
+        p_ask = float(ob['asks']) if ob['asks'] else 0.0
+        p_bid = float(ob['bids']) if ob['bids'] else 0.0
+        px = (p_ask + p_bid) / 2
+        
         bal = kraken.fetch_balance()
         usdc = bal.get('free', {}).get('USDC', bal.get('free', {}).get('ZUSD', 0))
 
@@ -142,7 +136,6 @@ while True:
                 bot = st.session_state.bots[name]
                 with grid[i]:
                     st.markdown(f'<div class="bot-header">CORE {i+1}</div>', unsafe_allow_html=True)
-                    
                     v_live = budget + bot['gain']
                     
                     if bot["status"] == "ACHAT":
