@@ -7,22 +7,50 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "TARGET VISION"
-st.set_page_config(page_title="XRP Gold Real Money", layout="wide")
+# 1. STYLE "ELITE GLASS GOLD"
+st.set_page_config(page_title="XRP Quantum Elite", layout="wide")
 st.markdown("""
     <style>
-    .main { background-color: #000000; }
-    [data-testid="stMetric"] { background-color: #1A1A00; border: 1px solid #FFD700; padding: 10px; border-radius: 10px; }
-    .bot-number { color: #00FFFF !important; font-size: 18px !important; font-weight: bold; border-bottom: 1px solid #00FFFF; margin-bottom: 5px; }
-    .target-box { font-size: 11px; color: #888888; margin-top: 5px; line-height: 1.2; }
-    .target-buy { color: #FFA500; font-weight: bold; }
-    .target-sell { color: #00FF88; font-weight: bold; }
-    .highlight-val { background-color: #FFFF00; color: #000000; padding: 1px 5px; border-radius: 3px; font-weight: bold; font-family: monospace; font-size: 12px; }
-    [data-testid="stMetricValue"] { color: #FFFF00 !important; font-family: 'Courier New', monospace; font-size: 24px !important; }
+    .main { background-color: #000000; color: #FFFFFF; }
+    
+    /* Cartes style "Verre" avec bordure Or */
+    [data-testid="stMetric"] {
+        background: rgba(255, 215, 0, 0.05);
+        border: 1px solid rgba(255, 215, 0, 0.3);
+        backdrop-filter: blur(10px);
+        padding: 15px;
+        border-radius: 12px;
+    }
+    
+    /* Titre des Bots avec lueur bleue */
+    .bot-header {
+        color: #00FBFF;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 16px;
+        font-weight: 800;
+        text-shadow: 0px 0px 8px rgba(0, 251, 255, 0.6);
+        margin-bottom: 8px;
+    }
+    
+    /* Valeur en surbrillance Or */
+    .val-box {
+        background: linear-gradient(90deg, #FFD700, #B8860B);
+        color: #000000;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-weight: 900;
+        font-size: 13px;
+        display: inline-block;
+    }
+
+    [data-testid="stMetricValue"] { 
+        color: #FFD700 !important; 
+        text-shadow: 0px 0px 10px rgba(255, 215, 0, 0.4);
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MÉMOIRE
+# 2. MÉMOIRE & SCANNER
 FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder_donnees(bots, profit_total):
     with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": profit_total}, f)
@@ -34,46 +62,49 @@ def charger_donnees():
         except: return None
     return None
 
-memoire = charger_donnees()
-if 'bots' not in st.session_state:
-    if memoire:
-        st.session_state.bots = memoire["bots"]
-        st.session_state.profit_total = memoire["profit_total"]
-    else:
-        st.session_state.bots = {f"Bot_{i+1}": {"id": None, "status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0} for i in range(10)}
-        st.session_state.profit_total = 0.0
-
 kraken = get_kraken_connection()
 
-# 3. SIDEBAR
+def scanner_ordres():
+    try:
+        kraken.options['nonce'] = lambda: int(time.time() * 1000)
+        open_orders = kraken.fetch_open_orders('XRP/USDC')
+        return open_orders
+    except: return []
+
+# Initialisation
+memoire = charger_donnees()
+if 'bots' not in st.session_state:
+    st.session_state.bots = {f"Bot_{i+1}": {"id": None, "status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0} for i in range(10)}
+    st.session_state.profit_total = 0.0
+    if memoire:
+        st.session_state.bots.update(memoire["bots"])
+        st.session_state.profit_total = memoire["profit_total"]
+
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("🟡 Gold Real Control")
-    # --- CHANGEMENT ICI : value=True pour laisser activé ---
-    mode_reel = st.toggle("💰 ARGENT RÉEL", value=True) 
+    st.title("🛰️ Quantum Sidebar")
+    mode_reel = st.toggle("💰 MODE RÉEL", value=True)
+    p_in = st.number_input("Achat", value=1.4420, format="%.4f")
+    p_out = st.number_input("Vente", value=1.4460, format="%.4f")
+    budget = st.number_input("Budget", value=10.0)
     
-    st.divider()
-    p_achat_in = st.number_input("Achat ($)", value=1.3560, format="%.4f")
-    p_vente_in = st.number_input("Vente ($)", value=1.3650, format="%.4f")
-    budget_in = st.number_input("Budget ($)", value=10.0)
     st.divider()
     for i in range(10):
         name = f"Bot_{i+1}"
-        c_l, c_s = st.columns(2)
+        col1, col2 = st.columns(2)
         if st.session_state.bots[name]["status"] == "LIBRE":
-            if c_l.button(f"GO {i+1}", key=f"l_{i}"):
+            if col1.button(f"⚡ GO {i+1}", key=f"go_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
-                    kraken.load_markets()
-                    qty = (budget_in + st.session_state.bots[name]["gain"]) / p_achat_in
-                    pa, pv = float(kraken.price_to_precision('XRP/USDC', p_achat_in)), float(kraken.price_to_precision('XRP/USDC', p_vente_in))
-                    # L'ordre est REEL si mode_reel est coché (il l'est par défaut maintenant)
+                    qty = (budget + st.session_state.bots[name]["gain"]) / p_in
+                    pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in)), float(kraken.price_to_precision('XRP/USDC', p_out))
                     res = kraken.create_order('XRP/USDC', 'limit', 'buy', float(kraken.amount_to_precision('XRP/USDC', qty)), pa, {'validate': not mode_reel})
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                     st.rerun()
                 except Exception as e: st.error(e)
         else:
-            if c_s.button(f"STOP {i+1}", key=f"stop_{i}"):
+            if col2.button(f"🛑 OFF {i+1}", key=f"off_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
                     kraken.cancel_order(st.session_state.bots[name]["id"])
@@ -82,42 +113,40 @@ with st.sidebar:
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# 4. ZONE LIVE
-st.title("🛰️ Quantum Gold : Mode Réel")
-zone_live = st.empty()
+# --- MAIN DASHBOARD ---
+st.title("🌌 XRP QUANTUM TERMINAL")
+live = st.empty()
 
 while True:
     try:
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
-        # --- CORRECTIF PRIX (Extraction sécurisée) ---
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        p_ask = float(ob['asks'][0][0])
-        p_bid = float(ob['bids'][0][0])
-        prix_reel = (p_ask + p_bid) / 2
-        
-        balance = kraken.fetch_balance()
-        usdc = balance.get('free', {}).get('USDC', balance.get('free', {}).get('ZUSD', 0))
+        px = (float(ob['asks']) + float(ob['bids'])) / 2
+        bal = kraken.fetch_balance()
+        usdc = bal.get('free', {}).get('USDC', bal.get('free', {}).get('ZUSD', 0))
 
-        with zone_live.container():
-            c1, c2, c3 = st.columns(3)
-            c1.metric("SOLDE", f"{usdc:,.2f} $")
-            c2.metric("PRIX XRP", f"{prix_reel:.4f} $")
-            c3.metric("GAINS", f"+{st.session_state.profit_total:.4f} $")
+        with live.container():
+            m1, m2, m3 = st.columns(3)
+            m1.metric("BANKROLL", f"{usdc:,.2f} $")
+            m2.metric("XRP PRICE", f"{px:.4f} $")
+            m3.metric("TOTAL PROFIT", f"+{st.session_state.profit_total:.4f} $")
+            
             st.divider()
             
             r1 = st.columns(5)
             r2 = st.columns(5)
-            all_cols = r1 + r2
+            grid = r1 + r2
 
             for i in range(10):
                 name = f"Bot_{i+1}"
                 bot = st.session_state.bots[name]
-                with all_cols[i]:
-                    st.markdown(f'<p class="bot-number">BOT {i+1}</p>', unsafe_allow_html=True)
-                    val_live = budget_in + bot['gain']
+                with grid[i]:
+                    st.markdown(f'<div class="bot-header">CORE {i+1}</div>', unsafe_allow_html=True)
+                    
+                    v_live = budget + bot['gain']
                     
                     if bot["status"] == "ACHAT":
-                        st.warning(f"📥 ACHAT @{bot['p_achat']}")
+                        st.info(f"📥 BUY @{bot['p_achat']}")
                         info = kraken.fetch_order(bot['id'], 'XRP/USDC')
                         if info['status'] == 'closed':
                             res_v = kraken.create_order('XRP/USDC', 'limit', 'sell', info['filled'], bot['p_vente'], {'validate': not mode_reel})
@@ -125,35 +154,27 @@ while True:
                             sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                             st.rerun()
                     elif bot["status"] == "VENTE":
-                        st.success(f"📤 VENTE @{bot['p_vente']}")
-                        val_live = (budget_in + bot['gain']) / bot['p_achat'] * prix_reel
+                        st.success(f"📤 SELL @{bot['p_vente']}")
+                        v_live = (budget + bot['gain']) / bot['p_achat'] * px
                         info_v = kraken.fetch_order(bot['id'], 'XRP/USDC')
                         if info_v['status'] == 'closed':
-                            gain = (bot['p_vente'] - bot['p_achat']) * info_v['filled']
-                            st.session_state.profit_total += gain
-                            st.session_state.bots[name]["gain"] += gain
+                            g = (bot['p_vente'] - bot['p_achat']) * info_v['filled']
+                            st.session_state.profit_total += g
+                            st.session_state.bots[name]["gain"] += g
                             st.session_state.bots[name]["cycles"] += 1
-                            q = float(kraken.amount_to_precision('XRP/USDC', (budget_in + st.session_state.bots[name]["gain"]) / bot['p_achat']))
+                            # RESTART SNOWBALL
+                            q = float(kraken.amount_to_precision('XRP/USDC', (budget + st.session_state.bots[name]["gain"]) / bot['p_achat']))
                             res_n = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
                             st.session_state.bots[name].update({"id": res_n['id'], "status": "ACHAT"})
                             sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                             st.balloons()
                             st.rerun()
-                    else: st.caption("Repos")
-
-                    if bot["status"] != "LIBRE":
-                        st.markdown(f'''
-                        <div class="target-box">
-                            In: <span class="target-buy">{bot['p_achat']}</span> | 
-                            Out: <span class="target-sell">{bot['p_vente']}</span>
-                        </div>
-                        ''', unsafe_allow_html=True)
+                    else: st.caption("STANDBY")
 
                     st.write(f"🔄 {bot['cycles']} | 💰 {bot['gain']:.4f}$")
-                    st.markdown(f'Valeur: <span class="highlight-val">{val_live:.2f} $</span>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="val-box">VALUE: {v_live:.2f} $</div>', unsafe_allow_html=True)
 
     except Exception as e:
         if "nonce" in str(e).lower(): time.sleep(1); continue
-        st.write(f"Flux... {e}")
-
+        st.write(f"Sync... {e}")
     time.sleep(20)
