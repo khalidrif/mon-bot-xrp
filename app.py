@@ -7,7 +7,7 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE PRO CRYSTAL
+# 1. STYLE PRO "CRYSTAL MINT"
 st.set_page_config(page_title="XRP Crystal Loop", layout="wide")
 st.markdown("""
     <style>
@@ -28,7 +28,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MÉMOIRE PERMANENTE
+# 2. MÉMOIRE ANTI-F5 (Fichier Local)
 FILE_MEMOIRE = "etat_bots.json"
 
 def sauvegarder_donnees(bots, profit_total):
@@ -54,9 +54,8 @@ if 'bots' not in st.session_state:
         st.session_state.bots = {f"Bot_{i+1}": {"id": None, "status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0} for i in range(10)}
         st.session_state.profit_total = 0.0
 
-# Connexion Kraken
+# 3. CONNEXION ANTI-NONCE
 kraken = get_kraken_connection()
-kraken.options['nonce'] = lambda: int(time.time() * 1000)
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -69,34 +68,40 @@ with st.sidebar:
     st.divider()
     for i in range(10):
         name = f"Bot_{i+1}"
-        c_l, c_s = st.columns(2)
+        col_l, col_s = st.columns(2)
         if st.session_state.bots[name]["status"] == "LIBRE":
-            if c_l.button(f"LANCER {i+1}", key=f"l_{i}"):
+            if col_l.button(f"LANCER {i+1}", key=f"l_{i}"):
                 try:
                     kraken.load_markets()
                     qty = budget_in / p_achat_in
                     pa = float(kraken.price_to_precision('XRP/USDC', p_achat_in))
                     pv = float(kraken.price_to_precision('XRP/USDC', p_vente_in))
                     q = float(kraken.amount_to_precision('XRP/USDC', qty))
+                    # Commande avec Nonce forcé
+                    kraken.options['nonce'] = lambda: int(time.time() * 1000)
                     res = kraken.create_order('XRP/USDC', 'limit', 'buy', q, pa, {'validate': not mode_reel})
                     st.session_state.bots[name].update({"id": res['id'], "status": "ATTENTE_ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                     st.rerun()
                 except Exception as e: st.error(f"Erreur: {e}")
         else:
-            if c_s.button(f"STOP {i+1}", key=f"stop_{i}"):
-                try: kraken.cancel_order(st.session_state.bots[name]["id"])
+            if col_s.button(f"STOP {i+1}", key=f"stop_{i}"):
+                try:
+                    kraken.options['nonce'] = lambda: int(time.time() * 1000)
+                    kraken.cancel_order(st.session_state.bots[name]["id"])
                 except: pass
                 st.session_state.bots[name].update({"id": None, "status": "LIBRE"})
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# --- ZONE LIVE ---
-st.title("🛰️ Terminal Crystal Loop")
+st.title("🛰️ Terminal : XRP Crystal Quantum")
 zone_live = st.empty()
 
 while True:
     try:
+        # SYNCHRO NONCE À CHAQUE TOUR
+        kraken.options['nonce'] = lambda: int(time.time() * 1000)
+        
         # PRIX ET SOLDE
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
         p_reel = (float(ob['asks'][0][0]) + float(ob['bids'][0][0])) / 2
@@ -111,7 +116,6 @@ while True:
             
             st.divider()
             
-            # --- AFFICHAGE DES 10 ROBOTS ---
             r1 = st.columns(5)
             r2 = st.columns(5)
             all_cols = r1 + r2
@@ -143,14 +147,14 @@ while True:
                             sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                             st.rerun()
                     st.write(f"🔄 {bot['cycles']} | 💰 {bot['gain']:.4f}$")
-                    # Petite pause pour ne pas saturer l'API dans la boucle
-                    time.sleep(0.5) 
 
     except Exception as e:
-        if "Rate limit" in str(e): 
-            st.error("⏳ Kraken demande une pause (Rate Limit). Repos de 30s...")
+        if "Invalid nonce" in str(e):
+            time.sleep(2)
+            continue
+        elif "Rate limit" in str(e):
+            st.error("⏳ Pause API (Rate Limit)...")
             time.sleep(30)
         else: st.write(f"Flux... {e}")
 
-    # PAUSE DE SÉCURITÉ AUGMENTÉE (20 SECONDES)
-    time.sleep(20)
+    time.sleep(20) # Sécurité API Kraken
