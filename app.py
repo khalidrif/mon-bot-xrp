@@ -6,29 +6,25 @@ import json
 import os
 from config import get_kraken_connection
 
-# --- 1. STYLE BLOOMBERG STABLE ---
-st.set_page_config(page_title="XRP Bloomberg Stable", layout="wide")
+# --- 1. STYLE FIXE (SANS ANIMATION) ---
+st.set_page_config(page_title="XRP Bloomberg Static", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
-    [data-testid="stMetric"] { background-color: #FFFF00 !important; border-radius: 5px; padding: 10px; border: 1px solid #333; }
+    [data-testid="stMetric"] { background-color: #FFFF00 !important; border-radius: 5px; padding: 10px; }
     [data-testid="stMetricValue"] { color: #000000 !important; font-size: 24px !important; font-weight: 900 !important; }
-    [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 10px !important; font-weight: bold !important; }
-    .bot-line { border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-    .p-in { color: #00FF00; font-weight: bold; }
-    .p-out { color: #FF0000; font-weight: bold; }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 6px; border-radius: 2px; font-weight: 900; }
+    .bot-line { border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; justify-content: space-between; align-items: center; }
+    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 6px; font-weight: 900; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INIT & MÉMOIRE ---
+# --- 2. INIT ---
 FILE_MEMOIRE = "etat_bots.json"
 SYMBOL = 'XRP/USDC'
 
 def sauvegarder_donnees(bots, profit_total):
     try:
-        with open(FILE_MEMOIRE, "w") as f: 
-            json.dump({"bots": bots, "profit_total": profit_total}, f)
+        with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": profit_total}, f)
     except: pass
 
 def charger_donnees():
@@ -48,15 +44,20 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire.get("bots", {}))
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- 3. SIDEBAR (STATIQUE) ---
+# --- 3. SIDEBAR (CONTROLE TOTAL) ---
 with st.sidebar:
-    st.header("⚡ CMD CENTER")
+    st.header("⚡ TERMINAL FIXE")
+    # LE BOUTON QUI RAFRAICHIT SANS CLIGNOTER
+    if st.button("🔄 ACTUALISER LES PRIX", use_container_width=True):
+        st.rerun()
+    
+    st.divider()
     mode_reel = st.toggle("LIVE TRADING", value=True)
     p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
     p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
     budget_base = st.number_input("BASE USD", value=10.0)
-    st.divider()
     
+    st.divider()
     for i in range(10):
         name = f"Bot_{i+1}"
         c1, c2 = st.columns(2)
@@ -81,58 +82,52 @@ with st.sidebar:
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# --- 4. FRAGMENT DYNAMIQUE (RAFRAÎCHISSEMENT 10s) ---
-@st.fragment(run_every=10)
-def stable_display():
-    try:
-        ticker = kraken.fetch_ticker(SYMBOL)
-        px = ticker['last']
-        bal = kraken.fetch_balance()
-        usdc = bal.get('total', {}).get('USDC', 0.0)
+# --- 4. AFFICHAGE (STATIQUE) ---
+try:
+    ticker = kraken.fetch_ticker(SYMBOL)
+    px = ticker['last']
+    bal = kraken.fetch_balance()
+    usdc = bal.get('total', {}).get('USDC', 0.0)
 
-        st.write(f"### 🌐 TERMINAL STABLE - {SYMBOL}")
-        k1, k2, k3 = st.columns(3)
-        k1.metric("BANKROLL", f"{usdc:.2f} $")
-        k2.metric("XRP PRICE", f"{px:.4f}")
-        k3.metric("TOTAL NET", f"+{st.session_state.profit_total:.4f}")
-        st.divider()
+    st.write(f"### 🌐 TERMINAL XRP/USDC")
+    k1, k2, k3 = st.columns(3)
+    k1.metric("BANKROLL", f"{usdc:.2f} $")
+    k2.metric("XRP PRICE", f"{px:.4f}")
+    k3.metric("TOTAL NET", f"+{st.session_state.profit_total:.4f}")
+    st.divider()
 
-        for i in range(10):
-            name = f"Bot_{i+1}"
-            bot = st.session_state.bots[name]
-            if bot["status"] != "LIBRE" and bot["id"]:
-                color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-                st.markdown(f'''
-                <div class="bot-line">
-                    <span style="color:#666">#{i+1:02d}</span>
-                    <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
-                    <span>{bot["p_achat"]} → {bot["p_vente"]}</span>
-                    <span class="flash-box">{budget_base + bot['gain']:.2f}$</span>
-                    <span class="flash-box">CYC:{bot["cycles"]}</span>
-                </div>''', unsafe_allow_html=True)
+    for i in range(10):
+        name = f"Bot_{i+1}"
+        bot = st.session_state.bots[name]
+        if bot["status"] != "LIBRE" and bot["id"]:
+            color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
+            st.markdown(f'''
+            <div class="bot-line">
+                <span style="color:#666">#{i+1:02d}</span>
+                <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
+                <span>{bot["p_achat"]} → {bot["p_vente"]}</span>
+                <span class="flash-box">{budget_base + bot['gain']:.2f}$</span>
+                <span class="flash-box">CYC:{bot["cycles"]}</span>
+            </div>''', unsafe_allow_html=True)
+            
+            # VERIFICATION SILENCIEUSE
+            order = kraken.fetch_order(bot['id'], SYMBOL)
+            if order['status'] == 'closed':
+                params = {'validate': not mode_reel}
+                if bot["status"] == "ACHAT":
+                    res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'], params)
+                    st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
+                else:
+                    gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
+                    st.session_state.profit_total += gain
+                    st.session_state.bots[name]["gain"] += gain
+                    st.session_state.bots[name]["cycles"] += 1
+                    nq = float(kraken.amount_to_precision(SYMBOL, (budget_base + st.session_state.bots[name]["gain"]) / bot['p_achat']))
+                    res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'], params)
+                    st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
                 
-                # Check Order Status
-                order = kraken.fetch_order(bot['id'], SYMBOL)
-                if order['status'] == 'closed':
-                    params = {'validate': not mode_reel}
-                    if bot["status"] == "ACHAT":
-                        res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'], params)
-                        st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
-                    else:
-                        # BOULE DE NEIGE
-                        gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
-                        st.session_state.profit_total += gain
-                        st.session_state.bots[name]["gain"] += gain
-                        st.session_state.bots[name]["cycles"] += 1
-                        # Re-buy auto (Compounding)
-                        nq = float(kraken.amount_to_precision(SYMBOL, (budget_base + st.session_state.bots[name]["gain"]) / bot['p_achat']))
-                        res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'], params)
-                        st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
-                    
-                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                    # Note: Pas de st.rerun() ici pour éviter le flash, le fragment se mettra à jour au cycle suivant
+                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                st.rerun()
 
-    except Exception as e:
-        st.caption(f"Sync... {str(e)[:20]}")
-
-stable_display()
+except Exception as e:
+    st.caption(f"Erreur Sync: {str(e)[:30]}")
