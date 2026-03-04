@@ -6,8 +6,8 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "BLOOMBERG TERMINAL" (Noir absolu & Data)
-st.set_page_config(page_title="XRP Bloomberg Elite", layout="wide")
+# 1. STYLE "BLOOMBERG FLASH" (Noir & Surlignage Jaune)
+st.set_page_config(page_title="XRP Bloomberg Flash", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
@@ -15,23 +15,31 @@ st.markdown("""
     [data-testid="stMetricValue"] { color: #FFFF00 !important; font-size: 28px !important; font-weight: bold; }
     [data-testid="stMetricLabel"] { color: #AAAAAA !important; font-size: 12px !important; }
 
-    /* Ligne de Bot ultra-fine */
     .bot-line {
         border-bottom: 1px solid #222222;
-        padding: 6px 0px;
+        padding: 8px 0px;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        font-size: 14px;
+    }
+    .p-in { color: #00FF00; font-weight: bold; }
+    .p-out { color: #FF0000; font-weight: bold; }
+    
+    /* SURBRILLANCE JAUNE FLASH */
+    .flash-box {
+        background-color: #FFFF00;
+        color: #000000;
+        padding: 2px 6px;
+        border-radius: 2px;
+        font-weight: 900;
         font-size: 13px;
     }
-    .p-in { color: #00FF00; font-weight: bold; }   /* VERT */
-    .p-out { color: #FF0000; font-weight: bold; }  /* ROUGE */
-    .snowball-val { color: #FFFF00; background: #111100; padding: 2px 4px; border-radius: 3px; } /* JAUNE */
-    .bot-id { color: #555555; }
+    .bot-id { color: #555555; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MÉMOIRE ET CONFIG
+# 2. MÉMOIRE
 FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder_donnees(bots, profit_total):
     with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": profit_total}, f)
@@ -68,7 +76,6 @@ with st.sidebar:
             if c1.button(f"RUN {i+1}", key=f"l_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
-                    # Calcul budget boule de neige
                     budget_actuel = budget_base + st.session_state.bots[name]["gain"]
                     qty = budget_actuel / p_in_set
                     pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in_set)), float(kraken.price_to_precision('XRP/USDC', p_out_set))
@@ -94,8 +101,6 @@ while True:
     try:
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        
-        # Extraction sécurisée du prix (Correction list error)
         p_ask = float(ob['asks'][0][0]) if ob['asks'] else 0.0
         p_bid = float(ob['bids'][0][0]) if ob['bids'] else 0.0
         px = (p_ask + p_bid) / 2
@@ -116,8 +121,7 @@ while True:
                 name = f"Bot_{i+1}"
                 bot = st.session_state.bots[name]
                 if bot["status"] != "LIBRE":
-                    # Calcul de la valeur boule de neige pour l'affichage
-                    valeur_boule_neige = budget_base + bot['gain']
+                    val_snow = budget_base + bot['gain']
                     status_color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
                     
                     st.markdown(f'''
@@ -125,8 +129,8 @@ while True:
                         <span class="bot-id">#{i+1:02d}</span>
                         <span style="color:{status_color}; font-weight:bold;">{bot["status"]}</span>
                         <span><span class="p-in">{bot["p_achat"]}</span> <small>→</small> <span class="p-out">{bot["p_vente"]}</span></span>
-                        <span>VALUE: <span class="snowball-val">{valeur_boule_neige:.2f}$</span></span>
-                        <span style="color:#AAAAAA;">CYC:{bot["cycles"]}</span>
+                        <span class="flash-box">{val_snow:.2f}$</span>
+                        <span class="flash-box">{bot["cycles"]}</span>
                     </div>
                     ''', unsafe_allow_html=True)
                     
@@ -137,7 +141,6 @@ while True:
                             res = kraken.create_order('XRP/USDC', 'limit', 'sell', info['filled'], bot['p_vente'], {'validate': not mode_reel})
                             st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
                         else:
-                            # Calcul gain et relance boule de neige
                             g = (bot['p_vente'] - bot['p_achat']) * info['filled']
                             st.session_state.profit_total += g
                             st.session_state.bots[name]["gain"] += g
