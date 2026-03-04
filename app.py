@@ -6,7 +6,7 @@ import json
 import os
 from config import get_kraken_connection
 
-# --- 1. CONFIG ET STYLE STABLE ---
+# --- 1. STYLE TERMINAL BLOOMBERG (STABLE) ---
 st.set_page_config(page_title="XRP Bloomberg Stable", layout="wide")
 st.markdown("""
     <style>
@@ -21,7 +21,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INIT & MÉMOIRE ---
+# --- 2. INITIALISATION MÉMOIRE ---
 FILE_MEMOIRE = "etat_bots.json"
 SYMBOL = 'XRP/USDC'
 
@@ -38,6 +38,7 @@ def charger_donnees():
         except: return None
     return None
 
+# Connexion via config.py
 kraken = get_kraken_connection()
 memoire = charger_donnees()
 
@@ -48,10 +49,12 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire.get("bots", {}))
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- 3. BARRE LATÉRALE (STATIQUE) ---
+# --- 3. BARRE LATÉRALE (COMMANDES FIXES) ---
 with st.sidebar:
-    st.header("⚡ CMD TERMINAL")
-    if st.button("🔄 ACTUALISER MANUELLEMENT", use_container_width=True): st.rerun()
+    st.header("⚡ CMD CENTER")
+    # Bouton manuel unique pour rafraîchir si besoin
+    if st.button("🔄 ACTUALISER MAINTENANT", use_container_width=True):
+        st.rerun()
     
     st.divider()
     mode_reel = st.toggle("LIVE TRADING", value=True)
@@ -84,7 +87,7 @@ with st.sidebar:
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# --- 4. ZONE DYNAMIQUE (RAFRAÎCHISSEMENT 30s) ---
+# --- 4. ZONE DYNAMIQUE (FRAGMENTS - RAFRAÎCHISSEMENT 30s) ---
 @st.fragment(run_every=30)
 def zone_dynamique():
     try:
@@ -94,7 +97,7 @@ def zone_dynamique():
         bal = kraken.fetch_balance()
         usdc = bal.get('total', {}).get('USDC', 0.0)
 
-        # Affichage KPIs
+        # Affichage Dashboard
         st.write(f"### 🌐 TERMINAL STABLE - {SYMBOL}")
         k1, k2, k3 = st.columns(3)
         k1.metric("BANKROLL", f"{usdc:.2f} $")
@@ -117,12 +120,12 @@ def zone_dynamique():
                     <span class="flash-box">CYC:{bot["cycles"]}</span>
                 </div>''', unsafe_allow_html=True)
                 
-                # VÉRIFICATION AUTO DES ORDRES (Silent)
+                # VÉRIFICATION AUTO (SILENCIEUSE - SANS RERUN)
                 order = kraken.fetch_order(bot['id'], SYMBOL)
                 if order['status'] == 'closed':
                     params = {'validate': not mode_reel}
                     if bot["status"] == "ACHAT":
-                        # Achat OK -> Place Vente
+                        # Switch vers Vente
                         res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'], params)
                         st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
                     else:
@@ -132,16 +135,16 @@ def zone_dynamique():
                         st.session_state.bots[name]["gain"] += gain
                         st.session_state.bots[name]["cycles"] += 1
                         
-                        # Re-buy auto avec gains cumulés
+                        # Re-buy auto avec gains cumulés (Compounding)
                         nq = float(kraken.amount_to_precision(SYMBOL, (budget_base + st.session_state.bots[name]["gain"]) / bot['p_achat']))
                         res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'], params)
                         st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
                     
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                    st.toast(f"Bot {i+1} : Cycle complété avec succès !")
+                    st.toast(f"Bot {i+1} : Cycle complété !")
 
     except Exception as e:
-        st.caption(f"Sync... {str(e)[:30]}")
+        st.caption(f"Sync... {str(e)[:20]}")
 
 # Lancement
 zone_dynamique()
