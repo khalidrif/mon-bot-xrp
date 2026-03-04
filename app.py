@@ -1,89 +1,109 @@
-# 1. LES IMPORTS (Toujours en premier !)
 import streamlit as st
 import pandas as pd
 import ccxt
-import datetime
-import time
 from config import get_kraken_connection
+import time
+import datetime
 
-# 2. CONFIGURATION DE LA PAGE
-st.set_page_config(page_title="Kraken Terminal Pro", layout="wide", page_icon="📈")
+# 1. STYLE VISUEL BLEU PRO
+st.set_page_config(page_title="XRP Auto-Bot Pro", layout="wide")
+
+st.markdown("""
+    <style>
+    [data-testid="stMetric"] {
+        background-color: #0E2F56; 
+        border: 2px solid #007BFF; 
+        padding: 20px;
+        border-radius: 15px;
+    }
+    [data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 18px !important; }
+    [data-testid="stMetricValue"] { color: #00FFCC !important; font-size: 35px !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Connexion via ton fichier config.py
-try:
-    kraken = get_kraken_connection()
-except Exception as e:
-    st.error(f"Erreur de configuration : {e}")
-    st.stop()
+kraken = get_kraken_connection()
 
-st.title("🤖 Mon Terminal de Trading Kraken")
+# Initialisation de la mémoire du bot (Session State)
+if 'last_balance_update' not in st.session_state:
+    st.session_state.last_balance_update = 0
+    st.session_state.cached_balance = {}
 
-# Zone dynamique qui s'efface et se réécrit (Placeholder)
-placeholder = st.empty()
+# --- BARRE LATÉRALE ---
+with st.sidebar:
+    st.header("🤖 Robot de Trading")
+    bot_actif = st.toggle("ACTIVER LE BOT", value=False)
+    st.divider()
+    seuil_achat = st.number_input("Acheter si <", value=1.3000, format="%.4f")
+    seuil_vente = st.number_input("Vendre si >", value=1.5500, format="%.4f")
+    budget_usdc = st.number_input("Budget Achat (USDC)", min_value=25.0, value=30.0)
 
-# --- SECTION 3 : FORMULAIRES DE TRADING (Fixes) ---
-st.divider()
-col_achat, col_vente = st.columns(2)
+st.title("📈 Terminal XRP - Flux Sécurisé")
 
-# --- FORMULAIRE D'ACHAT ---
-with col_achat:
-    st.subheader("🛒 ACHETER du XRP")
-    with st.form("buy_form"):
-        p_achat = st.number_input("Prix d'achat cible ($)", step=0.0001, format="%.4f")
-        budget_usdc = st.number_input("Budget USDC", min_value=10.0, value=25.0)
-        if st.form_submit_button("🚀 PLACER ACHAT LIMIT"):
-            try:
-                qty = budget_usdc / p_achat
-                res = kraken.create_order('XRP/USDC', 'limit', 'buy', qty, p_achat, {'validate': False})
-                st.success(f"Ordre d'achat placé ! ID: {res['id']}")
-            except Exception as e:
-                st.error(f"Erreur : {e}")
+# Zone de rafraîchissement
+zone_live = st.empty()
 
-# --- FORMULAIRE DE VENTE ---
-with col_vente:
-    st.subheader("🔴 VENDRE du XRP")
-    with st.form("sell_form"):
-        p_vente = st.number_input("Prix de vente cible ($)", step=0.0001, format="%.4f")
-        quantite_xrp = st.number_input("Nombre de XRP à vendre", min_value=5.0, value=10.0)
-        if st.form_submit_button("🔥 PLACER VENTE LIMIT"):
-            try:
-                res_v = kraken.create_order('XRP/USDC', 'limit', 'sell', quantite_xrp, p_vente, {'validate': False})
-                st.success(f"Ordre de vente placé ! ID: {res_v['id']}")
-            except Exception as e:
-                st.error(f"Erreur : {e}")
-
-# --- SECTION 4 : BOUCLE DE MISE À JOUR (Temps Réel) ---
 while True:
     try:
-        # Récupération des prix frais (Order Book)
+        # 1. LECTURE DU PRIX (Toutes les 10s)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        prix_ask = ob['asks'][0][0]
         prix_bid = ob['bids'][0][0]
-        prix_moyen = (prix_ask + prix_bid) / 2
-
-        # Récupération du solde
-        balance = kraken.fetch_balance()
-        usdc = balance.get('USDC', {}).get('total', 0)
-        xrp = balance.get('XRP', {}).get('total', 0)
-
-        with placeholder.container():
-            st.write(f"⏱️ Dernière mise à jour : **{datetime.datetime.now().strftime('%H:%M:%S')}**")
-            
+        prix_ask = ob['asks'][0][0]
+        prix_reel = (prix_bid + prix_ask) / 2
+        
+        # 2. LECTURE DU SOLDE (Toutes les 30s pour éviter le BAN)
+        maintenant = time.time()
+        if maintenant - st.session_state.last_balance_update > 30:
+            st.session_state.cached_balance = kraken.fetch_balance()
+            st.session_state.last_balance_update = maintenant # <-- CORRIGÉ : signe = ajouté
+        
+        balance = st.session_state.cached_balance
+        usdc_libre = balance.get('free', {}).get('USDC', 0)
+        xrp_libre = balance.get('free', {}).get('XRP', 0)
+        
+        with zone_live.container():
             c1, c2, c3 = st.columns(3)
-            c1.metric("💰 Portefeuille USDC", f"{usdc:,.2f} $")
-            c2.metric("🪙 Stock XRP", f"{xrp:,.2f} XRP", f"{xrp * prix_moyen:,.2f} $")
-            c3.metric("📈 Prix XRP/USDC", f"{prix_moyen:.4f} $")
+            c1.metric("PORTFOLIO USDC", f"{usdc_libre:,.2f} $")
+            c2.metric("STOCK XRP", f"{xrp_libre:,.2f}")
+            c3.metric("PRIX XRP LIVE", f"{prix_reel:.4f} $")
+
+            st.write(f"⏱️ Flux Kraken : **{datetime.datetime.now().strftime('%H:%M:%S')}**")
             
-            st.caption(f"Prix d'achat direct (Ask): {prix_ask}$ | Prix de vente direct (Bid): {prix_bid}$")
-            
-            # Tableau des actifs
-            st.subheader("📝 Détail de mes avoirs")
-            df_balance = pd.DataFrame(balance['total'].items(), columns=['Actif', 'Quantité'])
-            df_nonzero = df_balance[df_balance['Quantité'] > 0].reset_index(drop=True)
-            st.dataframe(df_nonzero, width='stretch')
+            # --- LOGIQUE DU BOT ---
+            if bot_actif:
+                st.warning(f"🕵️ Surveillance : ACHAT < {seuil_achat}$ | VENTE > {seuil_vente}$")
+                
+                # ACHAT
+                if prix_reel <= seuil_achat and usdc_libre >= budget_usdc:
+                    st.toast("🚀 ACHAT DÉCLENCHÉ !")
+                    qty = budget_usdc / prix_ask
+                    res = kraken.create_order('XRP/USDC', 'market', 'buy', qty)
+                    st.success(f"✅ BOT : Achat réussi (ID: {res['id']})")
+                    st.session_state.last_balance_update = 0 # Force refresh solde au prochain tour
+                    time.sleep(15)
+                
+                # VENTE
+                elif prix_reel >= seuil_vente and xrp_libre >= 15:
+                    st.toast("💰 VENTE DÉCLENCHÉE !")
+                    res = kraken.create_order('XRP/USDC', 'market', 'sell', xrp_libre)
+                    st.success(f"✅ BOT : Vente réussie (ID: {res['id']})")
+                    st.session_state.last_balance_update = 0 # Force refresh solde
+                    time.sleep(15)
+                else:
+                    st.info("⌛ En attente du bon prix...")
+
+            st.divider()
+            st.subheader("📝 Mes Avoirs")
+            df = pd.DataFrame(balance.get('total', {}).items(), columns=['Actif', 'Total'])
+            st.table(df[df['Total'] > 0].reset_index(drop=True))
 
     except Exception as e:
-        st.error(f"Erreur de flux : {e}")
-    
-    # Pause de 5 secondes avant la prochaine lecture
-    time.sleep(5)
+        if "Rate limit exceeded" in str(e):
+            st.error("⚠️ Kraken saturé ! Pause de 30 secondes...")
+            time.sleep(30)
+        else:
+            st.error(f"Erreur : {e}")
+            time.sleep(10)
+
+    # Pause de sécurité (10 secondes recommandée)
+    time.sleep(10)
