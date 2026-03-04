@@ -4,24 +4,24 @@ import ccxt
 import time
 import json
 import os
-from config import get_kraken_connection # Utilise ta config directe
+from config import get_kraken_connection
 
-# --- STYLE BLOOMBERG ---
+# --- 1. CONFIGURATION VISUELLE ---
 st.set_page_config(page_title="XRP Bloomberg Terminal", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
-    [data-testid="stMetric"] { background-color: #FFFF00 !important; border-radius: 5px; padding: 10px; }
+    [data-testid="stMetric"] { background-color: #FFFF00 !important; border-radius: 5px; padding: 10px; border: 1px solid #333; }
     [data-testid="stMetricValue"] { color: #000000 !important; font-size: 28px !important; font-weight: 900 !important; }
     [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 11px !important; font-weight: bold !important; }
-    .bot-line { border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; justify-content: space-between; align-items: center; }
+    .bot-line { border-bottom: 1px solid #222222; padding: 10px 0px; display: flex; justify-content: space-between; align-items: center; }
     .p-in { color: #00FF00; font-weight: bold; }
     .p-out { color: #FF0000; font-weight: bold; }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 3px 8px; border-radius: 2px; font-weight: 900; }
+    .flash-box { background-color: #FFFF00; color: #000000; padding: 3px 8px; border-radius: 2px; font-weight: 900; font-size: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- INITIALISATION ---
+# --- 2. INITIALISATION & MÉMOIRE ---
 FILE_MEMOIRE = "etat_bots.json"
 SYMBOL = 'XRP/USDC'
 
@@ -38,7 +38,6 @@ def charger_donnees():
         except: return None
     return None
 
-# Connexion via config.py
 kraken = get_kraken_connection()
 memoire = charger_donnees()
 
@@ -49,13 +48,14 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire.get("bots", {}))
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- SIDEBAR CMD ---
+# --- 3. SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚡ TERMINAL CMD")
+    if st.button("♻️ FORCE REFRESH"): st.rerun()
     mode_reel = st.toggle("LIVE TRADING", value=True)
     p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
     p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
-    budget_base = st.number_input("BASE USD", value=10.0)
+    budget_base = st.number_input("BASE USD PAR BOT", value=10.0)
     
     st.divider()
     for i in range(10):
@@ -64,9 +64,7 @@ with st.sidebar:
         if st.session_state.bots[name]["status"] == "LIBRE":
             if c1.button(f"GO {i+1}", key=f"on_{i}"):
                 try:
-                    # Sécurité Markets
                     if not kraken.markets: kraken.load_markets()
-                    
                     montant = budget_base + st.session_state.bots[name]["gain"]
                     pa = float(kraken.price_to_precision(SYMBOL, p_in_set))
                     pv = float(kraken.price_to_precision(SYMBOL, p_out_set))
@@ -77,32 +75,31 @@ with st.sidebar:
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                     st.rerun()
-                except Exception as e: st.error(f"Erreur Bot {i+1}: {str(e)[:40]}")
+                except Exception as e: st.error(f"Err: {str(e)[:40]}")
         else:
             if c2.button(f"OFF {i+1}", key=f"off_{i}"):
                 try:
-                    if st.session_state.bots[name]["id"]:
-                        kraken.cancel_order(st.session_state.bots[name]["id"])
+                    if st.session_state.bots[name]["id"]: kraken.cancel_order(st.session_state.bots[name]["id"])
                 except: pass
                 st.session_state.bots[name].update({"id": None, "status": "LIBRE"})
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# --- BOUCLE PRINCIPALE ---
-live = st.empty()
+# --- 4. AFFICHAGE LIVE ---
+display = st.empty()
 
 while True:
     try:
-        if not kraken.markets: kraken.load_markets()
+        # PRIX EN TEMPS RÉEL (SANS CACHE)
         ticker = kraken.fetch_ticker(SYMBOL)
         px = ticker['last']
         bal = kraken.fetch_balance()
-        usdc = bal.get('total', {}).get('USDC', 0.0)
+        usdc_total = bal.get('total', {}).get('USDC', 0.0)
 
-        with live.container():
+        with display.container():
             st.write(f"### 🌐 TERMINAL XRP/USDC")
             k1, k2, k3 = st.columns(3)
-            k1.metric("USDC TOTAL", f"{usdc:.2f} $")
+            k1.metric("USDC TOTAL", f"{usdc_total:.2f} $")
             k2.metric("PRIX ACTUEL", f"{px:.4f}")
             k3.metric("GAINS NETS", f"+{st.session_state.profit_total:.4f} $")
             st.divider()
@@ -117,11 +114,11 @@ while True:
                         <span style="color:#666">BOT {i+1:02d}</span>
                         <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
                         <span>{bot["p_achat"]} → {bot["p_vente"]}</span>
-                        <span class="flash-box">BUDGET: {budget_base + bot['gain']:.2f}$</span>
+                        <span class="flash-box">{budget_base + bot['gain']:.2f}$</span>
                         <span class="flash-box">CYC: {bot["cycles"]}</span>
                     </div>''', unsafe_allow_html=True)
                     
-                    # Logique Trading
+                    # VÉRIFICATION AUTO DES ORDRES
                     order = kraken.fetch_order(bot['id'], SYMBOL)
                     if order['status'] == 'closed':
                         params = {'validate': not mode_reel}
@@ -129,11 +126,12 @@ while True:
                             res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'], params)
                             st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
                         else:
-                            gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
-                            st.session_state.profit_total += gain
-                            st.session_state.bots[name]["gain"] += gain
+                            # BOULE DE NEIGE ACTIVÉE ICI
+                            gain_net = (bot['p_vente'] - bot['p_achat']) * order['filled']
+                            st.session_state.profit_total += gain_net
+                            st.session_state.bots[name]["gain"] += gain_net
                             st.session_state.bots[name]["cycles"] += 1
-                            # Relance Compounding
+                            # Relance Auto
                             nm = budget_base + st.session_state.bots[name]["gain"]
                             nq = float(kraken.amount_to_precision(SYMBOL, nm / bot['p_achat']))
                             res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'], params)
@@ -146,4 +144,4 @@ while True:
         if "nonce" in str(e).lower(): time.sleep(1)
         else: st.caption(f"Status : {str(e)[:40]}")
     
-    time.sleep(20)
+    time.sleep(5) # Rafraîchissement rapide toutes les 5 secondes
