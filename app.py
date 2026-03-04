@@ -1,80 +1,89 @@
+# 1. LES IMPORTS (Toujours en premier !)
 import streamlit as st
 import pandas as pd
 import ccxt
+import datetime
 import time
-import json
-import os
 from config import get_kraken_connection
 
-# --- 1. STYLE TERMINAL (STABLE ET FIXE) ---
-st.set_page_config(page_title="XRP Terminal Live", layout="wide")
-st.markdown("""
-    <style>
-    [data-testid="stAppViewContainer"] { background-color: #F0F2F6; overflow: hidden; }
-    [data-testid="stMetric"] { background-color: #FFFF00 !important; border-radius: 8px; padding: 15px; border: 2px solid #000; min-height: 110px; }
-    [data-testid="stMetricValue"] { color: #000 !important; font-size: 26px !important; font-weight: 900 !important; }
-    .bot-line { background-color: #FFFFFF; border-radius: 5px; margin-bottom: 4px; padding: 10px; display: flex; justify-content: space-between; border: 1px solid #DDD; min-height: 48px; }
-    [data-testid="stStatusWidget"] { display: none !important; }
-    </style>
-    """, unsafe_allow_html=True)
+# 2. CONFIGURATION DE LA PAGE
+st.set_page_config(page_title="Kraken Terminal Pro", layout="wide", page_icon="📈")
 
-# --- 2. INIT & CONNEXION ---
-SYMBOL = 'XRP/USDC'
-FILE_MEMOIRE = "etat_bots.json"
-kraken = get_kraken_connection()
+# Connexion via ton fichier config.py
+try:
+    kraken = get_kraken_connection()
+except Exception as e:
+    st.error(f"Erreur de configuration : {e}")
+    st.stop()
 
-if 'bots' not in st.session_state:
-    st.session_state.bots = {f"Bot_{i+1}": {"id": None, "status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0} for i in range(10)}
-    st.session_state.profit_total = 0.0
+st.title("🤖 Mon Terminal de Trading Kraken")
 
-# --- 3. LE FRAGMENT (RAFRAÎCHISSEMENT TOUTES LES 5 SECONDES) ---
-@st.fragment(run_every=5)
-def zone_live():
+# Zone dynamique qui s'efface et se réécrit (Placeholder)
+placeholder = st.empty()
+
+# --- SECTION 3 : FORMULAIRES DE TRADING (Fixes) ---
+st.divider()
+col_achat, col_vente = st.columns(2)
+
+# --- FORMULAIRE D'ACHAT ---
+with col_achat:
+    st.subheader("🛒 ACHETER du XRP")
+    with st.form("buy_form"):
+        p_achat = st.number_input("Prix d'achat cible ($)", step=0.0001, format="%.4f")
+        budget_usdc = st.number_input("Budget USDC", min_value=10.0, value=25.0)
+        if st.form_submit_button("🚀 PLACER ACHAT LIMIT"):
+            try:
+                qty = budget_usdc / p_achat
+                res = kraken.create_order('XRP/USDC', 'limit', 'buy', qty, p_achat, {'validate': False})
+                st.success(f"Ordre d'achat placé ! ID: {res['id']}")
+            except Exception as e:
+                st.error(f"Erreur : {e}")
+
+# --- FORMULAIRE DE VENTE ---
+with col_vente:
+    st.subheader("🔴 VENDRE du XRP")
+    with st.form("sell_form"):
+        p_vente = st.number_input("Prix de vente cible ($)", step=0.0001, format="%.4f")
+        quantite_xrp = st.number_input("Nombre de XRP à vendre", min_value=5.0, value=10.0)
+        if st.form_submit_button("🔥 PLACER VENTE LIMIT"):
+            try:
+                res_v = kraken.create_order('XRP/USDC', 'limit', 'sell', quantite_xrp, p_vente, {'validate': False})
+                st.success(f"Ordre de vente placé ! ID: {res_v['id']}")
+            except Exception as e:
+                st.error(f"Erreur : {e}")
+
+# --- SECTION 4 : BOUCLE DE MISE À JOUR (Temps Réel) ---
+while True:
     try:
-        # FORCE LE PRIX RÉEL : On ajoute un paramètre bidon pour bypasser le cache
-        ticker = kraken.fetch_ticker(SYMBOL, params={'nonce': int(time.time() * 1000)})
-        px = ticker['last']
-        
-        # Récupération balance (optionnel toutes les 5s)
-        bal = kraken.fetch_balance()
-        usdc = bal.get('total', {}).get('USDC', 0.0)
+        # Récupération des prix frais (Order Book)
+        ob = kraken.fetch_order_book('XRP/USDC', limit=1)
+        prix_ask = ob['asks'][0][0]
+        prix_bid = ob['bids'][0][0]
+        prix_moyen = (prix_ask + prix_bid) / 2
 
-        # AFFICHAGE
-        st.write(f"## 🏛️ TERMINAL TEMPS RÉEL - {SYMBOL}")
-        k1, k2, k3 = st.columns(3)
-        k1.metric("SOLDE USDC", f"{usdc:.2f} $")
-        k2.metric("PRIX XRP", f"{px:.4f}") # <--- Ce prix va maintenant bouger !
-        k3.metric("GAINS NETS", f"+{st.session_state.profit_total:.4f} $")
-        st.divider()
+        # Récupération du solde
+        balance = kraken.fetch_balance()
+        usdc = balance.get('USDC', {}).get('total', 0)
+        xrp = balance.get('XRP', {}).get('total', 0)
 
-        # Monitoring des Bots
-        for i in range(10):
-            name = f"Bot_{i+1}"
-            bot = st.session_state.bots[name]
-            if bot["status"] != "LIBRE" and bot["id"]:
-                color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-                st.markdown(f'''
-                <div class="bot-line">
-                    <span style="font-weight:bold;">BOT {i+1:02d}</span>
-                    <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
-                    <span>{bot["p_achat"]} ➔ {bot["p_vente"]}</span>
-                    <span style="background:#FFFF00; padding:2px 5px; font-weight:900; border:1px solid #000;">{10.0 + bot['gain']:.2f}$</span>
-                </div>''', unsafe_allow_html=True)
-                
-                # Vérification auto sans recharger toute la page
-                order = kraken.fetch_order(bot['id'], SYMBOL)
-                if order['status'] == 'closed':
-                    if bot["status"] == "ACHAT":
-                        res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'])
-                        st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
-                    else:
-                        gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
-                        st.session_state.profit_total += gain
-                        st.session_state.bots[name]["gain"] += gain
-                        nq = float(kraken.amount_to_precision(SYMBOL, (10.0 + bot['gain']) / bot['p_achat']))
-                        res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'])
-                        st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
-    except:
-        st.caption("Sync...")
+        with placeholder.container():
+            st.write(f"⏱️ Dernière mise à jour : **{datetime.datetime.now().strftime('%H:%M:%S')}**")
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("💰 Portefeuille USDC", f"{usdc:,.2f} $")
+            c2.metric("🪙 Stock XRP", f"{xrp:,.2f} XRP", f"{xrp * prix_moyen:,.2f} $")
+            c3.metric("📈 Prix XRP/USDC", f"{prix_moyen:.4f} $")
+            
+            st.caption(f"Prix d'achat direct (Ask): {prix_ask}$ | Prix de vente direct (Bid): {prix_bid}$")
+            
+            # Tableau des actifs
+            st.subheader("📝 Détail de mes avoirs")
+            df_balance = pd.DataFrame(balance['total'].items(), columns=['Actif', 'Quantité'])
+            df_nonzero = df_balance[df_balance['Quantité'] > 0].reset_index(drop=True)
+            st.dataframe(df_nonzero, width='stretch')
 
-zone_live()
+    except Exception as e:
+        st.error(f"Erreur de flux : {e}")
+    
+    # Pause de 5 secondes avant la prochaine lecture
+    time.sleep(5)
