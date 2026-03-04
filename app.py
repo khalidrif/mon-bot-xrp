@@ -4,9 +4,33 @@ import ccxt
 import time
 import json
 import os
-from config import get_kraken_connection
 
-# --- 1. CONFIGURATION VISUELLE (BLOOMBERG) ---
+# --- 1. CONFIGURATION CONNEXION (Ex-config.py intégré) ---
+def get_kraken_connection():
+    # Nettoyage automatique des clés (.strip()) pour l'erreur "Incorrect padding"
+    api_key = st.secrets.get("API_KEY", "").strip()
+    api_secret = st.secrets.get("API_SECRET", "").strip()
+    
+    if not api_key or not api_secret:
+        st.error("⚠️ CLÉS API MANQUANTES : Configurez les 'Secrets' dans Streamlit Cloud.")
+        st.stop()
+
+    exchange = ccxt.kraken({
+        'apiKey': api_key,
+        'secret': api_secret,
+        'enableRateLimit': True,
+        'options': {'nonce': lambda: int(time.time() * 1000)}
+    })
+    
+    # Sécurité anti "Markets not loaded"
+    try:
+        if not exchange.markets:
+            exchange.load_markets()
+    except:
+        pass
+    return exchange
+
+# --- 2. STYLE BLOOMBERG ---
 st.set_page_config(page_title="XRP Bloomberg Terminal", layout="wide")
 st.markdown("""
     <style>
@@ -21,7 +45,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. GESTION DE LA MÉMOIRE ---
+# --- 3. MÉMOIRE ET ÉTAT ---
 FILE_MEMOIRE = "etat_bots.json"
 SYMBOL = 'XRP/USDC'
 
@@ -38,7 +62,7 @@ def charger_donnees():
         except: return None
     return None
 
-# Connexion via ton fichier config.py (qui gère load_markets et .strip())
+# Initialisation
 kraken = get_kraken_connection()
 memoire = charger_donnees()
 
@@ -49,13 +73,13 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire.get("bots", {}))
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- 3. PANNEAU DE COMMANDE (SIDEBAR) ---
+# --- 4. SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚡ TERMINAL CMD")
     mode_reel = st.toggle("LIVE TRADING", value=True)
-    p_in_set = st.number_input("TARGET IN (Achat)", value=1.4440, format="%.4f")
-    p_out_set = st.number_input("TARGET OUT (Vente)", value=1.4460, format="%.4f")
-    budget_base = st.number_input("BASE USD PAR BOT", value=10.0)
+    p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
+    p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
+    budget_base = st.number_input("BASE USD", value=10.0)
     
     st.divider()
     for i in range(10):
@@ -64,6 +88,9 @@ with st.sidebar:
         if st.session_state.bots[name]["status"] == "LIBRE":
             if c1.button(f"GO {i+1}", key=f"on_{i}"):
                 try:
+                    # FORCE LOAD MARKETS AU CLIC
+                    if not kraken.markets: kraken.load_markets()
+                    
                     montant = budget_base + st.session_state.bots[name]["gain"]
                     pa = float(kraken.price_to_precision(SYMBOL, p_in_set))
                     pv = float(kraken.price_to_precision(SYMBOL, p_out_set))
@@ -74,28 +101,29 @@ with st.sidebar:
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                     st.rerun()
-                except Exception as e: st.error(f"Err {i+1}: {str(e)[:40]}")
+                except Exception as e: st.error(f"Err: {str(e)[:45]}")
         else:
             if c2.button(f"OFF {i+1}", key=f"off_{i}"):
                 try:
-                    if st.session_state.bots[name]["id"]:
-                        kraken.cancel_order(st.session_state.bots[name]["id"])
+                    if st.session_state.bots[name]["id"]: kraken.cancel_order(st.session_state.bots[name]["id"])
                 except: pass
                 st.session_state.bots[name].update({"id": None, "status": "LIBRE"})
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# --- 4. AFFICHAGE LIVE ET LOGIQUE ---
-display = st.empty()
+# --- 5. LOGIQUE LIVE ---
+live = st.empty()
 
 while True:
     try:
+        # Rafraîchir marchés et données
+        if not kraken.markets: kraken.load_markets()
         ticker = kraken.fetch_ticker(SYMBOL)
         px = ticker['last']
         bal = kraken.fetch_balance()
         usdc_total = bal.get('total', {}).get('USDC', 0.0)
 
-        with display.container():
+        with live.container():
             st.write(f"### 🌐 TERMINAL XRP/USDC")
             k1, k2, k3 = st.columns(3)
             k1.metric("USDC TOTAL", f"{usdc_total:.2f} $")
@@ -106,38 +134,37 @@ while True:
             for i in range(10):
                 name = f"Bot_{i+1}"
                 bot = st.session_state.bots[name]
-                if bot["status"] != "LIBRE":
+                if bot["status"] != "LIBRE" and bot["id"]:
                     color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
                     st.markdown(f'''
                     <div class="bot-line">
                         <span style="color:#666">BOT {i+1:02d}</span>
                         <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
                         <span>{bot["p_achat"]} → {bot["p_vente"]}</span>
-                        <span class="flash-box">BUDGET: {budget_base + bot['gain']:.2f}$</span>
+                        <span class="flash-box">{budget_base + bot['gain']:.2f}$</span>
                         <span class="flash-box">CYC: {bot["cycles"]}</span>
                     </div>''', unsafe_allow_html=True)
                     
-                    # LOGIQUE AUTO
-                    if bot["id"]:
-                        order = kraken.fetch_order(bot['id'], SYMBOL)
-                        if order['status'] == 'closed':
-                            params = {'validate': not mode_reel}
-                            if bot["status"] == "ACHAT":
-                                res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'], params)
-                                st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
-                            else:
-                                gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
-                                st.session_state.profit_total += gain
-                                st.session_state.bots[name]["gain"] += gain
-                                st.session_state.bots[name]["cycles"] += 1
-                                # Relance auto
-                                nm = budget_base + st.session_state.bots[name]["gain"]
-                                nq = float(kraken.amount_to_precision(SYMBOL, nm / bot['p_achat']))
-                                res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'], params)
-                                st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
-                            
-                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                            st.rerun()
+                    # Logique Automatique
+                    order = kraken.fetch_order(bot['id'], SYMBOL)
+                    if order['status'] == 'closed':
+                        params = {'validate': not mode_reel}
+                        if bot["status"] == "ACHAT":
+                            res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'], params)
+                            st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
+                        else:
+                            gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
+                            st.session_state.profit_total += gain
+                            st.session_state.bots[name]["gain"] += gain
+                            st.session_state.bots[name]["cycles"] += 1
+                            # Relance
+                            nm = budget_base + st.session_state.bots[name]["gain"]
+                            nq = float(kraken.amount_to_precision(SYMBOL, nm / bot['p_achat']))
+                            res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'], params)
+                            st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
+                        
+                        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                        st.rerun()
 
     except Exception as e:
         if "nonce" in str(e).lower(): time.sleep(1)
