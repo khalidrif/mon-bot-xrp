@@ -6,14 +6,28 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "BLOOMBERG FLASH" (Noir & Surlignage Jaune)
-st.set_page_config(page_title="XRP Bloomberg Flash", layout="wide")
+# 1. STYLE "BLOOMBERG HIGH-CONTRAST" (Fond Jaune, Chiffres Noirs)
+st.set_page_config(page_title="XRP Bloomberg Contrast", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
-    [data-testid="stMetric"] { background-color: transparent; border: none; padding: 0px; }
-    [data-testid="stMetricValue"] { color: #FFFF00 !important; font-size: 28px !important; font-weight: bold; }
-    [data-testid="stMetricLabel"] { color: #AAAAAA !important; font-size: 12px !important; }
+    
+    /* CARTES EN JAUNE FLUO / CHIFFRES NOIRS */
+    [data-testid="stMetric"] { 
+        background-color: #FFFF00 !important; 
+        border-radius: 5px; 
+        padding: 10px;
+    }
+    [data-testid="stMetricValue"] { 
+        color: #000000 !important; 
+        font-size: 30px !important; 
+        font-weight: 900 !important; 
+    }
+    [data-testid="stMetricLabel"] { 
+        color: #333333 !important; 
+        font-size: 12px !important; 
+        font-weight: bold !important;
+    }
 
     .bot-line {
         border-bottom: 1px solid #222222;
@@ -26,7 +40,6 @@ st.markdown("""
     .p-in { color: #00FF00; font-weight: bold; }
     .p-out { color: #FF0000; font-weight: bold; }
     
-    /* SURBRILLANCE JAUNE FLASH */
     .flash-box {
         background-color: #FFFF00;
         color: #000000;
@@ -39,7 +52,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MÉMOIRE
+# 2. MÉMOIRE ET CONFIG
 FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder_donnees(bots, profit_total):
     with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": profit_total}, f)
@@ -63,7 +76,7 @@ if 'bots' not in st.session_state:
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("TERMINAL CMD")
+    st.header("CMD")
     mode_reel = st.toggle("LIVE TRADING", value=True)
     p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
     p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
@@ -73,7 +86,7 @@ with st.sidebar:
         name = f"Bot_{i+1}"
         c1, c2 = st.columns(2)
         if st.session_state.bots[name]["status"] == "LIBRE":
-            if c1.button(f"RUN {i+1}", key=f"l_{i}"):
+            if c1.button(f"GO {i+1}", key=f"l_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
                     budget_actuel = budget_base + st.session_state.bots[name]["gain"]
@@ -85,7 +98,7 @@ with st.sidebar:
                     st.rerun()
                 except Exception as e: st.error(e)
         else:
-            if c2.button(f"KILL {i+1}", key=f"off_{i}"):
+            if c2.button(f"OFF {i+1}", key=f"off_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
                     kraken.cancel_order(st.session_state.bots[name]["id"])
