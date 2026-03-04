@@ -6,36 +6,50 @@ import json
 import os
 from config import get_kraken_connection
 
-# --- 1. STYLE "TERMINAL NOIR" (BLINDÉ) ---
-st.set_page_config(page_title="XRP Terminal", layout="wide")
+# --- 1. STYLE BLOOMBERG CLASSIQUE (Fond Clair, Compteurs Jaunes) ---
+st.set_page_config(page_title="XRP Bloomberg Terminal", layout="wide")
 
-# Injection CSS pour forcer le noir partout et stopper les sauts d'écran
 st.markdown("""
     <style>
-    .stApp { background-color: #000000; }
-    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
-    .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
+    /* Fond Gris Clair Professionnel */
+    .stApp {
+        background-color: #F0F2F6 !important;
+    }
     
-    /* Metrics Jaunes */
+    /* Metrics JAUNE FLUO / CHIFFRES NOIRS */
     [data-testid="stMetric"] { 
         background-color: #FFFF00 !important; 
-        border-radius: 5px; padding: 15px; border: 1px solid #333;
+        border-radius: 8px; 
+        padding: 20px; 
+        border: 2px solid #000000;
+        box-shadow: 3px 3px 0px #000000;
     }
-    [data-testid="stMetricValue"] { color: #000000 !important; font-size: 24px !important; font-weight: 900 !important; }
-    [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 10px !important; }
+    [data-testid="stMetricValue"] { 
+        color: #000000 !important; 
+        font-size: 32px !important; 
+        font-weight: 900 !important; 
+    }
+    [data-testid="stMetricLabel"] { 
+        color: #333333 !important; 
+        font-size: 12px !important; 
+        font-weight: bold !important; 
+    }
 
     /* Lignes des bots */
     .bot-line { 
-        border-bottom: 1px solid #222222; 
-        padding: 10px 0px; 
-        display: flex; justify-content: space-between; align-items: center;
-        min-height: 50px;
+        background-color: #FFFFFF;
+        border-radius: 5px;
+        margin-bottom: 5px;
+        padding: 12px; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center;
+        border: 1px solid #DDD;
     }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 3px 8px; border-radius: 2px; font-weight: 900; }
+    .flash-box { background-color: #FFFF00; color: #000000; padding: 4px 8px; border-radius: 3px; font-weight: 900; border: 1px solid #000; }
     
-    /* Masquer les éléments de chargement qui font clignoter */
+    /* Stabilisation */
     [data-testid="stStatusWidget"] { display: none !important; }
-    .stDeployButton { display:none; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -69,8 +83,8 @@ if 'bots' not in st.session_state:
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
-    st.header("⚡ CMD CENTER")
-    if st.button("🔄 REFRESH PRIX", use_container_width=True): st.rerun()
+    st.header("⚙️ CONFIGURATION")
+    if st.button("🔄 ACTUALISER PRIX", use_container_width=True): st.rerun()
     st.divider()
     mode_reel = st.toggle("LIVE TRADING", value=True)
     p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
@@ -102,18 +116,18 @@ with st.sidebar:
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# --- 5. DASHBOARD STATIQUE ---
+# --- 5. DASHBOARD ---
 try:
     ticker = kraken.fetch_ticker(SYMBOL)
     px = ticker['last']
     bal = kraken.fetch_balance()
     usdc = bal.get('total', {}).get('USDC', 0.0)
 
-    st.write(f"### 🌐 TERMINAL STABLE - {SYMBOL}")
+    st.write(f"## 🏛️ XRP/USDC TERMINAL")
     k1, k2, k3 = st.columns(3)
-    k1.metric("BANKROLL", f"{usdc:.2f} $")
-    k2.metric("XRP PRICE", f"{px:.4f}")
-    k3.metric("TOTAL NET", f"+{st.session_state.profit_total:.4f}")
+    k1.metric("SOLDE USDC", f"{usdc:.2f} $")
+    k2.metric("PRIX XRP", f"{px:.4f}")
+    k3.metric("GAINS NETS", f"+{st.session_state.profit_total:.4f} $")
     st.divider()
 
     for i in range(10):
@@ -123,13 +137,13 @@ try:
             color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
             st.markdown(f'''
             <div class="bot-line">
-                <span style="color:#666">#{i+1:02d}</span>
-                <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
-                <span>{bot["p_achat"]} → {bot["p_vente"]}</span>
-                <span class="flash-box">{budget_base + bot['gain']:.2f}$</span>
+                <span style="font-weight:bold; color:#555;">BOT {i+1:02d}</span>
+                <span style="color:{color}; font-weight:bold; text-transform:uppercase;">{bot["status"]}</span>
+                <span>{bot["p_achat"]} ➔ {bot["p_vente"]}</span>
+                <span class="flash-box">STAKE: {budget_base + bot['gain']:.2f}$</span>
             </div>''', unsafe_allow_html=True)
             
-            # Check Order (Silencieux)
+            # Check Automatique (Silencieux)
             order = kraken.fetch_order(bot['id'], SYMBOL)
             if order['status'] == 'closed':
                 params = {'validate': not mode_reel}
@@ -149,12 +163,12 @@ try:
                 st.rerun()
 
 except Exception as e:
-    st.caption(f"Sync en cours...")
+    st.caption("Synchronisation Kraken...")
 
-# AUTO-REFRESH SANS CLIGNOTEMENT (Injection JS)
+# Auto-refresh JavaScript (toutes les 15 secondes)
 import streamlit.components.v1 as components
 components.html(
     """<script>
-    setTimeout(function() { window.parent.document.dispatchEvent(new CustomEvent('streamlit:setComponentValue', {detail: {value: true, key: 'r'}})); }, 20000);
+    setTimeout(function() { window.parent.document.dispatchEvent(new CustomEvent('streamlit:setComponentValue', {detail: {value: true, key: 'r'}})); }, 15000);
     </script>""", height=0
 )
