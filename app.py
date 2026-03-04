@@ -6,16 +6,15 @@ import json
 import os
 from config import get_kraken_connection
 
-# --- 1. STYLE FIXE (BLOQUE LA VAGUE) ---
-st.set_page_config(page_title="XRP Terminal Stable", layout="wide")
-
+# --- 1. STYLE "ANCHOR" (FIGE L'INTERFACE) ---
+st.set_page_config(page_title="XRP Terminal Live", layout="wide")
 st.markdown("""
     <style>
-    /* Fixe le fond et empêche les sauts */
-    .stApp { background-color: #F0F2F6 !important; }
-    [data-testid="stAppViewContainer"] { overflow: hidden; }
+    /* Bloque le défilement pour supprimer l'effet de vague */
+    [data-testid="stAppViewContainer"] { overflow: hidden; background-color: #F0F2F6; }
+    .main { background-color: #F0F2F6; }
     
-    /* Metrics Jaunes Stables */
+    /* Fixe la taille des boîtes pour qu'elles ne sautent pas */
     [data-testid="stMetric"] { 
         background-color: #FFFF00 !important; 
         border-radius: 8px; padding: 15px; border: 2px solid #000;
@@ -23,20 +22,19 @@ st.markdown("""
     }
     [data-testid="stMetricValue"] { color: #000 !important; font-size: 26px !important; font-weight: 900 !important; }
     
-    /* Lignes des bots qui ne bougent pas */
     .bot-line { 
         background-color: #FFFFFF; border-radius: 5px; margin-bottom: 4px;
         padding: 10px; display: flex; justify-content: space-between; border: 1px solid #DDD;
-        min-height: 45px;
+        min-height: 48px;
     }
     .flash-box { background-color: #FFFF00; color: #000; padding: 2px 6px; font-weight: 900; border: 1px solid #000; }
     
-    /* Cache l'icône de chargement */
+    /* Cache le widget de statut qui fait clignoter le haut de l'écran */
     [data-testid="stStatusWidget"] { display: none !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INIT ---
+# --- 2. LOGIQUE INITIALE ---
 SYMBOL = 'XRP/USDC'
 FILE_MEMOIRE = "etat_bots.json"
 
@@ -62,7 +60,7 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire.get("bots", {}))
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- 3. SIDEBAR (CONTROLE) ---
+# --- 3. BARRE LATÉRALE (STATIQUE) ---
 with st.sidebar:
     st.header("⚙️ CONFIG")
     mode_reel = st.toggle("LIVE TRADING", value=True)
@@ -70,6 +68,7 @@ with st.sidebar:
     p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
     budget_base = st.number_input("BASE USD", value=10.0)
     st.divider()
+    # (Boutons GO/OFF ici...)
     for i in range(10):
         name = f"Bot_{i+1}"
         c1, c2 = st.columns(2)
@@ -83,7 +82,7 @@ with st.sidebar:
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                     st.rerun()
-                except Exception as e: st.error(f"Err {i+1}")
+                except: st.error(f"Err {i+1}")
         else:
             if c2.button(f"OFF {i+1}", key=f"off_{i}"):
                 try:
@@ -93,65 +92,52 @@ with st.sidebar:
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                 st.rerun()
 
-# --- 4. DASHBOARD (SANS BOUCLE STREAMLIT) ---
-try:
-    ticker = kraken.fetch_ticker(SYMBOL)
-    px = ticker['last']
-    bal = kraken.fetch_balance()
-    usdc = bal.get('total', {}).get('USDC', 0.0)
+# --- 4. ZONE DYNAMIQUE (PRIX LIVE 5s + ÉCRAN FIXE) ---
+@st.fragment(run_every=5)
+def zone_prix_live():
+    try:
+        # Récupération forcée du prix (sans cache)
+        ticker = kraken.fetch_ticker(SYMBOL)
+        px = ticker['last']
+        bal = kraken.fetch_balance()
+        usdc = bal.get('total', {}).get('USDC', 0.0)
 
-    st.write(f"## 🏛️ TERMINAL STABLE - {SYMBOL}")
-    k1, k2, k3 = st.columns(3)
-    k1.metric("SOLDE USDC", f"{usdc:.2f} $")
-    k2.metric("PRIX XRP", f"{px:.4f}")
-    k3.metric("GAINS NETS", f"+{st.session_state.profit_total:.4f} $")
-    st.divider()
+        st.write(f"## 🏛️ TERMINAL LIVE - {SYMBOL}")
+        k1, k2, k3 = st.columns(3)
+        k1.metric("BANKROLL", f"{usdc:.2f} $")
+        k2.metric("XRP PRICE", f"{px:.4f}")
+        k3.metric("GAINS NETS", f"+{st.session_state.profit_total:.4f} $")
+        st.divider()
 
-    # Monitoring des Bots
-    for i in range(10):
-        name = f"Bot_{i+1}"
-        bot = st.session_state.bots[name]
-        if bot["status"] != "LIBRE" and bot["id"]:
-            color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-            st.markdown(f'''
-            <div class="bot-line">
-                <span style="font-weight:bold;">BOT {i+1:02d}</span>
-                <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
-                <span>{bot["p_achat"]} ➔ {bot["p_vente"]}</span>
-                <span class="flash-box">{budget_base + bot['gain']:.2f}$</span>
-            </div>''', unsafe_allow_html=True)
-            
-            # Vérification des ordres
-            order = kraken.fetch_order(bot['id'], SYMBOL)
-            if order['status'] == 'closed':
-                if bot["status"] == "ACHAT":
-                    res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'])
-                    st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
-                else:
-                    # Boule de neige
-                    gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
-                    st.session_state.profit_total += gain
-                    st.session_state.bots[name]["gain"] += gain
-                    st.session_state.bots[name]["cycles"] += 1
-                    nq = float(kraken.amount_to_precision(SYMBOL, (budget_base + st.session_state.bots[name]["gain"]) / bot['p_achat']))
-                    res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'])
-                    st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
-                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                st.rerun()
+        for i in range(10):
+            name = f"Bot_{i+1}"
+            bot = st.session_state.bots[name]
+            if bot["status"] != "LIBRE" and bot["id"]:
+                color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
+                st.markdown(f'''
+                <div class="bot-line">
+                    <span style="font-weight:bold;">BOT {i+1:02d}</span>
+                    <span style="color:{color}; font-weight:bold;">{bot["status"]}</span>
+                    <span>{bot["p_achat"]} ➔ {bot["p_vente"]}</span>
+                    <span class="flash-box">{budget_base + bot['gain']:.2f}$</span>
+                </div>''', unsafe_allow_html=True)
+                
+                # Vérification discrète
+                order = kraken.fetch_order(bot['id'], SYMBOL)
+                if order['status'] == 'closed':
+                    if bot["status"] == "ACHAT":
+                        res = kraken.create_order(SYMBOL, 'limit', 'sell', order['filled'], bot['p_vente'])
+                        st.session_state.bots[name].update({"id": res['id'], "status": "VENTE"})
+                    else:
+                        gain = (bot['p_vente'] - bot['p_achat']) * order['filled']
+                        st.session_state.profit_total += gain
+                        st.session_state.bots[name]["gain"] += gain
+                        st.session_state.bots[name]["cycles"] += 1
+                        nq = float(kraken.amount_to_precision(SYMBOL, (budget_base + st.session_state.bots[name]["gain"]) / bot['p_achat']))
+                        res = kraken.create_order(SYMBOL, 'limit', 'buy', nq, bot['p_achat'])
+                        st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
+                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+    except:
+        st.caption("Synchronisation...")
 
-except Exception as e:
-    st.caption("Synchronisation...")
-
-# --- 5. LE SECRET : RAFRAICHISSEMENT JAVASCRIPT ---
-# Rafraîchit la page toutes les 10 secondes proprement sans faire de vague
-import streamlit.components.v1 as components
-components.html(
-    """
-    <script>
-    setTimeout(function() {
-        window.parent.document.dispatchEvent(new CustomEvent('streamlit:setComponentValue', {detail: {value: true, key: 'r'}}));
-    }, 10000); // 10 secondes
-    </script>
-    """,
-    height=0,
-)
+zone_prix_live()
