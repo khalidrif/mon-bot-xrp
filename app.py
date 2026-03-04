@@ -6,14 +6,28 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE NANO TEXT (Sobre et efficace)
-st.set_page_config(page_title="XRP Nano Fix", layout="wide")
+# 1. STYLE SURLIGNÉ JAUNE/NOIR
+st.set_page_config(page_title="XRP Gold Highlight", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #0E1117; }
     [data-testid="stMetric"] { background-color: #1A1C23; border: 1px solid #30363D; border-radius: 4px; padding: 5px; }
     [data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 18px !important; }
-    .nano-text { font-size: 11px; color: #8B949E; margin: 0; }
+    
+    /* SURBRILLANCE JAUNE NOIR */
+    .highlight-line {
+        background-color: #FFFF00;
+        color: #000000;
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-weight: bold;
+        font-family: monospace;
+        font-size: 11px;
+        display: inline-block;
+        margin-top: 2px;
+    }
+    
+    .nano-text { font-size: 10px; color: #8B949E; margin: 0; }
     .status-buy { color: #FFA500; font-weight: bold; font-size: 11px; }
     .status-sell { color: #00FF88; font-weight: bold; font-size: 11px; }
     </style>
@@ -45,9 +59,9 @@ if 'bots' not in st.session_state:
 with st.sidebar:
     st.caption("Contrôle")
     mode_reel = st.toggle("Réel", value=True)
-    p_in = st.number_input("In", value=1.1200, format="%.4f")
-    p_out = st.number_input("Out", value=1.4400, format="%.4f")
-    budget = st.number_input("$", value=10.0)
+    p_in_set = st.number_input("Cible In", value=1.4440, format="%.4f")
+    p_out_set = st.number_input("Cible Out", value=1.4460, format="%.4f")
+    budget_base = st.number_input("$", value=10.0)
     st.divider()
     for i in range(10):
         name = f"Bot_{i+1}"
@@ -56,8 +70,8 @@ with st.sidebar:
             if c1.button(f"ON {i+1}", key=f"go_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
-                    qty = (budget + st.session_state.bots[name]["gain"]) / p_in
-                    pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in)), float(kraken.price_to_precision('XRP/USDC', p_out))
+                    qty = (budget_base + st.session_state.bots[name]["gain"]) / p_in_set
+                    pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in_set)), float(kraken.price_to_precision('XRP/USDC', p_out_set))
                     res = kraken.create_order('XRP/USDC', 'limit', 'buy', float(kraken.amount_to_precision('XRP/USDC', qty)), pa, {'validate': not mode_reel})
                     st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
@@ -80,10 +94,8 @@ while True:
     try:
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        
-        # --- FIX DÉFINITIF DU PRIX ---
-        p_ask = float(ob['asks'][0][0]) if ob['asks'] else 0.0
-        p_bid = float(ob['bids'][0][0]) if ob['bids'] else 0.0
+        p_ask = float(ob['asks']) if ob['asks'] else 0.0
+        p_bid = float(ob['bids']) if ob['bids'] else 0.0
         px = (p_ask + p_bid) / 2
         
         bal = kraken.fetch_balance()
@@ -105,10 +117,12 @@ while True:
                 with all_c[i]:
                     st.markdown(f"**{i+1}**")
                     if bot["status"] != "LIBRE":
-                        color_class = "status-buy" if bot["status"] == "ACHAT" else "status-sell"
-                        st.markdown(f'<span class="{color_class}">{bot["status"]}</span>', unsafe_allow_html=True)
-                        st.markdown(f'<p class="nano-text">In: {bot["p_achat"]}<br>Out: {bot["p_vente"]}</p>', unsafe_allow_html=True)
+                        status_class = "status-buy" if bot["status"] == "ACHAT" else "status-sell"
+                        st.markdown(f'<span class="{status_class}">{bot["status"]}</span>', unsafe_allow_html=True)
                         
+                        # --- LA LIGNE EN SURBRILLANCE JAUNE ---
+                        st.markdown(f'<div class="highlight-line">{bot["p_achat"]} | {bot["p_vente"]}</div>', unsafe_allow_html=True)
+
                         info = kraken.fetch_order(bot['id'], 'XRP/USDC')
                         if info['status'] == 'closed':
                             if bot["status"] == "ACHAT":
@@ -119,7 +133,8 @@ while True:
                                 st.session_state.profit_total += g
                                 st.session_state.bots[name]["gain"] += g
                                 st.session_state.bots[name]["cycles"] += 1
-                                q = float(kraken.amount_to_precision('XRP/USDC', (budget + st.session_state.bots[name]["gain"]) / bot['p_achat']))
+                                # BOULE DE NEIGE
+                                q = float(kraken.amount_to_precision('XRP/USDC', (budget_base + st.session_state.bots[name]["gain"]) / bot['p_achat']))
                                 res = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
                                 st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
                             sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
@@ -130,5 +145,5 @@ while True:
 
     except Exception as e:
         if "nonce" in str(e).lower(): time.sleep(1); continue
-        st.error(f"Erreur : {str(e)[:30]}")
+        st.error(f"E: {str(e)[:15]}")
     time.sleep(20)
