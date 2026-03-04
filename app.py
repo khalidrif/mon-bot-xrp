@@ -7,37 +7,16 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "ZEN DARK" (Noir, Gris, Blanc)
-st.set_page_config(page_title="XRP Zen Bot", layout="wide")
+# 1. STYLE ZEN (Noir, Gris, Blanc)
+st.set_page_config(page_title="XRP Zen Terminal", layout="wide")
 st.markdown("""
     <style>
-    /* Fond noir mat */
     .main { background-color: #0E1117; color: #E0E0E0; }
-    
-    /* Cartes grises très discrètes */
-    [data-testid="stMetric"] {
-        background-color: #1A1C23; 
-        border: 1px solid #30363D; 
-        border-radius: 8px;
-        padding: 15px;
-    }
-    
-    /* Chiffres en blanc doux */
-    [data-testid="stMetricValue"] { 
-        color: #FFFFFF !important; 
-        font-family: sans-serif; 
-        font-size: 24px !important;
-    }
-    
-    /* Texte secondaire en gris */
-    [data-testid="stMetricLabel"] { color: #8B949E !important; }
-    
-    /* Boutons gris */
-    .stButton>button {
-        border-color: #30363D !important;
-        color: #E0E0E0 !important;
-        background-color: #21262D !important;
-    }
+    [data-testid="stMetric"] { background-color: #1A1C23; border: 1px solid #30363D; border-radius: 8px; padding: 10px; }
+    [data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 22px !important; }
+    /* Texte de vente plus petit */
+    .small-price { font-size: 13px; color: #8B949E; }
+    .status-text { font-size: 14px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -99,7 +78,7 @@ with st.sidebar:
                 st.rerun()
 
 # --- MAIN ---
-st.title("XRP Terminal")
+st.title("XRP Zen Terminal")
 live = st.empty()
 
 while True:
@@ -120,36 +99,42 @@ while True:
             m3.metric("GAINS", f"+{st.session_state.profit_total:.4f} $")
             
             st.divider()
-            grid = st.columns(5)
+            grid1 = st.columns(5)
             grid2 = st.columns(5)
-            all_cols = grid + grid2
+            all_cols = grid1 + grid2
 
             for i in range(10):
                 name = f"Bot_{i+1}"
                 bot = st.session_state.bots[name]
                 with all_cols[i]:
                     st.write(f"**Bot {i+1}**")
-                    if bot["status"] == "ACHAT":
-                        st.info(f"Achat @{bot['p_achat']}")
-                        info = kraken.fetch_order(bot['id'], 'XRP/USDC')
-                        if info['status'] == 'closed':
-                            res_v = kraken.create_order('XRP/USDC', 'limit', 'sell', info['filled'], bot['p_vente'], {'validate': not mode_reel})
-                            st.session_state.bots[name].update({"id": res_v['id'], "status": "VENTE"})
-                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                            st.rerun()
-                    elif bot["status"] == "VENTE":
-                        st.success(f"Vente @{bot['p_vente']}")
-                        info_v = kraken.fetch_order(bot['id'], 'XRP/USDC')
-                        if info_v['status'] == 'closed':
-                            g = (bot['p_vente'] - bot['p_achat']) * info_v['filled']
-                            st.session_state.profit_total += g
-                            st.session_state.bots[name]["gain"] += g
-                            st.session_state.bots[name]["cycles"] += 1
-                            q = float(kraken.amount_to_precision('XRP/USDC', (budget + st.session_state.bots[name]["gain"]) / bot['p_achat']))
-                            res_n = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
-                            st.session_state.bots[name].update({"id": res_n['id'], "status": "ACHAT"})
-                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                            st.rerun()
+                    if bot["status"] != "LIBRE":
+                        # FOURCHETTE VISUELLE
+                        low, high = bot['p_achat'], bot['p_vente']
+                        prog = (px - low) / (high - low) if (high - low) != 0 else 0
+                        st.progress(min(max(prog, 0.0), 1.0))
+                        
+                        if bot["status"] == "ACHAT":
+                            st.markdown(f'<span class="status-text" style="color:#FFA500;">📥 ACHAT</span> <span class="small-price">@{bot["p_achat"]}</span>', unsafe_allow_html=True)
+                            info = kraken.fetch_order(bot['id'], 'XRP/USDC')
+                            if info['status'] == 'closed':
+                                res_v = kraken.create_order('XRP/USDC', 'limit', 'sell', info['filled'], bot['p_vente'], {'validate': not mode_reel})
+                                st.session_state.bots[name].update({"id": res_v['id'], "status": "VENTE"})
+                                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                                st.rerun()
+                        elif bot["status"] == "VENTE":
+                            st.markdown(f'<span class="status-text" style="color:#00FF88;">📤 VENTE</span> <span class="small-price">@{bot["p_vente"]}</span>', unsafe_allow_html=True)
+                            info_v = kraken.fetch_order(bot['id'], 'XRP/USDC')
+                            if info_v['status'] == 'closed':
+                                g = (bot['p_vente'] - bot['p_achat']) * info_v['filled']
+                                st.session_state.profit_total += g
+                                st.session_state.bots[name]["gain"] += g
+                                st.session_state.bots[name]["cycles"] += 1
+                                q = float(kraken.amount_to_precision('XRP/USDC', (budget + st.session_state.bots[name]["gain"]) / bot['p_achat']))
+                                res_n = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
+                                st.session_state.bots[name].update({"id": res_n['id'], "status": "ACHAT"})
+                                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                                st.rerun()
                     else:
                         st.write("---")
                     
