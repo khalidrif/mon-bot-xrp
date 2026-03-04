@@ -7,26 +7,18 @@ import os
 from config import get_kraken_connection
 
 # 1. STYLE SURLIGNÉ JAUNE/NOIR
-st.set_page_config(page_title="XRP Gold Highlight", layout="wide")
+st.set_page_config(page_title="XRP Gold Final", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #0E1117; }
     [data-testid="stMetric"] { background-color: #1A1C23; border: 1px solid #30363D; border-radius: 4px; padding: 5px; }
     [data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 18px !important; }
-    
-    /* SURBRILLANCE JAUNE NOIR */
     .highlight-line {
-        background-color: #FFFF00;
-        color: #000000;
-        padding: 2px 5px;
-        border-radius: 3px;
-        font-weight: bold;
-        font-family: monospace;
-        font-size: 11px;
-        display: inline-block;
-        margin-top: 2px;
+        background-color: #FFFF00; color: #000000;
+        padding: 2px 5px; border-radius: 3px;
+        font-weight: bold; font-family: monospace; font-size: 11px;
+        display: inline-block; margin-top: 2px;
     }
-    
     .nano-text { font-size: 10px; color: #8B949E; margin: 0; }
     .status-buy { color: #FFA500; font-weight: bold; font-size: 11px; }
     .status-sell { color: #00FF88; font-weight: bold; font-size: 11px; }
@@ -67,7 +59,7 @@ with st.sidebar:
         name = f"Bot_{i+1}"
         c1, c2 = st.columns(2)
         if st.session_state.bots[name]["status"] == "LIBRE":
-            if c1.button(f"ON {i+1}", key=f"go_{i}"):
+            if c1.button(f"ON {i+1}", key=f"l_{i}"):
                 try:
                     kraken.options['nonce'] = lambda: int(time.time() * 1000)
                     qty = (budget_base + st.session_state.bots[name]["gain"]) / p_in_set
@@ -94,8 +86,10 @@ while True:
     try:
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        p_ask = float(ob['asks']) if ob['asks'] else 0.0
-        p_bid = float(ob['bids']) if ob['bids'] else 0.0
+        
+        # --- EXTRACTION SÉCURISÉE (Le Correctif) ---
+        p_ask = float(ob['asks'][0][0]) if ob['asks'] else 0.0
+        p_bid = float(ob['bids'][0][0]) if ob['bids'] else 0.0
         px = (p_ask + p_bid) / 2
         
         bal = kraken.fetch_balance()
@@ -119,8 +113,6 @@ while True:
                     if bot["status"] != "LIBRE":
                         status_class = "status-buy" if bot["status"] == "ACHAT" else "status-sell"
                         st.markdown(f'<span class="{status_class}">{bot["status"]}</span>', unsafe_allow_html=True)
-                        
-                        # --- LA LIGNE EN SURBRILLANCE JAUNE ---
                         st.markdown(f'<div class="highlight-line">{bot["p_achat"]} | {bot["p_vente"]}</div>', unsafe_allow_html=True)
 
                         info = kraken.fetch_order(bot['id'], 'XRP/USDC')
@@ -133,7 +125,6 @@ while True:
                                 st.session_state.profit_total += g
                                 st.session_state.bots[name]["gain"] += g
                                 st.session_state.bots[name]["cycles"] += 1
-                                # BOULE DE NEIGE
                                 q = float(kraken.amount_to_precision('XRP/USDC', (budget_base + st.session_state.bots[name]["gain"]) / bot['p_achat']))
                                 res = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
                                 st.session_state.bots[name].update({"id": res['id'], "status": "ACHAT"})
