@@ -6,18 +6,16 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE NANO TEXT (Zéro barre, juste les chiffres)
-st.set_page_config(page_title="XRP Nano Text", layout="wide")
+# 1. STYLE NANO TEXT (Sobre et efficace)
+st.set_page_config(page_title="XRP Nano Fix", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #0E1117; }
     [data-testid="stMetric"] { background-color: #1A1C23; border: 1px solid #30363D; border-radius: 4px; padding: 5px; }
     [data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 18px !important; }
-    
     .nano-text { font-size: 11px; color: #8B949E; margin: 0; }
     .status-buy { color: #FFA500; font-weight: bold; font-size: 11px; }
     .status-sell { color: #00FF88; font-weight: bold; font-size: 11px; }
-    .target-price { color: #FFFFFF; font-family: monospace; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -41,11 +39,11 @@ if 'bots' not in st.session_state:
     st.session_state.profit_total = 0.0
     if memoire:
         st.session_state.bots.update(memoire["bots"])
-        st.session_state.profit_total = memoire["profit_total"]
+        st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- SIDEBAR COMPACTE ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.caption("Réglages")
+    st.caption("Contrôle")
     mode_reel = st.toggle("Réel", value=True)
     p_in = st.number_input("In", value=1.1200, format="%.4f")
     p_out = st.number_input("Out", value=1.4400, format="%.4f")
@@ -82,9 +80,12 @@ while True:
     try:
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        p_ask = float(ob['asks'])
-        p_bid = float(ob['bids'])
+        
+        # --- FIX DÉFINITIF DU PRIX ---
+        p_ask = float(ob['asks'][0][0]) if ob['asks'] else 0.0
+        p_bid = float(ob['bids'][0][0]) if ob['bids'] else 0.0
         px = (p_ask + p_bid) / 2
+        
         bal = kraken.fetch_balance()
         usdc = bal.get('free', {}).get('USDC', bal.get('free', {}).get('ZUSD', 0))
 
@@ -102,17 +103,12 @@ while True:
                 name = f"Bot_{i+1}"
                 bot = st.session_state.bots[name]
                 with all_c[i]:
-                    st.markdown(f"**Bot {i+1}**")
+                    st.markdown(f"**{i+1}**")
                     if bot["status"] != "LIBRE":
-                        # Affichage textuel simple des cibles
-                        if bot["status"] == "ACHAT":
-                            st.markdown(f'<span class="status-buy">ACHAT</span> @<span class="target-price">{bot["p_achat"]}</span>', unsafe_allow_html=True)
-                        else:
-                            st.markdown(f'<span class="status-sell">VENTE</span> @<span class="target-price">{bot["p_vente"]}</span>', unsafe_allow_html=True)
+                        color_class = "status-buy" if bot["status"] == "ACHAT" else "status-sell"
+                        st.markdown(f'<span class="{color_class}">{bot["status"]}</span>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="nano-text">In: {bot["p_achat"]}<br>Out: {bot["p_vente"]}</p>', unsafe_allow_html=True)
                         
-                        st.markdown(f'<p class="nano-text">Cible Out: {bot["p_vente"]}</p>', unsafe_allow_html=True)
-                        
-                        # LOGIQUE ACHAT/VENTE
                         info = kraken.fetch_order(bot['id'], 'XRP/USDC')
                         if info['status'] == 'closed':
                             if bot["status"] == "ACHAT":
@@ -130,10 +126,9 @@ while True:
                             st.rerun()
                     else:
                         st.markdown('<p class="nano-text">---</p>', unsafe_allow_html=True)
-                    
-                    st.markdown(f'<p class="nano-text">Cyc:{bot["cycles"]} | +{bot["gain"]:.3f}$</p>', unsafe_allow_html=True)
+                    st.caption(f"C:{bot['cycles']} | +{bot['gain']:.2f}")
 
     except Exception as e:
         if "nonce" in str(e).lower(): time.sleep(1); continue
-        st.caption(f"ERR: {str(e)[:20]}")
+        st.error(f"Erreur : {str(e)[:30]}")
     time.sleep(20)
