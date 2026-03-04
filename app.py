@@ -20,30 +20,18 @@ st.markdown("""
         border-radius: 12px;
     }
     .bot-header {
-        color: #00FBFF;
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 16px;
-        font-weight: 800;
-        text-shadow: 0px 0px 8px rgba(0, 251, 255, 0.6);
-        margin-bottom: 8px;
+        color: #00FBFF; font-family: 'Segoe UI', sans-serif; font-size: 16px;
+        font-weight: 800; text-shadow: 0px 0px 8px rgba(0, 251, 255, 0.6); margin-bottom: 8px;
     }
     .val-box {
-        background: linear-gradient(90deg, #FFD700, #B8860B);
-        color: #000000;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: 900;
-        font-size: 13px;
-        display: inline-block;
+        background: linear-gradient(90deg, #FFD700, #B8860B); color: #000000;
+        padding: 3px 8px; border-radius: 4px; font-weight: 900; font-size: 13px; display: inline-block;
     }
-    [data-testid="stMetricValue"] { 
-        color: #FFD700 !important; 
-        text-shadow: 0px 0px 10px rgba(255, 215, 0, 0.4);
-    }
+    [data-testid="stMetricValue"] { color: #FFD700 !important; text-shadow: 0px 0px 10px rgba(255, 215, 0, 0.4); }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MÉMOIRE & SAUVEGARDE
+# 2. MÉMOIRE
 FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder_donnees(bots, profit_total):
     with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": profit_total}, f)
@@ -107,13 +95,13 @@ live = st.empty()
 
 while True:
     try:
-        # --- CORRECTIF NONCE & PRIX ---
+        # --- CORRECTIF PRIX SÉCURISÉ ---
         kraken.options['nonce'] = lambda: int(time.time() * 1000)
         ob = kraken.fetch_order_book('XRP/USDC', limit=1)
         
-        # Extraction sécurisée (évite l'erreur 'list')
-        p_ask = float(ob['asks']) if ob['asks'] else 0.0
-        p_bid = float(ob['bids']) if ob['bids'] else 0.0
+        # Extraction de l'élément [0][0] pour éviter l'erreur 'list'
+        p_ask = float(ob['asks'][0][0]) if ob['asks'] else 0.0
+        p_bid = float(ob['bids'][0][0]) if ob['bids'] else 0.0
         px = (p_ask + p_bid) / 2
         
         bal = kraken.fetch_balance()
@@ -126,7 +114,6 @@ while True:
             m3.metric("TOTAL PROFIT", f"+{st.session_state.profit_total:.4f} $")
             
             st.divider()
-            
             r1 = st.columns(5)
             r2 = st.columns(5)
             grid = r1 + r2
@@ -155,7 +142,6 @@ while True:
                             st.session_state.profit_total += g
                             st.session_state.bots[name]["gain"] += g
                             st.session_state.bots[name]["cycles"] += 1
-                            # RESTART SNOWBALL
                             q = float(kraken.amount_to_precision('XRP/USDC', (budget + st.session_state.bots[name]["gain"]) / bot['p_achat']))
                             res_n = kraken.create_order('XRP/USDC', 'limit', 'buy', q, bot['p_achat'], {'validate': not mode_reel})
                             st.session_state.bots[name].update({"id": res_n['id'], "status": "ACHAT"})
