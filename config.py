@@ -1,16 +1,10 @@
 import ccxt
-import streamlit as st
 import time
 
 def get_kraken_connection():
-    # Récupération sécurisée depuis le coffre-fort de Streamlit
-    api_key = st.secrets.get("A2RXby/+ntL9pEZsOgfMeXSnGxYxntr59z+TxTcXJBlYDY+Ucz4M6f6N4", "").strip()
-    api_secret = st.secrets.get("API_SEGPdLHKXJy2MQMzXn6KyjmqwYfkNHSTJvoCdV/oFuIntwCPbPVBC8QWYEBxPCAcvqLSfnx3/QqO+M6wD42Il0aA==", "").strip()
-
-    if not api_key or not api_secret:
-        # C'est ce message que vous voyez actuellement
-        st.error("⚠️ CLÉS API MANQUANTES : Configurez les 'Secrets' dans Streamlit Cloud.")
-        st.stop()
+    # MÉTHODE DIRECTE (TES CLÉS SONT ÉCRITES ICI)
+    api_key = "xbTqkWHQt+9dm8zGsNVK4H6tyUlzmkOH2Tadvxfv9BITwtnavVnAJeCX".strip()
+    api_secret = "r7IN4tCkb5wNg6C1Aa62jmtxn3JoB4kkqL9NDynBi9pfLzo0IA2hUccX68fUdI3F8CoWoUZZuhpBghpv6lSCUQ==".strip()
 
     exchange = ccxt.kraken({
         'apiKey': api_key,
@@ -19,8 +13,7 @@ def get_kraken_connection():
         'options': {'nonce': lambda: int(time.time() * 1000)}
     })
     
-    # Correction définitive du "Markets not loaded"
-    if not exchange.markets:
-        exchange.load_markets()
-        
+    # Force le chargement pour éviter l'erreur "Markets not loaded"
+    exchange.load_markets()
     return exchange
+
