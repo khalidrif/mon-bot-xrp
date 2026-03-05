@@ -1,6 +1,7 @@
 import streamlit as st
 import ccxt
 import time
+from datetime import datetime
 
 # --- CONFIGURATION PAGE ---
 st.set_page_config(page_title="XRP ALL-IN PING-PONG", layout="centered")
@@ -20,30 +21,46 @@ def init_kraken():
 
 kraken = init_kraken()
 
-# --- 2. ÉTAT DU BOT ---
+# --- 2. ÉTAT DU BOT (MÉMOIRE) ---
 if 'bot' not in st.session_state:
     st.session_state.bot = {
         "status": "OFF", "pa": 1.40, "pv": 1.45, 
-        "oid": None, "cycles": 0, "profit_total": 0.0, "last_vol": 0.0
+        "oid": None, "cycles": 0, "profit_total": 0.0, 
+        "last_vol": 0.0, "start_time": None
     }
 
 st.title("🏓 XRP Solo Ping-Pong")
 
-# --- 3. AFFICHAGE DU SOLDE (DYNAMIQUE) ---
-def show_balance():
+# --- 3. AFFICHAGE DES SOLDES ET GAINS ---
+def show_metrics():
     try:
+        # Récupération Soldes
         bal = kraken.fetch_balance()
         usdc_free = bal['free'].get('USDC', 0.0)
         xrp_free = bal['free'].get('XRP', 0.0)
         
-        col_b1, col_b2 = st.columns(2)
-        col_b1.metric("SOLDE USDC", f"{usdc_free:.2f} $")
-        col_b2.metric("SOLDE XRP", f"{xrp_free:.2f} XRP")
-    except:
-        st.error("Impossible de récupérer les soldes.")
+        # Calcul Profit Journalier
+        profit_total = st.session_state.bot["profit_total"]
+        gain_jour = 0.0
+        if st.session_state.bot["status"] != "OFF" and st.session_state.bot["start_time"]:
+            diff_secondes = time.time() - st.session_state.bot["start_time"]
+            jours_ecoules = diff_secondes / 86400
+            if jours_ecoules > 0:
+                gain_jour = profit_total / jours_ecoules
 
-st.subheader("💰 Portefeuille")
-show_balance()
+        # Affichage
+        c1, c2 = st.columns(2)
+        c1.metric("SOLDE USDC", f"{usdc_free:.2f} $")
+        c2.metric("SOLDE XRP", f"{xrp_free:.2f} XRP")
+        
+        g1, g2 = st.columns(2)
+        g1.metric("NET PROFIT TOTAL", f"+{profit_total:.4f} $", delta_color="normal")
+        g2.metric("GAIN EST. / JOUR", f"{gain_jour:.2f} $")
+        
+    except:
+        st.warning("Chargement des données Kraken...")
+
+show_metrics()
 st.divider()
 
 # --- 4. RÉGLAGES ---
@@ -63,7 +80,11 @@ if st.session_state.bot["status"] == "OFF":
             else:
                 vol = float(kraken.amount_to_precision('XRP/USDC', usdc_dispo / p_achat))
                 res = kraken.create_limit_buy_order('XRP/USDC', vol, p_achat, {'post-only': True})
-                st.session_state.bot.update({"status": "ACHAT", "pa": p_achat, "pv": p_vente, "oid": res['id'], "last_vol": vol})
+                st.session_state.bot.update({
+                    "status": "ACHAT", "pa": p_achat, "pv": p_vente, 
+                    "oid": res['id'], "last_vol": vol, 
+                    "start_time": time.time() # On note l'heure de début
+                })
                 st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
 else:
@@ -73,7 +94,7 @@ else:
         st.session_state.bot["status"] = "OFF"
         st.rerun()
 
-# --- 6. MOTEUR DE TRADING (FRAGMENT) ---
+# --- 6. MOTEUR DE TRADING (FRAGMENT 15S) ---
 if st.session_state.bot["status"] != "OFF":
     @st.fragment(run_every=15)
     def trading_engine():
@@ -100,15 +121,12 @@ if st.session_state.bot["status"] != "OFF":
                     st.session_state.bot.update({"status": "ACHAT", "oid": res['id'], "last_vol": vol_a})
                 st.rerun()
 
-            # Stats en direct
+            # Infos de suivi
             ticker = kraken.fetch_ticker('XRP/USDC')
-            s1, s2, s3 = st.columns(3)
-            s1.metric("PRIX XRP", f"{ticker['last']:.4f}")
-            s2.metric("CYCLE ACTIF", bot["status"])
-            s3.metric("PROFIT TOTAL", f"+{bot['profit_total']:.2f} $")
-            st.caption(f"Dernière vérification : {time.strftime('%H:%M:%S')}")
+            st.info(f"🤖 **{bot['status']} EN COURS** | Prix XRP: **{ticker['last']:.4f}** | Cycles: **{bot['cycles']}**")
+            st.caption(f"Dernier check : {datetime.now().strftime('%H:%M:%S')}")
 
         except Exception as e:
-            st.caption(f"Attente Kraken... {e}")
+            st.caption(f"Synchro... {e}")
 
     trading_engine()
