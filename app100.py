@@ -66,7 +66,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 6. SIDEBAR CMD (REGLAGE ALIGNEMENT) ---
+# --- 6. SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚡ PILOTE AUTO")
     p_in = st.number_input("ACHAT (IN)", value=1.4000, format="%.4f")
@@ -74,7 +74,6 @@ with st.sidebar:
     b_val = st.number_input("BUDGET (USDC)", value=25.0)
     bot_sel = st.selectbox("SÉLECTIONNER BOT", [f"B{i+1}" for i in range(100)])
     
-    # CE BLOC DOIT ÊTRE ALIGNÉ ICI (DÉCALÉ À DROITE DU 'WITH')
     if st.button(f"🚀 ACTIVER {bot_sel}", use_container_width=True):
         if kraken:
             try:
