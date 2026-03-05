@@ -39,7 +39,7 @@ def charger():
 if 'bots' not in st.session_state:
     mem = charger()
     # INITIALISATION DES 100 BOTS
-    st.session_state.bots = mem.get("bots") if mem else {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE"} for i in range(100)}
+    st.session_state.bots = mem.get("bots") if mem else {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 35.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
     st.session_state.profit_total = mem.get("profit_total", 0.0) if mem else 0.0
     st.session_state.bankroll = 0.0
 
@@ -48,10 +48,10 @@ with st.sidebar:
     st.header("⚡ CMD 100 BOTS")
     p_in = st.number_input("TARGET IN", value=1.4000, format="%.4f")
     p_out = st.number_input("TARGET OUT", value=1.4500, format="%.4f")
-    b_val = st.number_input("BUDGET (USDC)", value=25.0)
+    b_val = st.number_input("BUDGET (USDC)", value=35.0)
     
     if st.button("🚨 RESET ALL DATA"):
-        st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE"} for i in range(100)}
+        st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 35.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
         st.session_state.profit_total = 0.0
         sauvegarder(st.session_state.bots, 0.0); st.rerun()
 
@@ -63,14 +63,12 @@ with st.sidebar:
             if c1.button(f"GO {i+1}", key=f"g{i}"):
                 if not kraken.markets: kraken.load_markets()
                 pa_f, pv_f = float(kraken.price_to_precision('XRP/USDC', p_in)), float(kraken.price_to_precision('XRP/USDC', p_out))
-                if st.session_state.bankroll >= 24.0:
-                    vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
-                    try:
-                        res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
-                        st.session_state.bots[name].update({"status": "ACHAT", "pa": pa_f, "pv": pv_f, "oid": res['id']})
-                        sauvegarder(st.session_state.bots, st.session_state.profit_total); st.rerun()
-                    except Exception as e: st.error("Kraken Error")
-                else: st.warning("SOLDE INSUFFISANT")
+                vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
+                try:
+                    res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
+                    st.session_state.bots[name].update({"status": "ACHAT", "pa": pa_f, "pv": pv_f, "budget": b_val, "oid": res['id']})
+                    sauvegarder(st.session_state.bots, st.session_state.profit_total); st.rerun()
+                except Exception as e: st.error("Kraken Error")
         else:
             if c2.button(f"OFF {i+1}", key=f"o{i}"):
                 st.session_state.bots[name]["status"] = "LIBRE"; st.rerun()
@@ -101,7 +99,7 @@ while True:
                         info = kraken.fetch_order(bot["oid"])
                         if info['status'] == 'closed':
                             st.session_state.bots[name]["status"] = "VENTE"
-                            vol = float(kraken.amount_to_precision('XRP/USDC', 25.0 / bot["pa"]))
+                            vol = float(kraken.amount_to_precision('XRP/USDC', bot["budget"] / bot["pa"]))
                             v_res = kraken.create_limit_sell_order('XRP/USDC', vol, bot["pv"])
                             st.session_state.bots[name]["oid"] = v_res['id']
                             sauvegarder(st.session_state.bots, st.session_state.profit_total)
@@ -109,13 +107,15 @@ while True:
 
                 label = bot["status"]
                 sc_class = "status-v" if bot["status"] == "VENTE" else "status-a" if bot["status"] == "ACHAT" else ""
+                val_display = bot["budget"] + bot["gain"]
                 
                 st.markdown(f'''
                     <div class="bot-line">
                         <span class="bot-id">{name}</span>
                         <span class="{sc_class}">{label}</span>
                         <span>{bot["pa"]} → {bot["pv"]}</span>
-                        <span class="flash-box">{bot["budget"]:.0f} $</span>
+                        <span class="flash-box">{bot.get("cycles", 0)} CYC</span>
+                        <span class="flash-box">{val_display:.2f} $</span>
                     </div>''', unsafe_allow_html=True)
     except: pass
     count += 1
