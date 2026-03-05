@@ -51,7 +51,7 @@ try:
 except:
     st.sidebar.error("Erreur API Kraken")
 
-# --- 5. STYLE CSS ---
+# --- 5. STYLE CSS (CLAIRE) ---
 st.markdown("""
     <style>
     .stApp { background-color: #F0F2F6 !important; }
@@ -125,10 +125,16 @@ if kraken:
                                 now = datetime.now().strftime("%H:%M:%S")
                                 st.session_state.historique.insert(0, f"[{now}] {name} : +{profit:.4f} $")
                                 st.session_state.historique = st.session_state.historique[:5]
+                                
                                 pa_f = float(kraken.price_to_precision('XRP/USDC', bot["pa"]))
                                 vol_a = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0) + profit) / pa_f))
                                 a_res = kraken.create_limit_buy_order('XRP/USDC', vol_a, pa_f, {'post-only': True})
-                                st.session_state.bots[name].update({"status": "ACHAT", "oid": a_res['id'], "cycles": int(bot.get("cycles", 0)) + 1, "gain": float(bot.get("gain", 0)) + profit})
+                                
+                                st.session_state.bots[name].update({
+                                    "status": "ACHAT", "oid": a_res['id'], 
+                                    "cycles": int(bot.get("cycles", 0)) + 1, 
+                                    "gain": float(bot.get("gain", 0)) + profit
+                                })
                             sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique)
                             st.rerun()
                     except: pass
@@ -144,7 +150,7 @@ st.divider()
 
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 if not actifs:
-    st.info("Aucun bot actif.")
+    st.info("Aucun bot actif. Utilisez la barre latérale pour lancer un cycle.")
 else:
     for name in actifs:
         bot = st.session_state.bots[name]
