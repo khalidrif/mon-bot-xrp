@@ -74,7 +74,7 @@ with st.sidebar:
             if c2.button(f"OFF {i+1}", key=f"o{i}"):
                 st.session_state.bots[name].update({"status": "LIBRE"}); st.rerun()
 
-# --- BOUCLE PRINCIPALE (OPTIMISÉE) ---
+# --- BOUCLE PRINCIPALE (ULTRA-STABLE) ---
 live = st.empty()
 count = 0
 
@@ -82,10 +82,12 @@ while True:
     try:
         if not kraken.markets: kraken.load_markets()
         
-        # 1. PRIX & BALANCE (Moins fréquent pour économiser l'API)
+        # 1. PRIX (Essentiel)
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
-        if count % 2 == 0:
+        
+        # 2. BALANCE (Toutes les 10 boucles seulement pour économiser l'API)
+        if count % 10 == 0:
             bal = kraken.fetch_balance()
             st.session_state.bankroll = bal.get('USDC', {}).get('free', 0.0)
         
@@ -97,46 +99,49 @@ while True:
             c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
             st.divider()
             
-            # FILTRER UNIQUEMENT LES BOTS ACTIFS (GAIN DE TEMPS & API)
+            # FILTRE : Uniquement les bots actifs
             actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
             
-            for name in actifs:
+            # ROTATION : On traite par groupes de 5 pour ne pas saturer Kraken
+            start_idx = (count % max(1, len(actifs) // 5 + 1)) * 5
+            selection = actifs[start_idx : start_idx + 5]
+            
+            for name in actifs: # On affiche tout, mais on ne trade que la 'selection'
                 bot = st.session_state.bots[name]
                 val_snow = budget_base + bot['gain']
                 vol = float(kraken.amount_to_precision('XRP/USDC', val_snow / px))
                 
-                # LOGIQUE ACHAT
-                if bot["status"] == "ACHAT" and px <= bot["p_achat"]:
-                    kraken.create_limit_buy_order('XRP/USDC', vol, bot["p_achat"])
-                    st.session_state.bots[name]["status"] = "VENTE"
-                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                    st.toast(f"✅ BUY {name}")
-                
-                # LOGIQUE VENTE
-                elif bot["status"] == "VENTE" and px >= bot["p_vente"]:
-                    kraken.create_limit_sell_order('XRP/USDC', vol, bot["p_vente"])
-                    g = (bot['p_vente'] - bot['p_achat']) * vol
-                    st.session_state.profit_total += g
-                    st.session_state.bots[name].update({"gain": bot["gain"]+g, "cycles": bot["cycles"]+1, "status": "ACHAT"})
-                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                    st.toast(f"💰 PROFIT {name} (+{g:.2f})")
-                
-                # AFFICHAGE
+                if name in selection:
+                    # LOGIQUE ACHAT
+                    if bot["status"] == "ACHAT" and px <= bot["p_achat"]:
+                        kraken.create_limit_buy_order('XRP/USDC', vol, bot["p_achat"])
+                        st.session_state.bots[name]["status"] = "VENTE"
+                        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                        st.toast(f"✅ BUY {name}")
+                    
+                    # LOGIQUE VENTE
+                    elif bot["status"] == "VENTE" and px >= bot["p_vente"]:
+                        kraken.create_limit_sell_order('XRP/USDC', vol, bot["p_vente"])
+                        g = (bot['p_vente'] - bot['p_achat']) * vol
+                        st.session_state.profit_total += g
+                        st.session_state.bots[name].update({"gain": bot["gain"]+g, "cycles": bot["cycles"]+1, "status": "ACHAT"})
+                        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                        st.toast(f"💰 PROFIT {name} (+{g:.2f})")
+                    
+                    time.sleep(1.0) # Pause de sécurité entre bots sélectionnés
+
+                # AFFICHAGE TOUJOURS ACTIF
                 sc = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
                 st.markdown(f'<div class="bot-line"><span>{name}</span><span style="color:{sc};">{bot["status"]}</span><span>{bot["p_achat"]}->{bot["p_vente"]}</span><span class="flash-box">{val_snow:.2f} USDC</span></div>', unsafe_allow_html=True)
-                
-                # PAUSE ENTRE CHAQUE BOT ACTIF (ESSENTIEL)
-                time.sleep(0.5)
             
         count += 1
         sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
 
     except Exception as e:
         if "Rate limit" in str(e):
-            st.warning("Kraken Surcharge : Pause 60s...")
+            st.warning("⚠️ Limite API Kraken atteinte. Pause de 60s...")
             time.sleep(60)
         elif "nonce" in str(e).lower(): time.sleep(2)
         else: st.write(f"SYSTEM: {str(e)[:40]}")
     
-    # PAUSE GLOBALE (S'ajuste au nombre de bots actifs)
-    time.sleep(20)
+    time.sleep(30) # Pause globale entre les cycles de rotation
