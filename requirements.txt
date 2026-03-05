@@ -1,7 +1,8 @@
-ccxt==4.2.50
+ccxt
 streamlit
-pandas
 streamlit-autorefresh
+
+
 
 
 
