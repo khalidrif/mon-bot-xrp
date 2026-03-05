@@ -7,17 +7,17 @@ import os
 try:
     import ccxt
 except ImportError:
-    st.error("Installation en cours...")
+    st.error("Installation des composants en cours...")
     st.stop()
 
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# 1. CONFIGURATION & REFRESH
+# 1. CONFIGURATION & REFRESH AUTO (15s)
 st.set_page_config(page_title="XRP Terminal Pro", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") 
 
-# 2. FONCTIONS DE SAUVEGARDE (LA CLÉ POUR NE RIEN PERDRE)
+# 2. GESTION DE LA MÉMOIRE (POUR NE RIEN PERDRE)
 FILE_MEMOIRE = "etat_bots.json"
 
 def sauvegarder_donnees(bots, total):
@@ -32,7 +32,7 @@ def charger_donnees():
         except: return None
     return None
 
-# 3. INITIALISATION (CHARGEMENT AUTOMATIQUE)
+# 3. INITIALISATION (CHARGEMENT AUTO AU DÉMARRAGE)
 if 'bots' not in st.session_state:
     memoire = charger_donnees()
     if memoire:
@@ -42,7 +42,7 @@ if 'bots' not in st.session_state:
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
         st.session_state.profit_total = 0.0
 
-# --- STYLE CSS ---
+# --- STYLE CSS (CLAIRE) ---
 st.markdown("""
     <style>
     .stApp { background-color: #F0F2F6 !important; }
@@ -56,7 +56,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 4. CONNEXION KRAKEN
+# 4. CONNEXION KRAKEN + FIX MARKETS
 kraken = get_kraken_connection()
 
 # --- SIDEBAR CMD ---
@@ -71,22 +71,36 @@ with st.sidebar:
     if st.button(f"🚀 GO {bot_sel}", use_container_width=True):
         if kraken:
             try:
+                # --- FIX : CHARGEMENT DES MARCHES AVANT ORDRE ---
+                if not kraken.markets:
+                    kraken.load_markets()
+                
                 pa_f = float(kraken.price_to_precision('XRP/USDC', p_in))
                 vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
+                
+                # Placement de l'ordre réel
                 res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
+                
+                # Enregistrement
                 st.session_state.bots[bot_sel].update({"status": "ACHAT", "pa": pa_f, "pv": p_out, "oid": res['id'], "budget": b_val})
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                st.success(f"{bot_sel} LANCÉ !")
                 st.rerun()
-            except Exception as e: st.error(f"Kraken: {e}")
+            except Exception as e:
+                st.error(f"Erreur Kraken : {str(e)[:100]}")
 
-    if st.button("🚨 RESET TOTAL", use_container_width=True):
-        st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
-        st.session_state.profit_total = 0.0
-        sauvegarder_donnees(st.session_state.bots, 0.0)
+    if st.button("🚨 STOP TOUS LES BOTS", use_container_width=True):
+        for b in st.session_state.bots:
+            st.session_state.bots[b].update({"status": "LIBRE", "oid": "NONE"})
+        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
         st.rerun()
 
 # --- MAIN DISPLAY ---
 try:
+    # On s'assure que les marchés sont chargés pour le ticker aussi
+    if not kraken.markets:
+        kraken.load_markets()
+        
     ticker = kraken.fetch_ticker('XRP/USDC')
     px = ticker['last']
     bal = kraken.fetch_balance()
@@ -99,9 +113,10 @@ try:
     c3.metric("CASH DISPO", f"{cash:.2f} $")
     st.divider()
 
+    # --- FILTRAGE : ON N'AFFICHE QUE LES BOTS ACTIFS ---
     actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
     if not actifs:
-        st.info("Aucun bot actif.")
+        st.info("Aucun bot actif. Utilisez la barre latérale pour démarrer.")
     else:
         for name in actifs:
             bot = st.session_state.bots[name]
@@ -114,4 +129,4 @@ try:
                     <span class="flash-box">{bot["budget"] + bot["gain"]:.2f} $</span>
                 </div>''', unsafe_allow_html=True)
 except Exception as e:
-    st.info("Connexion Kraken...")
+    st.info("Connexion Kraken en cours...")
