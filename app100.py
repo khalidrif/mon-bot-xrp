@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="XRP DYNAMIC-GRID", layout="centered")
+st.set_page_config(page_title="XRP KRAKEN MONITOR", layout="centered")
 
 @st.cache_resource
 def init_k():
@@ -28,13 +28,14 @@ if 'bot' not in st.session_state:
 
 bot = st.session_state.bot
 
-# --- 3. DASHBOARD ---
+# --- 3. DASHBOARD LIVE ---
 ticker = k.fetch_ticker('XRP/USDC')
 px = ticker['last']
 bal = k.fetch_balance()
 u_free = bal['free'].get('USDC', 0.0)
 x_free = bal['free'].get('XRP', 0.0)
 
+# Métriques
 jours = (time.time() - bot["start_time"]) / 86400
 gain_j = bot["profit"] / jours if jours > 0.001 else 0.0
 
@@ -42,44 +43,57 @@ c1, c2, c3 = st.columns(3)
 c1.metric("🔥 XRP", f"{px:.4f}$")
 c2.metric("🔄 CYCLES", bot["cycles"])
 c3.metric("📅 / JOUR", f"{gain_j:.2f}$")
+
 st.metric("📈 NET PROFIT TOTAL", f"+{bot['profit']:.4f} $")
 st.write(f"💰 {u_free:.2f} USDC | 🪙 {x_free:.2f} XRP")
+
 st.divider()
 
-# --- 4. AJUSTEMENT EN DIRECT ---
+# --- 4. 📝 SECTION ORDRES RÉELS SUR KRAKEN ---
+st.subheader("📝 ORDRES ACTIFS SUR KRAKEN")
+try:
+    open_orders = k.fetch_open_orders('XRP/USDC')
+    if open_orders:
+        for o in open_orders:
+            color = "🟢" if o['side'] == 'buy' else "🔴"
+            st.code(f"{color} {o['side'].upper()} | {o['amount']} XRP à {o['price']}$ | ID: {o['id'][:8]}...")
+    else:
+        st.write("Aucun ordre ouvert sur Kraken.")
+except:
+    st.caption("Erreur lecture ordres Kraken...")
+
+st.divider()
+
+# --- 5. RÉGLAGES & AJUSTEMENT ---
 st.subheader("⚙️ Modifier la fourchette")
 col_in, col_out = st.columns(2)
 new_pa = col_in.number_input("ACHAT (IN)", value=bot["pa"], format="%.4f")
 new_pv = col_out.number_input("VENTE (OUT)", value=bot["pv"], format="%.4f")
 
-# SI LE BOT TOURNE ET QUE LES PRIX CHANGENT
 if bot["status"] == "ON":
     if new_pa != bot["pa"] or new_pv != bot["pv"]:
         if st.button("🔄 APPLIQUER LES NOUVEAUX PRIX", use_container_width=True, type="primary"):
             try:
-                # Mise à jour Achat
                 if bot["oid_buy"]:
                     try: k.cancel_order(bot["oid_buy"])
                     except: pass
+                if u_free > 5:
                     v_b = float(k.amount_to_precision('XRP/USDC', u_free / new_pa))
-                    if v_b > 5:
-                        res_b = k.create_limit_buy_order('XRP/USDC', v_b, new_pa, {'post-only': True})
-                        bot["oid_buy"] = res_b['id']
+                    res_b = k.create_limit_buy_order('XRP/USDC', v_b, new_pa, {'post-only': True})
+                    bot["oid_buy"] = res_b['id']
                 
-                # Mise à jour Vente
                 if bot["oid_sell"]:
                     try: k.cancel_order(bot["oid_sell"])
                     except: pass
-                    if x_free > 5:
-                        res_s = k.create_limit_sell_order('XRP/USDC', x_free, new_pv)
-                        bot["oid_sell"] = res_s['id']
+                if x_free > 5:
+                    res_s = k.create_limit_sell_order('XRP/USDC', x_free, new_pv)
+                    bot["oid_sell"] = res_s['id']
                 
                 bot["pa"], bot["pv"] = new_pa, new_pv
-                st.toast("✅ Kraken mis à jour !")
                 st.rerun()
             except Exception as e: st.error(f"Erreur MAJ: {e}")
 
-# --- 5. BOUTON START / STOP ---
+# --- 6. BOUTONS START / STOP ---
 if bot["status"] == "OFF":
     if st.button("🚀 LANCER LE BOT", use_container_width=True, type="primary"):
         bot.update({"status": "ON", "pa": new_pa, "pv": new_pv})
@@ -100,7 +114,7 @@ else:
         bot.update({"status": "OFF", "oid_buy": None, "oid_sell": None})
         st.rerun()
 
-# --- 6. MOTEUR ---
+# --- 7. MOTEUR ---
 if bot["status"] == "ON":
     @st.fragment(run_every=15)
     def engine():
