@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="XRP BOT SYNC", layout="centered")
+st.set_page_config(page_title="XRP TARGET BOT", layout="centered")
 
 @st.cache_resource
 def init_kraken():
@@ -23,7 +23,7 @@ if 'bot' not in st.session_state:
     st.session_state.bot = {
         "status": "OFF", "pa": 1.4000, "pv": 1.4500, 
         "oid": None, "cycles": 0, "profit_total": 0.0, 
-        "last_vol": 0.0, "start_time": time.time(), "last_price": 0.0
+        "last_vol": 0.0, "last_price": 0.0
     }
 
 def sync_active_order():
@@ -43,63 +43,66 @@ def sync_active_order():
     return False
 
 if st.session_state.bot["status"] == "OFF":
-    if sync_active_order():
-        st.rerun()
+    if sync_active_order(): st.rerun()
 
-st.title("🏓 XRP Ping-Pong Live")
+st.title("🏓 XRP Ping-Pong")
 
-# --- 3. DASHBOARD LIVE ---
+# --- 3. AFFICHAGE DES CIBLES (PARTIE PRINCIPALE) ---
 def draw_ui():
     try:
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
-        bal = kraken.fetch_balance()
         bot = st.session_state.bot
         
-        # Ligne 1 : Prix Live et Profit
-        c1, c2, c3 = st.columns(3)
+        # En-tête : Prix actuel et Cycles
+        c1, c2 = st.columns(2)
         c1.metric("🔥 PRIX XRP", f"{px:.4f} $")
-        c2.metric("📈 PROFIT", f"+{bot['profit_total']:.4f} $")
-        c3.metric("🔄 CYCLES", bot["cycles"])
+        c2.metric("🔄 CYCLES RÉUSSIS", bot["cycles"])
         
-        # NOUVELLE LIGNE : Cibles de prix
         st.divider()
-        g1, g2 = st.columns(2)
-        
-        # On affiche la cible d'achat ou de vente selon le statut
-        if bot["status"] == "ACHAT":
-            g1.metric("🎯 CIBLE ACHAT", f"{bot['pa']:.4f} $", delta=f"{px - bot['pa']:.4f}", delta_color="inverse")
-            g2.info("Attente du prix bas pour acheter")
-        elif bot["status"] == "VENTE":
-            g1.metric("🎯 CIBLE VENTE", f"{bot['pv']:.4f} $", delta=f"{bot['pv'] - px:.4f}")
-            g2.info(f"Vente de {bot['last_vol']:.2f} XRP dès que le prix monte")
-        else:
-            g1.write("Bot en pause")
 
-        # Ligne 3 : Portefeuille
-        u_free = bal['free'].get('USDC', 0)
-        x_free = bal['free'].get('XRP', 0)
-        st.caption(f"💰 USDC: {u_free:.2f} | 🪙 XRP: {x_free:.2f}")
-    except: 
-        st.warning("⚠️ Connexion Kraken...")
+        # AFFICHAGE DE LA CIBLE ACTIVE
+        if bot["status"] == "VENTE":
+            diff = bot['pv'] - px
+            st.subheader("🎯 CIBLE DE VENTE")
+            st.metric("PRIX DE VENTE FIXÉ", f"{bot['pv']:.4f} $", delta=f"Reste {diff:.4f} $", delta_color="normal")
+            st.progress(max(0.0, min(1.0, 1.0 - (diff / (bot['pv'] - bot['pa'])))) if (bot['pv']-bot['pa']) != 0 else 0.5)
+            st.write(f"📦 Volume en vente : **{bot['last_vol']:.2f} XRP**")
+            
+        elif bot["status"] == "ACHAT":
+            diff = px - bot['pa']
+            st.subheader("🎯 CIBLE D'ACHAT")
+            st.metric("PRIX D'ACHAT FIXÉ", f"{bot['pa']:.4f} $", delta=f"Reste {diff:.4f} $", delta_color="inverse")
+            st.info("Le bot attend que le prix baisse pour racheter 'All-In'.")
+            
+        else:
+            st.warning("⚠️ BOT À L'ARRÊT")
+
+        st.divider()
+        st.metric("📈 PROFIT NET TOTAL", f"+{bot['profit_total']:.4f} $")
+            
+    except: st.warning("Connexion Kraken...")
 
 draw_ui()
 
-# --- 4. RÉGLAGES ---
-with st.expander("⚙️ RÉGLER LES PRIX", expanded=(st.session_state.bot["status"] == "OFF")):
+# --- 4. RÉGLAGES ET BOUTONS ---
+with st.expander("⚙️ MODIFIER LES PRIX CIBLES"):
     col_in, col_out = st.columns(2)
-    p_achat = col_in.number_input("ACHAT À", value=st.session_state.bot["pa"], format="%.4f")
-    p_vente = col_out.number_input("VENTE À", value=st.session_state.bot["pv"], format="%.4f")
+    new_pa = col_in.number_input("Prix Achat", value=st.session_state.bot["pa"], format="%.4f")
+    new_pv = col_out.number_input("Prix Vente", value=st.session_state.bot["pv"], format="%.4f")
+    if st.button("Mettre à jour les prix"):
+        st.session_state.bot["pa"] = new_pa
+        st.session_state.bot["pv"] = new_pv
+        st.rerun()
 
-# --- 5. CONTRÔLE ---
 if st.session_state.bot["status"] == "OFF":
     if st.button("🚀 DÉMARRER LE BOT", use_container_width=True, type="primary"):
         try:
             bal = kraken.fetch_balance()
             usdc = bal['free'].get('USDC', 0)
-            vol = float(kraken.amount_to_precision('XRP/USDC', usdc / p_achat))
-            res = kraken.create_limit_buy_order('XRP/USDC', vol, p_achat, {'post-only': True})
-            st.session_state.bot.update({"status": "ACHAT", "pa": p_achat, "pv": p_vente, "oid": res['id'], "last_vol": vol})
+            vol = float(kraken.amount_to_precision('XRP/USDC', usdc / st.session_state.bot["pa"]))
+            res = kraken.create_limit_buy_order('XRP/USDC', vol, st.session_state.bot["pa"], {'post-only': True})
+            st.session_state.bot.update({"status": "ACHAT", "oid": res['id'], "last_vol": vol})
             st.rerun()
         except Exception as e: st.error(f"Erreur : {e}")
 else:
@@ -110,20 +113,18 @@ else:
         st.session_state.bot["status"] = "OFF"
         st.rerun()
 
-# --- 6. MOTEUR (FRAGMENT 15S) ---
+# --- 5. MOTEUR ---
 if st.session_state.bot["status"] != "OFF":
     @st.fragment(run_every=15)
     def engine():
         bot = st.session_state.bot
         try:
             order = kraken.fetch_order(bot["oid"], 'XRP/USDC')
-            
             if order['status'] == 'closed':
                 if bot["status"] == "ACHAT":
                     res = kraken.create_limit_sell_order('XRP/USDC', order['filled'], bot["pv"])
                     st.session_state.bot.update({"status": "VENTE", "oid": res['id'], "last_vol": order['filled']})
                     st.rerun()
-                
                 elif bot["status"] == "VENTE":
                     st.session_state.bot["profit_total"] += (bot["pv"] - bot["pa"]) * order['filled']
                     st.session_state.bot["cycles"] += 1
@@ -132,10 +133,5 @@ if st.session_state.bot["status"] != "OFF":
                     res = kraken.create_limit_buy_order('XRP/USDC', vol, bot["pa"], {'post-only': True})
                     st.session_state.bot.update({"status": "ACHAT", "oid": res['id'], "last_vol": vol})
                     st.rerun()
-            
-            st.caption(f"Dernière synchro : {datetime.now().strftime('%H:%M:%S')}")
-            
-        except Exception as e:
-            st.caption(f"Scan Kraken... {e}")
-
+        except: pass
     engine()
