@@ -22,7 +22,6 @@ st.markdown("""
     <style>
     .stApp { background-color: #F0F2F6 !important; }
     
-    /* Indicateur de scan live */
     .status-dot {
         height: 10px; width: 10px; background-color: #00FF00;
         border-radius: 50%; display: inline-block;
@@ -43,7 +42,10 @@ st.markdown("""
     .status-v { color: #28a745; font-weight: bold; width: 60px; }
     .status-a { color: #fd7e14; font-weight: bold; width: 60px; }
     .flash-box { background-color: #FFC107; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-cash { background-color: #EAECEE; color: #566573; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+    
+    /* STYLE POUR LES CYCLES SUR LA LIGNE */
+    .badge-cycle { background-color: #EAECEE; color: #1B2631; padding: 1px 10px; border-radius: 3px; font-size: 11px; font-weight: 900; border: 1px solid #D5D8DC; }
+    
     .bot-id { color: #2C3E50; font-weight: bold; width: 50px; }
     </style>
     """, unsafe_allow_html=True)
@@ -91,7 +93,6 @@ try:
     bal = kraken.fetch_balance() if kraken else {}
     cash = bal.get('USDC', {}).get('free', 0.0)
 
-    # Titre avec indicateur de scan
     st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
@@ -100,7 +101,6 @@ try:
     c3.metric("CASH DISPO", f"{cash:.2f} $")
     st.divider()
 
-    # --- FILTRAGE : UNIQUEMENT ACTIFS ---
     actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 
     if not actifs:
@@ -116,7 +116,7 @@ try:
                     <span class="bot-id">{name}</span>
                     <span class="{cl}">{st_lab}</span>
                     <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
-                    <span class="badge-cash">CASH: {cash:.2f}$</span>
+                    <span class="badge-cycle">{bot.get("cycles", 0)} CYCLES</span>
                     <span class="flash-box">{bot["budget"] + bot["gain"]:.2f} $</span>
                 </div>''', unsafe_allow_html=True)
 except:
