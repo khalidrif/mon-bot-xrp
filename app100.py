@@ -35,6 +35,7 @@ bal = k.fetch_balance()
 u_free = bal['free'].get('USDC', 0.0)
 x_free = bal['free'].get('XRP', 0.0)
 
+# Gain par jour
 jours = (time.time() - bot["start_time"]) / 86400
 gain_j = bot["profit"] / jours if jours > 0.001 else 0.0
 
@@ -46,7 +47,20 @@ st.metric("📈 NET PROFIT TOTAL", f"+{bot['profit']:.4f} $")
 st.write(f"💰 {u_free:.2f} USDC | 🪙 {x_free:.2f} XRP")
 st.divider()
 
-# --- 4. AJUSTEMENT ---
+# --- 4. FONCTION SÉCURISÉE POUR PLACER ORDRES ---
+def safe_place_buy(amount_usdc, price):
+    if amount_usdc < 5.0: return None # Minimum ~5 USDC
+    vol = float(k.amount_to_precision('XRP/USDC', amount_usdc / price))
+    if vol < 5.0: return None # Minimum Kraken ~5 XRP
+    res = k.create_limit_buy_order('XRP/USDC', vol, price, {'post-only': True})
+    return res['id']
+
+def safe_place_sell(amount_xrp, price):
+    if amount_xrp < 5.0: return None # Minimum Kraken ~5 XRP
+    res = k.create_limit_sell_order('XRP/USDC', amount_xrp, price)
+    return res['id']
+
+# --- 5. AJUSTEMENT ---
 st.subheader("⚙️ Ajuster la fourchette")
 col_in, col_out = st.columns(2)
 new_pa = col_in.number_input("ACHAT (IN)", value=bot["pa"], format="%.4f")
@@ -56,38 +70,32 @@ if bot["status"] == "ON":
     if new_pa != bot["pa"] or new_pv != bot["pv"]:
         if st.button("🔄 APPLIQUER LES NOUVEAUX PRIX", use_container_width=True):
             try:
-                # Mise à jour Achat (avec sécurité Unknown Order)
+                # Update ACHAT
                 if bot["oid_buy"]:
                     try: k.cancel_order(bot["oid_buy"])
-                    except: pass 
-                    v_b = float(k.amount_to_precision('XRP/USDC', u_free / new_pa))
-                    res_b = k.create_limit_buy_order('XRP/USDC', v_b, new_pa, {'post-only': True})
-                    bot["oid_buy"] = res_b['id']
+                    except: pass
+                bot["oid_buy"] = safe_place_buy(u_free, new_pa)
                 
-                # Mise à jour Vente (avec sécurité Unknown Order)
+                # Update VENTE
                 if bot["oid_sell"]:
                     try: k.cancel_order(bot["oid_sell"])
                     except: pass
-                    res_s = k.create_limit_sell_order('XRP/USDC', x_free, new_pv)
-                    bot["oid_sell"] = res_s['id']
+                bot["oid_sell"] = safe_place_sell(x_free, new_pv)
                 
                 bot["pa"], bot["pv"] = new_pa, new_pv
                 st.toast("✅ Prix mis à jour !")
                 st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
 
-# --- 5. BOUTON START / STOP ---
+# --- 6. START / STOP ---
 if bot["status"] == "OFF":
-    if st.button("🚀 LANCER LE BOT", use_container_width=True, type="primary"):
+    if st.button("🚀 DÉMARRER LE BOT", use_container_width=True, type="primary"):
         bot.update({"status": "ON", "pa": new_pa, "pv": new_pv})
-        if u_free > 5:
-            v_b = float(k.amount_to_precision('XRP/USDC', u_free / new_pa))
-            res_b = k.create_limit_buy_order('XRP/USDC', v_b, new_pa, {'post-only': True})
-            bot["oid_buy"] = res_b['id']
-        if x_free > 1:
-            res_s = k.create_limit_sell_order('XRP/USDC', x_free, new_pv)
-            bot["oid_sell"] = res_s['id']
-        st.rerun()
+        try:
+            bot["oid_buy"] = safe_place_buy(u_free, new_pa)
+            bot["oid_sell"] = safe_place_sell(x_free, new_pv)
+            st.rerun()
+        except Exception as e: st.error(f"Erreur Start : {e}")
 else:
     if st.button("🛑 ARRÊTER ET ANNULER", use_container_width=True):
         try:
@@ -99,7 +107,7 @@ else:
         bot.update({"status": "OFF", "oid_buy": None, "oid_sell": None})
         st.rerun()
 
-# --- 6. MOTEUR ---
+# --- 7. MOTEUR ---
 if bot["status"] == "ON":
     @st.fragment(run_every=15)
     def engine():
@@ -110,8 +118,8 @@ if bot["status"] == "ON":
                     try: k.cancel_order(bot["oid_sell"])
                     except: pass
                     bal_n = k.fetch_balance()
-                    res_s = k.create_limit_sell_order('XRP/USDC', bal_n['free'].get('XRP', 0), bot["pv"])
-                    bot.update({"oid_buy": None, "oid_sell": res_s['id']})
+                    bot["oid_sell"] = safe_place_sell(bal_n['free'].get('XRP', 0), bot["pv"])
+                    bot["oid_buy"] = None
                     st.rerun()
 
             if bot["oid_sell"]:
@@ -122,9 +130,8 @@ if bot["status"] == "ON":
                     try: k.cancel_order(bot["oid_buy"])
                     except: pass
                     bal_n = k.fetch_balance()
-                    v_new = float(k.amount_to_precision('XRP/USDC', bal_n['free'].get('USDC', 0) / bot["pa"]))
-                    res_b = k.create_limit_buy_order('XRP/USDC', v_new, bot["pa"], {'post-only': True})
-                    bot.update({"oid_buy": res_b['id'], "oid_sell": None})
+                    bot["oid_buy"] = safe_place_buy(bal_n['free'].get('USDC', 0), bot["pa"])
+                    bot["oid_sell"] = None
                     st.rerun()
         except: pass
     engine()
