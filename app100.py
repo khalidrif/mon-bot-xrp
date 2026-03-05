@@ -19,7 +19,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CONNEXION ET MÉMOIRE
+# 2. CONNEXION ET MÉMOIRE SÉCURISÉE
 kraken = get_kraken_connection()
 FILE_MEMOIRE = "etat_bots.json"
 
@@ -38,6 +38,10 @@ if 'bots' not in st.session_state:
     if memoire:
         st.session_state.bots = memoire.get("bots")
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
+        # SÉCURITÉ : Correction forcée pour éviter l'erreur 'last_id'
+        for name in st.session_state.bots:
+            if "last_id" not in st.session_state.bots[name]:
+                st.session_state.bots[name]["last_id"] = "NONE"
     else:
         st.session_state.bots = {f"Bot_{i+1}": {"status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0, "last_id": "NONE"} for i in range(100)}
         st.session_state.profit_total = 0.0
@@ -46,11 +50,16 @@ if 'bots' not in st.session_state:
 # --- SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚡ CMD RÉEL")
-    p_in_model = st.number_input("TARGET IN (ACHAT)", value=1.4440, format="%.4f")
-    p_out_model = st.number_input("TARGET OUT (VENTE)", value=1.4460, format="%.4f")
-    budget_base = st.number_input("BUDGET PAR BOT (USDC)", value=35.0)
+    p_in_model = st.number_input("TARGET IN", value=1.4440, format="%.4f")
+    p_out_model = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
+    budget_base = st.number_input("BASE USDC", value=35.0)
     
-    if st.button("🛑 STOP TOUS LES BOTS"):
+    col_a, col_b = st.columns(2)
+    if col_a.button("🚨 RESET"):
+        st.session_state.profit_total = 0.0
+        for b in st.session_state.bots: st.session_state.bots[b].update({"gain": 0.0, "cycles": 0, "last_id": "NONE"})
+        sauvegarder_donnees(st.session_state.bots, 0.0); st.rerun()
+    if col_b.button("🛑 STOP ALL"):
         for b in st.session_state.bots: st.session_state.bots[b].update({"status": "LIBRE", "last_id": "NONE"})
         sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total); st.rerun()
 
@@ -97,37 +106,27 @@ while True:
                 val_snow = budget_base + bot['gain']
                 vol = float(kraken.amount_to_precision('XRP/USDC', val_snow / px))
                 
-                # --- LOGIQUE ACHAT RÉEL ---
-                if bot["status"] == "ACHAT":
-                    if px <= bot["p_achat"]:
-                        try:
-                            # 'post-only' force l'affichage dans le carnet d'ordre
-                            order = kraken.create_limit_buy_order('XRP/USDC', vol, bot["p_achat"], {'post-only': True})
-                            st.session_state.bots[name].update({"status": "VENTE", "last_id": order['id']})
-                            st.success(f"🔥 ORDRE ACHAT PLACÉ : {name} (ID: {order['id']})")
-                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                        except Exception as e:
-                            if "Post-only" in str(e):
-                                st.warning(f"⚠️ {name} : Prix trop proche, l'ordre sera replacé au prochain cycle.")
-                            else:
-                                st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:50]}")
-                    else:
-                        st.info(f"⏳ {name} attend prix <= {bot['p_achat']:.4f}")
-
-                # --- LOGIQUE VENTE RÉELLE ---
-                elif bot["status"] == "VENTE":
-                    if px >= bot["p_vente"]:
-                        try:
-                            order = kraken.create_limit_sell_order('XRP/USDC', vol, bot["p_vente"], {'post-only': True})
-                            g = (bot["p_vente"] - bot["p_achat"]) * vol
-                            st.session_state.profit_total += g
-                            st.session_state.bots[name].update({"gain": bot["gain"]+g, "cycles": bot["cycles"]+1, "status": "ACHAT", "last_id": order['id']})
-                            st.success(f"💰 VENTE RÉUSSIE : {name} (ID: {order['id']})")
-                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                        except Exception as e:
-                            st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:50]}")
-                    else:
-                        st.info(f"⏳ {name} attend prix >= {bot['p_vente']:.4f}")
+                # --- ACHAT ---
+                if bot["status"] == "ACHAT" and px <= bot["p_achat"]:
+                    try:
+                        order = kraken.create_limit_buy_order('XRP/USDC', vol, bot["p_achat"], {'post-only': True})
+                        st.session_state.bots[name].update({"status": "VENTE", "last_id": order['id']})
+                        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                        st.success(f"🔥 ACHAT PLACÉ : {name} ID {order['id']}")
+                    except Exception as e:
+                        st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:50]}")
+                
+                # --- VENTE ---
+                elif bot["status"] == "VENTE" and px >= bot["p_vente"]:
+                    try:
+                        order = kraken.create_limit_sell_order('XRP/USDC', vol, bot["p_vente"], {'post-only': True})
+                        g = (bot["p_vente"] - bot["p_achat"]) * vol
+                        st.session_state.profit_total += g
+                        st.session_state.bots[name].update({"gain": bot["gain"]+g, "cycles": bot["cycles"]+1, "status": "ACHAT", "last_id": order['id']})
+                        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                        st.success(f"💰 VENTE RÉUSSIE : {name} ID {order['id']}")
+                    except Exception as e:
+                        st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:50]}")
                 
                 sc = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
                 st.markdown(f'''
@@ -135,7 +134,7 @@ while True:
                         <span>{name} <span class="order-id">[{bot['last_id']}]</span></span>
                         <span style="color:{sc}; font-weight:bold;">{bot["status"]}</span>
                         <span>{bot["p_achat"]}->{bot["p_vente"]}</span>
-                        <span class="flash-box">{val_snow:.2f} USDC</span>
+                        <span class="flash-box">{val_snow:.2f}$</span>
                     </div>''', unsafe_allow_html=True)
                 time.sleep(0.1)
             
@@ -143,5 +142,4 @@ while True:
     except Exception as e:
         if "Rate limit" in str(e): time.sleep(30)
         else: st.write(f"SYSTEM ERROR: {str(e)[:50]}")
-    
     time.sleep(10)
