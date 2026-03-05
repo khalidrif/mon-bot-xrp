@@ -15,12 +15,15 @@ except ImportError:
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# --- 2. CONFIG & REFRESH ---
+# --- 2. CONFIG & REFRESH (15s) ---
 st.set_page_config(page_title="XRP AUTO-PILOT PRO", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") 
 
-FILE_MEMOIRE = "etat_bots.json"
+# COMPTEUR DE TEMPS (SESSION)
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = time.time()
 
+FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder(bots, total, histo):
     with open(FILE_MEMOIRE, "w") as f: 
         json.dump({"bots": bots, "profit_total": total, "historique": histo}, f)
@@ -50,17 +53,20 @@ try:
 except:
     st.sidebar.error("⚠️ API Kraken Error")
 
-# --- 5. STYLE ---
-st.markdown("""
+# --- 5. STYLE (PROFIT VERT FLASH) ---
+profit_color = "#00FF00" if st.session_state.profit_total > 0 else "#0070FF"
+
+st.markdown(f"""
     <style>
-    .stApp { background-color: #F0F2F6 !important; }
-    .status-dot { height: 10px; width: 10px; background-color: #00FF00; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #00FF00; animation: blinker 1.5s linear infinite; margin-right: 10px; }
-    @keyframes blinker { 50% { opacity: 0; } }
-    .bot-line { border-bottom: 1px solid #E6E9EF; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; background-color: #FFFFFF; margin-bottom: 2px; border-radius: 5px; font-size: 13px; }
-    .status-v { color: #28a745; font-weight: bold; width: 60px; }
-    .status-a { color: #fd7e14; font-weight: bold; width: 60px; }
-    .flash-box { background-color: #FFC107; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-cycle { background-color: #007bff; color: white; padding: 1px 8px; border-radius: 3px; font-size: 11px; }
+    .stApp {{ background-color: #F0F2F6 !important; }}
+    .status-dot {{ height: 10px; width: 10px; background-color: #00FF00; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #00FF00; animation: blinker 1.5s linear infinite; margin-right: 10px; }}
+    @keyframes blinker {{ 50% {{ opacity: 0; }} }}
+    [data-testid="stMetricValue"] {{ color: {profit_color} !important; font-weight: 900 !important; }}
+    .bot-line {{ border-bottom: 1px solid #E6E9EF; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; background-color: #FFFFFF; margin-bottom: 2px; border-radius: 5px; font-size: 13px; }}
+    .status-v {{ color: #28a745; font-weight: bold; width: 60px; }}
+    .status-a {{ color: #fd7e14; font-weight: bold; width: 60px; }}
+    .flash-box {{ background-color: #FFC107; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; }}
+    .badge-cycle {{ background-color: #007bff; color: white; padding: 1px 8px; border-radius: 3px; font-size: 11px; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -120,19 +126,21 @@ if kraken:
                     except: pass
     except: st.caption("🔄 Synchro...")
 
-# --- 8. AFFICHAGE AVEC BOUTON ANNULER ---
-st.markdown(f'<h3><span class="status-dot"></span>TERMINAL AUTO-PILOT</h3>', unsafe_allow_html=True)
+# --- 8. AFFICHAGE ---
+uptime = int((time.time() - st.session_state.start_time) / 60)
+st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE <span style="font-size:12px; color:#888;">UPTIME: {uptime}m</span></h3>', unsafe_allow_html=True)
+
 c1, c2, c3 = st.columns(3)
 c1.metric("PRIX XRP", f"{px:.4f} $")
 c2.metric("NET PROFIT", f"+{st.session_state.profit_total:.4f} $")
 c3.metric("WALLET TOTAL", f"{cash_total:.2f} $")
 st.divider()
 
+# Liste des bots actifs
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 for name in actifs:
     bot = st.session_state.bots[name]
-    col_info, col_btn = st.columns([0.9, 0.1])
-    
+    col_info, col_btn = st.columns([0.92, 0.08])
     with col_info:
         st.markdown(f'''
             <div class="bot-line">
@@ -142,8 +150,6 @@ for name in actifs:
                 <span class="badge-cycle">{bot.get("cycles",0)} CYC</span>
                 <span class="flash-box">{bot["budget"] + bot.get("gain",0):.2f} $</span>
             </div>''', unsafe_allow_html=True)
-    
-    # BOUTON ANNULER INDIVIDUEL
     if col_btn.button("❌", key=f"del_{name}"):
         try:
             if bot["oid"] != "NONE": kraken.cancel_order(bot["oid"])
@@ -151,3 +157,9 @@ for name in actifs:
         st.session_state.bots[name].update({"status": "LIBRE", "oid": "NONE"})
         sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique)
         st.rerun()
+
+if st.session_state.historique:
+    st.write("---")
+    st.write("📊 **DERNIERS PROFITS**")
+    for event in st.session_state.historique[:5]:
+        st.markdown(f'<div class="histo-line">{event}</div>', unsafe_allow_html=True)
