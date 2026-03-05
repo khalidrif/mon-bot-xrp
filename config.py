@@ -8,25 +8,22 @@ def get_kraken_connection():
         api_key = st.secrets["KRAKEN_KEY"].strip()
         api_secret = st.secrets["KRAKEN_SECRET"].strip()
         
-        # Réparation forcée du padding (au cas où)
+        # Réparation forcée du padding Base64
         api_secret = api_secret.replace('"', '').replace("'", "").replace(" ", "")
         while len(api_secret) % 4 != 0:
             api_secret += '='
 
-        # Configuration de l'objet Kraken
-        exchange = ccxt.kraken({
+        return ccxt.kraken({
             'apiKey': api_key,
             'secret': api_secret,
             'enableRateLimit': True,
-            'timeout': 30000, # 30 secondes pour éviter les déconnexions
+            'timeout': 30000,
             'options': {
                 'nonce': lambda: str(int(time.time() * 1000)),
-                'fetchMinOrderAmounts': False  # Correction erreur "markets not loaded"
+                'nonceWindow': 5000,  # Évite les erreurs "Invalid Nonce"
+                'fetchMinOrderAmounts': False 
             }
         })
-        
-        return exchange
-
     except Exception as e:
-        st.error(f"ERREUR CONFIGURATION : {e}")
+        st.error(f"ERREUR CONFIG : {e}")
         return None
