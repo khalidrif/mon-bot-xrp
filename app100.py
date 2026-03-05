@@ -14,15 +14,27 @@ import os
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# 1. STYLE CLAIR & PRO (PAS DE NOIR)
+# 1. STYLE CLAIR & INDICATEUR LIVE
 st.set_page_config(page_title="XRP Terminal Pro", layout="wide")
-st_autorefresh(interval=15000, key="datarefresh") # Refresh auto 15s
+st_autorefresh(interval=15000, key="datarefresh") 
 
 st.markdown("""
     <style>
     .stApp { background-color: #F0F2F6 !important; }
+    
+    /* Indicateur de scan live */
+    .status-dot {
+        height: 10px; width: 10px; background-color: #00FF00;
+        border-radius: 50%; display: inline-block;
+        box-shadow: 0 0 8px #00FF00;
+        animation: blinker 1.5s linear infinite;
+        margin-right: 10px;
+    }
+    @keyframes blinker { 50% { opacity: 0; } }
+
     [data-testid="stMetric"] { background-color: #FFFFFF !important; border: 1px solid #DDE1E7; border-radius: 8px; padding: 15px; }
     [data-testid="stMetricValue"] { color: #0070FF !important; font-size: 24px !important; font-weight: 800 !important; }
+    
     .bot-line { 
         border-bottom: 1px solid #E6E9EF; padding: 12px 10px; display: flex; 
         justify-content: space-between; align-items: center; background-color: #FFFFFF;
@@ -79,18 +91,20 @@ try:
     bal = kraken.fetch_balance() if kraken else {}
     cash = bal.get('USDC', {}).get('free', 0.0)
 
-    st.title("🖥️ TERMINAL XRP LIVE")
+    # Titre avec indicateur de scan
+    st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
+    
     c1, c2, c3 = st.columns(3)
     c1.metric("PRIX XRP", f"{px:.4f} $")
     c2.metric("GAIN TOTAL", f"+{st.session_state.profit_total:.4f} $")
     c3.metric("CASH DISPO", f"{cash:.2f} $")
     st.divider()
 
-    # --- FILTRAGE : ON N'AFFICHE QUE LES BOTS ACTIFS ---
+    # --- FILTRAGE : UNIQUEMENT ACTIFS ---
     actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 
     if not actifs:
-        st.info("Aucun bot n'est lancé. Utilisez la barre latérale pour démarrer.")
+        st.info("Aucun bot actif. Utilisez la barre latérale pour démarrer.")
     else:
         for name in actifs:
             bot = st.session_state.bots[name]
