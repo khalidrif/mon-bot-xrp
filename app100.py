@@ -7,7 +7,7 @@ import os
 from config import get_kraken_connection
 
 # 1. STYLE "BLOOMBERG HIGH-CONTRAST"
-st.set_page_config(page_title="XRP Bloomberg Contrast", layout="wide")
+st.set_page_config(page_title="XRP Bloomberg Live", layout="wide")
 st.markdown("""
     <style>
     .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
@@ -44,13 +44,13 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire.get("bots", {}))
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- SIDEBAR ---
+# --- SIDEBAR CMD ---
 with st.sidebar:
     st.header("CMD")
     mode_reel = st.toggle("LIVE TRADING (OFF = TEST)", value=False)
     p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
     p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
-    budget_base = st.number_input("BASE USD", value=10.0)
+    budget_base = st.number_input("BASE USDC", value=10.0)
     st.divider()
     for i in range(100):
         name = f"Bot_{i+1}"
@@ -74,13 +74,16 @@ live = st.empty()
 
 while True:
     try:
+        # Récupération Prix et Balance USDC réelle
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
+        balance = kraken.fetch_balance()
+        bankroll_usdc = balance.get('USDC', {}).get('free', 0.0)
         
         with live.container():
             st.write(f"### MARKET FEED - XRP/USDC")
             c1, c2, c3 = st.columns(3)
-            c1.metric("BANKROLL", "ACTIF")
+            c1.metric("BANKROLL (USDC)", f"{bankroll_usdc:.2f}")
             c2.metric("XRP PRICE", f"{px:.4f}")
             c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
             st.divider()
@@ -97,8 +100,8 @@ while True:
                         <span class="bot-id">#{i+1:02d}</span>
                         <span style="color:{status_color}; font-weight:bold;">{bot["status"]}</span>
                         <span><span class="p-in">{bot["p_achat"]}</span> → <span class="p-out">{bot["p_vente"]}</span></span>
-                        <span class="flash-box">{val_snow:.2f}$</span>
-                        <span class="flash-box">{bot["cycles"]}</span>
+                        <span class="flash-box">{val_snow:.2f} USDC</span>
+                        <span class="flash-box">{bot["cycles"]} CYCLES</span>
                     </div>
                     ''', unsafe_allow_html=True)
                     
@@ -110,8 +113,8 @@ while True:
                             try:
                                 kraken.create_limit_buy_order('XRP/USDC', volume_xrp, bot["p_achat"])
                                 st.session_state.bots[name].update({"status": "VENTE"})
-                                st.toast(f"LIVE: Achat Bot {i+1} @ {bot['p_achat']}")
-                            except Exception as e: st.error(f"Err Achat #{i+1}: {e}")
+                                st.toast(f"LIVE BUY: Bot {i+1} @ {bot['p_achat']}")
+                            except Exception as e: st.error(f"Err Achat Bot {i+1}: {e}")
 
                         elif bot["status"] == "VENTE" and px >= bot["p_vente"]:
                             try:
@@ -121,12 +124,12 @@ while True:
                                 st.session_state.bots[name]["gain"] += g
                                 st.session_state.bots[name]["cycles"] += 1
                                 st.session_state.bots[name].update({"status": "ACHAT"})
-                                st.toast(f"LIVE: Vente Bot {i+1} +{g:.2f}$")
-                            except Exception as e: st.error(f"Err Vente #{i+1}: {e}")
+                                st.toast(f"LIVE SELL: Bot {i+1} +{g:.2f} USDC")
+                            except Exception as e: st.error(f"Err Vente Bot {i+1}: {e}")
                     
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
 
     except Exception as e:
-        st.write(f"SYSTEM: {str(e)[:50]}")
+        st.write(f"SYSTEM ERROR: {str(e)[:50]}")
     
     time.sleep(5)
