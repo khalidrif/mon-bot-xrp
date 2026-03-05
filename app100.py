@@ -1,4 +1,4 @@
-   import streamlit as st
+import streamlit as st
 import sys
 import json
 import os
@@ -163,4 +163,3 @@ if st.session_state.historique:
     st.write("📊 **JOURNAL DES PROFITS**")
     for event in st.session_state.historique:
         st.markdown(f'<div class="histo-line">{event}</div>', unsafe_allow_html=True)
-
