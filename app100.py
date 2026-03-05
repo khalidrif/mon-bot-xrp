@@ -7,13 +7,13 @@ import os
 try:
     import ccxt
 except ImportError:
-    st.error("Module CCXT manquant. Vérifie requirements.txt")
+    st.error("Module CCXT manquant. Vérifiez requirements.txt")
     st.stop()
 
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# 1. CONFIG & REFRESH 15s
+# 1. CONFIGURATION & REFRESH 15s
 st.set_page_config(page_title="XRP Terminal Pro", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") 
 
@@ -28,6 +28,7 @@ def charger():
         except: return None
     return None
 
+# INITIALISATION MÉMOIRE
 if 'bots' not in st.session_state:
     mem = charger()
     if mem:
@@ -37,12 +38,12 @@ if 'bots' not in st.session_state:
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
         st.session_state.profit_total = 0.0
 
-# 2. CONNEXION KRAKEN (SÉCURISÉE)
+# 2. CONNEXION KRAKEN
 kraken = None
 try:
     kraken = get_kraken_connection()
 except Exception as e:
-    st.sidebar.error(f"Erreur Connexion: {e}")
+    st.sidebar.error("Clés API non configurées dans les Secrets")
 
 # --- STYLE CSS ---
 st.markdown("""
@@ -78,21 +79,28 @@ with st.sidebar:
                 st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
-# --- RÉCUPÉRATION DONNÉES LIVE ---
+# --- RÉCUPÉRATION DONNÉES LIVE & SURVEILLANCE ---
 px, cash = 0.0, 0.0
 if kraken:
     try:
+        # 1. Charger les marchés
         if not kraken.markets: kraken.load_markets()
+        
+        # 2. Ticker
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
+        
+        # 3. Balance
         bal = kraken.fetch_balance()
         cash = bal.get('USDC', {}).get('free', 0.0)
 
-        # SURVEILLANCE DES ORDRES
+        # 4. SURVEILLANCE DES ORDRES ACTIFS
         for name, bot in st.session_state.bots.items():
             if bot["status"] != "LIBRE" and bot["oid"] != "NONE":
                 try:
                     order = kraken.fetch_order(bot["oid"])
+                    
+                    # SI ACHAT FINI -> PLACER VENTE
                     if order['status'] == 'closed' and bot["status"] == "ACHAT":
                         vol_v = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"]+bot["gain"])/bot["pa"]))
                         pv_f = float(kraken.price_to_precision('XRP/USDC', bot["pv"]))
@@ -100,6 +108,7 @@ if kraken:
                         st.session_state.bots[name].update({"status": "VENTE", "oid": v_res['id']})
                         sauvegarder(st.session_state.bots, st.session_state.profit_total)
                     
+                    # SI VENTE FINIE -> PROFIT + CYCLE
                     elif order['status'] == 'closed' and bot["status"] == "VENTE":
                         profit = (bot["pv"] - bot["pa"]) * (bot["budget"]/bot["pa"])
                         st.session_state.profit_total += profit
@@ -107,7 +116,7 @@ if kraken:
                         sauvegarder(st.session_state.bots, st.session_state.profit_total)
                 except: pass
     except Exception as e:
-        st.warning("Erreur lecture Kraken (Markets/Ticker)")
+        st.warning("🔄 Actualisation des données Kraken...")
 
 # --- AFFICHAGE ---
 st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
@@ -119,14 +128,15 @@ st.divider()
 
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 if not actifs:
-    st.info("Aucun bot actif. Utilisez la barre latérale pour démarrer.")
+    st.info("Utilisez la barre latérale pour démarrer un bot.")
 else:
     for name in actifs:
         bot = st.session_state.bots[name]
+        cl = "status-v" if bot["status"] == "VENTE" else "status-a"
         st.markdown(f'''
             <div class="bot-line">
                 <b style="color:#2C3E50;">{name}</b>
-                <span class="{"status-v" if bot["status"] == "VENTE" else "status-a"}">{bot["status"]}</span>
+                <span class="{cl}">{bot["status"]}</span>
                 <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
                 <span class="badge-cycle">{bot["cycles"]} CYCLES</span>
                 <span class="flash-box">{bot["budget"] + bot["gain"]:.2f} $</span>
