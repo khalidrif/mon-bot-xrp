@@ -1,76 +1,46 @@
 import streamlit as st
-import time
 import json
 import os
 
-# 1. CONFIGURATION ET STYLE (DOIT ÊTRE EN HAUT)
+# 1. STYLE CLAIR (PAS NOIR)
 st.set_page_config(page_title="XRP 100 BOTS", layout="wide")
 st.markdown("""
     <style>
-    .stApp { background-color: #000000 !important; }
-    .main-title { color: #FFFF00; font-family: 'Courier New', monospace; text-align: center; border-bottom: 2px solid #222; padding: 10px; }
     .bot-line { 
-        border-bottom: 1px solid #111; 
-        padding: 6px; 
+        border-bottom: 1px solid #eee; 
+        padding: 8px; 
         display: flex; 
         justify-content: space-between; 
-        color: #FFFFFF;
-        font-family: 'Courier New', monospace;
-        font-size: 13px;
+        font-family: monospace;
     }
-    .flash-box { background-color: #FFFF00; color: #000; padding: 0 6px; font-weight: bold; border-radius: 2px; }
-    .status-idle { color: #444; }
-    .status-on { color: #00FF00; font-weight: bold; }
+    .flash-box { background-color: #ffc107; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. INITIALISATION MÉMOIRE SANS KRAKEN
-if 'bots' not in st.session_state:
-    # ON FORCE LA CRÉATION DES 100 BOTS EN MÉMOIRE
-    st.session_state.bots = {f"B{i+1}": {"status": "IDLE", "pa": 0.0, "pv": 0.0, "budget": 25.0} for i in range(100)}
-    st.session_state.net_gain = 0.0
+# 2. INITIALISATION FORCÉE À 100
+# On ne regarde pas le fichier JSON pour l'instant, on force 100 en mémoire
+if 'bots' not in st.session_state or len(st.session_state.bots) < 100:
+    st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 1.40, "pv": 1.45, "budget": 25.0} for i in range(100)}
 
-# --- INTERFACE VISIBLE ---
-st.markdown('<div class="main-title"><h1>XRP BLOOMBERG TERMINAL - 100 BOTS</h1></div>', unsafe_allow_html=True)
-
-# SIDEBAR DE CONTRÔLE
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚡ CMD CENTER")
-    p_in = st.number_input("TARGET IN", value=1.4000, format="%.4f")
-    p_out = st.number_input("TARGET OUT", value=1.4500, format="%.4f")
-    if st.button("🚨 RESET FORCE 100"):
-        st.session_state.bots = {f"B{i+1}": {"status": "IDLE", "pa": 0.0, "pv": 0.0, "budget": 25.0} for i in range(100)}
+    st.header("⚡ CMD")
+    if st.button("🚨 RESET TOTAL (FORCE 100)"):
+        st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 1.40, "pv": 1.45, "budget": 25.0} for i in range(100)}
         st.rerun()
 
-# 3. AFFICHAGE DES 100 LIGNES (SÉCURISÉ)
-# On utilise un conteneur pour les metrics
-c1, c2 = st.columns(2)
-c1.metric("BANKROLL DISPO", "Chargement...")
-c2.metric("NET GAIN TOTAL", f"+{st.session_state.net_gain:.4f}")
+# --- AFFICHAGE DES 100 ---
+st.title("🖥️ TERMINAL XRP - 100 BOTS")
 
-st.write("---")
-
-# BOUCLE D'AFFICHAGE DES 100 LIGNES
+# Boucle stricte de 1 à 100
 for i in range(100):
     name = f"B{i+1}"
     bot = st.session_state.bots[name]
-    
     st.markdown(f'''
         <div class="bot-line">
-            <span style="color:#666; width:50px;">{name}</span>
-            <span class="status-idle">{bot["status"]}</span>
-            <span style="color:#333;">{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
-            <span class="flash-box">{bot["budget"]:.2f} $</span>
+            <span style="font-weight:bold; width:50px;">{name}</span>
+            <span style="color:#888; width:100px;">{bot["status"]}</span>
+            <span>{bot["pa"]} → {bot["pv"]}</span>
+            <span class="flash-box">25.00 $</span>
         </div>
     ''', unsafe_allow_html=True)
-
-# 4. CHARGEMENT DE KRAKEN (APRÈS L'AFFICHAGE)
-try:
-    from config import get_kraken_connection
-    import ccxt
-    kraken = get_kraken_connection()
-    if kraken:
-        ticker = kraken.fetch_ticker('XRP/USDC')
-        st.sidebar.success(f"✅ LIVE: {ticker['last']}")
-except Exception as e:
-    st.sidebar.error(f"Connexion Kraken en attente...")
