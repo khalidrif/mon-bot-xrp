@@ -1,19 +1,19 @@
-
 import ccxt
-import streamlit as st
+import time
+import os
 
 def get_kraken_connection():
-    # Connexion sécurisée via les Secrets Streamlit
-    exchange = ccxt.kraken({
-        'apiKey': st.secrets["API_KEY"],
-        'secret': st.secrets["API_SECRET"],
-        'enableRateLimit': True,
-        'timeout': 60000,
+    # Récupère les clés depuis tes Secrets GitHub ou Variables d'environnement
+    # Assure-toi que les noms correspondent (KRAKEN_KEY et KRAKEN_SECRET)
+    api_key = os.getenv('KRAKEN_KEY') 
+    api_secret = os.getenv('KRAKEN_SECRET')
+
+    return ccxt.kraken({
+        'apiKey': api_key,
+        'secret': api_secret,
+        'enableRateLimit': True, # Évite d'être banni par Kraken pour trop de requêtes
+        'options': {
+            # Génère un numéro unique (nonce) basé sur les millisecondes
+            'nonce': lambda: str(int(time.time() * 1000)) 
+        }
     })
-    
-    # FORCE LE CHARGEMENT (Règle ton erreur précédente)
-    exchange.load_markets() 
-    
-    return exchange
-
-
