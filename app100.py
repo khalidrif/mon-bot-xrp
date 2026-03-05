@@ -5,21 +5,11 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "BLOOMBERG HIGH-CONTRAST"
-st.set_page_config(page_title="XRP Bloomberg FORCE RÉELLE", layout="wide")
-st.markdown("""
-    <style>
-    .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
-    [data-testid="stMetric"] { background-color: #FFFFFF !important; border-radius: 4px; padding: 10px; }
-    [data-testid="stMetricValue"] { color: #000000 !important; font-size: 20px !important; font-weight: 900 !important; }
-    [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 12px !important; font-weight: bold !important; }
-    .bot-line { border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 6px; border-radius: 2px; font-weight: 900; font-size: 13px; }
-    .order-id { color: #555555; font-size: 10px; font-style: italic; }
-    </style>
-    """, unsafe_allow_html=True)
+# 1. STYLE BLOOMBERG
+st.set_page_config(page_title="XRP Bloomberg FINAL", layout="wide")
+st.markdown("<style>.main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }</style>", unsafe_allow_html=True)
 
-# 2. CONNEXION ET MÉMOIRE SÉCURISÉE
+# 2. CONNEXION
 kraken = get_kraken_connection()
 FILE_MEMOIRE = "etat_bots.json"
 
@@ -38,30 +28,22 @@ if 'bots' not in st.session_state:
     if memoire:
         st.session_state.bots = memoire.get("bots")
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
-        # SÉCURITÉ : Correction forcée pour éviter l'erreur 'last_id'
-        for name in st.session_state.bots:
-            if "last_id" not in st.session_state.bots[name]:
-                st.session_state.bots[name]["last_id"] = "NONE"
     else:
-        st.session_state.bots = {f"Bot_{i+1}": {"status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0, "last_id": "NONE"} for i in range(100)}
+        st.session_state.bots = {f"Bot_{i+1}": {"status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "budget": 35.0, "gain": 0.0, "last_id": "NONE"} for i in range(100)}
         st.session_state.profit_total = 0.0
     st.session_state.bankroll = 0.0
 
-# --- SIDEBAR CMD ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚡ CMD RÉEL")
-    p_in_model = st.number_input("TARGET IN", value=1.4440, format="%.4f")
-    p_out_model = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
-    budget_base = st.number_input("BASE USDC", value=35.0)
+    st.header("⚡ CMD")
+    p_in_val = st.number_input("TARGET IN", value=1.4440, format="%.4f")
+    p_out_val = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
+    budget_val = st.number_input("BUDGET UNITAIRE", value=35.0)
     
-    col_a, col_b = st.columns(2)
-    if col_a.button("🚨 RESET"):
+    if st.button("🚨 RESET TOTAL"):
         st.session_state.profit_total = 0.0
-        for b in st.session_state.bots: st.session_state.bots[b].update({"gain": 0.0, "cycles": 0, "last_id": "NONE"})
+        st.session_state.bots = {f"Bot_{i+1}": {"status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "budget": 35.0, "gain": 0.0, "last_id": "NONE"} for i in range(100)}
         sauvegarder_donnees(st.session_state.bots, 0.0); st.rerun()
-    if col_b.button("🛑 STOP ALL"):
-        for b in st.session_state.bots: st.session_state.bots[b].update({"status": "LIBRE", "last_id": "NONE"})
-        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total); st.rerun()
 
     for i in range(100):
         name = f"Bot_{i+1}"
@@ -69,77 +51,58 @@ with st.sidebar:
         if st.session_state.bots[name]["status"] == "LIBRE":
             if c1.button(f"GO {i+1}", key=f"g{i}"):
                 if not kraken.markets: kraken.load_markets()
-                pa = float(kraken.price_to_precision('XRP/USDC', p_in_model))
-                pv = float(kraken.price_to_precision('XRP/USDC', p_out_model))
-                st.session_state.bots[name].update({"status": "ACHAT", "p_achat": pa, "p_vente": pv, "last_id": "WAITING"})
+                pa = float(kraken.price_to_precision('XRP/USDC', p_in_val))
+                pv = float(kraken.price_to_precision('XRP/USDC', p_out_val))
+                # ON ANCRE LE BUDGET ET LES PRIX ICI
+                st.session_state.bots[name].update({"status": "ACHAT", "p_achat": pa, "p_vente": pv, "budget": budget_val})
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total); st.rerun()
         else:
             if c2.button(f"OFF {i+1}", key=f"o{i}"):
-                st.session_state.bots[name].update({"status": "LIBRE", "last_id": "NONE"}); st.rerun()
+                st.session_state.bots[name]["status"] = "LIBRE"; st.rerun()
 
 # --- BOUCLE PRINCIPALE ---
 live = st.empty()
-count = 0
-
 while True:
     try:
         if not kraken.markets: kraken.load_markets()
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
-        
-        if count % 5 == 0:
-            bal = kraken.fetch_balance()
-            st.session_state.bankroll = bal.get('USDC', {}).get('free', 0.0)
+        bal = kraken.fetch_balance()
+        bankroll = bal.get('USDC', {}).get('free', 0.0)
         
         with live.container():
-            st.write(f"### MARKET FEED - XRP/USDC (REAL TIME)")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("BANKROLL", f"{st.session_state.bankroll:.2f} USDC")
-            c2.metric("XRP PRICE", f"{px:.4f}")
-            c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
-            st.divider()
+            st.write(f"### MARKET: {px:.4f} | BANKROLL: {bankroll:.2f} USDC")
             
             actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
-            
             for name in actifs:
                 bot = st.session_state.bots[name]
-                val_snow = budget_base + bot['gain']
-                vol = float(kraken.amount_to_precision('XRP/USDC', val_snow / px))
+                current_budget = bot["budget"] + bot["gain"] # Boule de neige
+                vol = float(kraken.amount_to_precision('XRP/USDC', current_budget / px))
                 
-                # --- ACHAT ---
-                if bot["status"] == "ACHAT" and px <= bot["p_achat"]:
-                    try:
-                        order = kraken.create_limit_buy_order('XRP/USDC', vol, bot["p_achat"], {'post-only': True})
-                        st.session_state.bots[name].update({"status": "VENTE", "last_id": order['id']})
-                        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                        st.success(f"🔥 ACHAT PLACÉ : {name} ID {order['id']}")
-                    except Exception as e:
-                        st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:50]}")
+                if bot["status"] == "ACHAT":
+                    if px <= bot["p_achat"]:
+                        try:
+                            order = kraken.create_limit_buy_order('XRP/USDC', vol, bot["p_achat"])
+                            st.session_state.bots[name]["status"] = "VENTE"
+                            st.session_state.bots[name]["last_id"] = order['id']
+                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                            st.success(f"ORDRE {name} ENVOYÉ")
+                        except Exception as e: st.error(f"KRAKEN {name}: {e}")
                 
-                # --- VENTE ---
-                elif bot["status"] == "VENTE" and px >= bot["p_vente"]:
-                    try:
-                        order = kraken.create_limit_sell_order('XRP/USDC', vol, bot["p_vente"], {'post-only': True})
-                        g = (bot["p_vente"] - bot["p_achat"]) * vol
-                        st.session_state.profit_total += g
-                        st.session_state.bots[name].update({"gain": bot["gain"]+g, "cycles": bot["cycles"]+1, "status": "ACHAT", "last_id": order['id']})
-                        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                        st.success(f"💰 VENTE RÉUSSIE : {name} ID {order['id']}")
-                    except Exception as e:
-                        st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:50]}")
-                
-                sc = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-                st.markdown(f'''
-                    <div class="bot-line">
-                        <span>{name} <span class="order-id">[{bot['last_id']}]</span></span>
-                        <span style="color:{sc}; font-weight:bold;">{bot["status"]}</span>
-                        <span>{bot["p_achat"]}->{bot["p_vente"]}</span>
-                        <span class="flash-box">{val_snow:.2f}$</span>
-                    </div>''', unsafe_allow_html=True)
+                elif bot["status"] == "VENTE":
+                    if px >= bot["p_vente"]:
+                        try:
+                            order = kraken.create_limit_sell_order('XRP/USDC', vol, bot["p_vente"])
+                            g = (bot["p_vente"] - bot["p_achat"]) * vol
+                            st.session_state.profit_total += g
+                            st.session_state.bots[name].update({"status": "ACHAT", "gain": bot["gain"]+g, "last_id": order['id']})
+                            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                            st.success(f"VENTE {name} RÉUSSIE")
+                        except Exception as e: st.error(f"KRAKEN {name}: {e}")
+
+                # Affichage
+                st.write(f"#{name} | {bot['status']} | {bot['p_achat']} -> {bot['p_vente']} | {current_budget:.2f} USDC")
                 time.sleep(0.1)
-            
-        count += 1
-    except Exception as e:
-        if "Rate limit" in str(e): time.sleep(30)
-        else: st.write(f"SYSTEM ERROR: {str(e)[:50]}")
+
+    except Exception as e: st.write(f"SYS: {e}")
     time.sleep(10)
