@@ -21,9 +21,14 @@ st_autorefresh(interval=15000, key="datarefresh")
 
 FILE_MEMOIRE = "etat_bots.json"
 
-def sauvegarder(bots, total, last_gain):
+def sauvegarder(bots, total, daily_gain, last_date):
     with open(FILE_MEMOIRE, "w") as f: 
-        json.dump({"bots": bots, "profit_total": total, "last_gain": last_gain}, f)
+        json.dump({
+            "bots": bots, 
+            "profit_total": total, 
+            "daily_gain": daily_gain, 
+            "last_date": last_date
+        }, f)
 
 def charger():
     if os.path.exists(FILE_MEMOIRE):
@@ -35,14 +40,20 @@ def charger():
 # --- 3. INITIALISATION ---
 if 'bots' not in st.session_state:
     mem = charger()
+    today = datetime.now().strftime("%Y-%m-%d")
     if mem:
         st.session_state.bots = mem.get("bots")
         st.session_state.profit_total = mem.get("profit_total", 0.0)
-        st.session_state.last_gain_info = mem.get("last_gain", "En attente...")
+        # Reset si nouveau jour
+        if mem.get("last_date") != today:
+            st.session_state.daily_gain = 0.0
+        else:
+            st.session_state.daily_gain = mem.get("daily_gain", 0.0)
     else:
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
         st.session_state.profit_total = 0.0
-        st.session_state.last_gain_info = "En attente..."
+        st.session_state.daily_gain = 0.0
+    st.session_state.last_date = today
 
 # --- 4. CONNEXION ---
 kraken = None
@@ -82,14 +93,9 @@ with st.sidebar:
                 vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
                 res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
                 st.session_state.bots[bot_sel].update({"status": "ACHAT", "pa": pa_f, "pv": p_out, "oid": res['id'], "budget": b_val})
-                sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.last_gain_info)
+                sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.daily_gain, st.session_state.last_date)
                 st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
-
-    if st.button("🚨 STOP ALL", use_container_width=True):
-        st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
-        sauvegarder(st.session_state.bots, 0.0, "En attente...")
-        st.rerun()
 
 # --- 7. LOGIQUE LIVE & SYNCHRO ---
 px, cash_total = 0.0, 0.0
@@ -101,6 +107,12 @@ if kraken:
         cash_total = bal.get('USDC', {}).get('total', 0.0)
         open_orders = kraken.fetch_open_orders('XRP/USDC')
         oids_kraken = [o['id'] for o in open_orders]
+
+        # Check si on a changé de jour pendant que l'app tourne
+        today = datetime.now().strftime("%Y-%m-%d")
+        if st.session_state.last_date != today:
+            st.session_state.daily_gain = 0.0
+            st.session_state.last_date = today
 
         for name, bot in st.session_state.bots.items():
             if bot["status"] != "LIBRE" and bot["oid"] != "NONE":
@@ -117,23 +129,24 @@ if kraken:
                             elif old_status == "VENTE":
                                 profit = (float(bot["pv"]) - float(bot["pa"])) * (bot["budget"] / bot["pa"])
                                 st.session_state.profit_total += profit
-                                now = datetime.now().strftime("%H:%M:%S")
-                                st.session_state.last_gain_info = f"+{profit:.4f}$ ({now})"
+                                st.session_state.daily_gain += profit # CUMUL DU JOUR
+                                
                                 pa_f = float(kraken.price_to_precision('XRP/USDC', bot["pa"]))
                                 vol_a = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0) + profit) / pa_f))
                                 a_res = kraken.create_limit_buy_order('XRP/USDC', vol_a, pa_f, {'post-only': True})
                                 st.session_state.bots[name].update({"status": "ACHAT", "oid": a_res['id'], "cycles": int(bot.get("cycles", 0)) + 1, "gain": float(bot.get("gain", 0)) + profit})
-                            sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.last_gain_info)
+                            
+                            sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.daily_gain, st.session_state.last_date)
                             st.rerun()
                     except: pass
     except: st.caption("🔄 Synchro Kraken...")
 
-# --- 8. AFFICHAGE FINAL ---
+# --- 8. AFFICHAGE ---
 st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("PRIX XRP", f"{px:.4f} $")
 c2.metric("PROFIT TOTAL", f"+{st.session_state.profit_total:.4f} $")
-c3.metric("DERNIER GAIN", st.session_state.last_gain_info)
+c3.metric("GAIN DU JOUR", f"+{st.session_state.daily_gain:.4f} $") # <--- TON CUMUL ICI
 c4.metric("WALLET TOTAL", f"{cash_total:.2f} $")
 st.divider()
 
@@ -155,5 +168,5 @@ for name in actifs:
             if bot["oid"] != "NONE": kraken.cancel_order(bot["oid"])
         except: pass
         st.session_state.bots[name].update({"status": "LIBRE", "oid": "NONE"})
-        sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.last_gain_info)
+        sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.daily_gain, st.session_state.last_date)
         st.rerun()
