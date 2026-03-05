@@ -4,16 +4,19 @@ import time
 from datetime import datetime
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="XRP BOT 100% SYNC", layout="centered")
+st.set_page_config(page_title="XRP BOT 100% NO-CRASH", layout="centered")
 
 @st.cache_resource
 def init_k():
     try:
-        return ccxt.kraken({
+        exchange = ccxt.kraken({
             'apiKey': st.secrets["KRAKEN_KEY"],
             'secret': st.secrets["KRAKEN_SECRET"],
-            'enableRateLimit': True
+            'enableRateLimit': True,
         })
+        # FIX POUR L'ERREUR INVALID NONCE
+        exchange.nonce = lambda: exchange.milliseconds()
+        return exchange
     except: return None
 
 k = init_k()
@@ -28,28 +31,42 @@ if 'bot' not in st.session_state:
 
 bot = st.session_state.bot
 
-# --- 3. DASHBOARD & MÉTRIQUES ---
-ticker = k.fetch_ticker('XRP/USDC')
-px = ticker['last']
-bal = k.fetch_balance()
-u_free = bal['free'].get('USDC', 0.0)
-x_free = bal['free'].get('XRP', 0.0)
+# --- 3. DASHBOARD SÉCURISÉ ---
+def get_data():
+    try:
+        # On ajoute un mini sleep pour éviter les collisions de requêtes
+        time.sleep(0.1)
+        ticker = k.fetch_ticker('XRP/USDC')
+        bal = k.fetch_balance()
+        return ticker['last'], bal
+    except Exception as e:
+        st.error(f"Erreur Sync Kraken : {e}")
+        return 1.40, None
 
-# Calcul Profit par jour
-jours = (time.time() - bot["start_time"]) / 86400
-gain_j = bot["profit"] / jours if jours > 0.001 else 0.0
+px, bal = get_data()
 
-c1, c2, c3 = st.columns(3)
-c1.metric("🔥 XRP", f"{px:.4f}$")
-c2.metric("🔄 CYCLES", bot["cycles"])
-c3.metric("📅 / JOUR", f"{gain_j:.2f}$")
+if bal:
+    u_free = bal['free'].get('USDC', 0.0)
+    x_free = bal['free'].get('XRP', 0.0)
+    
+    # Métriques
+    jours = (time.time() - bot["start_time"]) / 86400
+    gain_j = bot["profit"] / jours if jours > 0.001 else 0.0
 
-st.metric("📈 NET PROFIT TOTAL", f"+{bot['profit']:.4f} $")
-st.write(f"💰 **{u_free:.2f} USDC** | 🪙 **{x_free:.2f} XRP**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🔥 XRP", f"{px:.4f}$")
+    c2.metric("🔄 CYCLES", bot["cycles"])
+    c3.metric("📅 / JOUR", f"{gain_j:.2f}$")
+
+    st.metric("📈 NET PROFIT TOTAL", f"+{bot['profit']:.4f} $")
+    st.write(f"💰 **{u_free:.2f} USDC** | 🪙 **{x_free:.2f} XRP**")
+else:
+    st.warning("⚠️ En attente de réponse de Kraken...")
+
 st.divider()
 
-# --- 4. 📝 ORDRES RÉELS SUR KRAKEN ---
-st.subheader("📝 ORDRES ACTIFS SUR KRAKEN")
+# --- 4. ORDRES RÉELS ---
+st.subheader("📝 ORDRES SUR KRAKEN")
 try:
     open_orders = k.fetch_open_orders('XRP/USDC')
     if open_orders:
@@ -57,41 +74,16 @@ try:
             side = "🟢 ACHAT" if o['side'] == 'buy' else "🔴 VENTE"
             st.code(f"{side} | {o['amount']} XRP à {o['price']}$")
     else:
-        st.caption("Aucun ordre ouvert sur votre compte Kraken.")
-except:
-    st.caption("Synchronisation Kraken...")
+        st.caption("Aucun ordre ouvert.")
+except: pass
 
 st.divider()
 
-# --- 5. RÉGLAGES & AJUSTEMENT ---
+# --- 5. RÉGLAGES ---
 st.subheader("⚙️ Modifier la fourchette")
 col_in, col_out = st.columns(2)
 new_pa = col_in.number_input("ACHAT (IN)", value=bot["pa"], format="%.4f")
 new_pv = col_out.number_input("VENTE (OUT)", value=bot["pv"], format="%.4f")
-
-# Mise à jour en direct si le bot tourne
-if bot["status"] == "ON" and (new_pa != bot["pa"] or new_pv != bot["pv"]):
-    if st.button("🔄 APPLIQUER NOUVEAUX PRIX", use_container_width=True, type="primary"):
-        try:
-            # Annulation globale pour éviter les ordres orphelins
-            try: k.cancel_all_orders('XRP/USDC')
-            except: pass
-            
-            # Repose les nouveaux ordres
-            oid_b = None
-            if u_free > 5:
-                v_b = float(k.amount_to_precision('XRP/USDC', u_free / new_pa))
-                res_b = k.create_limit_buy_order('XRP/USDC', v_b, new_pa, {'post-only': True})
-                oid_b = res_b['id']
-            
-            oid_s = None
-            if x_free > 5:
-                res_s = k.create_limit_sell_order('XRP/USDC', x_free, new_pv)
-                oid_s = res_s['id']
-                
-            bot.update({"pa": new_pa, "pv": new_pv, "oid_buy": oid_b, "oid_sell": oid_s})
-            st.rerun()
-        except Exception as e: st.error(f"Erreur MAJ : {e}")
 
 # --- 6. BOUTONS START / STOP ---
 if bot["status"] == "OFF":
@@ -111,18 +103,16 @@ if bot["status"] == "OFF":
         except Exception as e: st.error(f"Erreur Start : {e}")
 else:
     if st.button("🛑 TOUT ARRÊTER ET ANNULER", use_container_width=True, type="primary"):
-        try:
-            k.cancel_all_orders('XRP/USDC')
+        try: k.cancel_all_orders('XRP/USDC')
         except: pass
         bot.update({"status": "OFF", "oid_buy": None, "oid_sell": None})
         st.rerun()
 
-# --- 7. MOTEUR (SURVEILLANCE 15S) ---
+# --- 7. MOTEUR (15S) ---
 if bot["status"] == "ON":
     @st.fragment(run_every=15)
     def engine():
         try:
-            # Check ACHAT rempli
             if bot["oid_buy"]:
                 o_b = k.fetch_order(bot["oid_buy"], 'XRP/USDC')
                 if o_b['status'] == 'closed':
@@ -133,7 +123,6 @@ if bot["status"] == "ON":
                     bot.update({"oid_buy": None, "oid_sell": res_s['id']})
                     st.rerun()
 
-            # Check VENTE remplie
             if bot["oid_sell"]:
                 o_s = k.fetch_order(bot["oid_sell"], 'XRP/USDC')
                 if o_s['status'] == 'closed':
@@ -148,3 +137,4 @@ if bot["status"] == "ON":
                     st.rerun()
         except: pass
     engine()
+
