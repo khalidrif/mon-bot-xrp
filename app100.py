@@ -15,7 +15,7 @@ except ImportError:
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# --- 2. CONFIG & REFRESH (15s) ---
+# --- 2. CONFIG & REFRESH ---
 st.set_page_config(page_title="XRP AUTO-PILOT PRO", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") 
 
@@ -34,7 +34,7 @@ def charger():
         except: return None
     return None
 
-# --- 3. INITIALISATION MÉMOIRE ---
+# --- 3. INITIALISATION ---
 if 'bots' not in st.session_state:
     mem = charger()
     if mem:
@@ -97,54 +97,57 @@ if kraken:
                                 profit = (float(bot["pv"]) - float(bot["pa"])) * (bot["budget"] / bot["pa"])
                                 st.session_state.profit_total += profit
                                 now_str = datetime.now().strftime("%H:%M:%S")
-                                
-                                # --- MISE À JOUR DERNIER GAIN (TOP DISPLAY) ---
                                 st.session_state.last_gain_info = f"+{profit:.4f}$ ({now_str})"
-                                
                                 st.session_state.historique.insert(0, f"[{now_str}] {name}: +{profit:.4f}$")
                                 st.session_state.historique = st.session_state.historique[:5]
-                                
                                 pa_f = float(kraken.price_to_precision('XRP/USDC', bot["pa"]))
                                 vol_a = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0) + profit) / pa_f))
                                 a_res = kraken.create_limit_buy_order('XRP/USDC', vol_a, pa_f, {'post-only': True})
                                 st.session_state.bots[name].update({"status": "ACHAT", "oid": a_res['id'], "cycles": int(bot.get("cycles", 0)) + 1, "gain": float(bot.get("gain", 0)) + profit})
-                            
                             sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique, st.session_state.last_gain_info)
                             st.rerun()
                     except: pass
     except: st.caption("🔄 Synchro...")
 
-# --- 7. AFFICHAGE (AVEC 4 COLONNES) ---
+# --- 7. AFFICHAGE TOP ---
 uptime = int((time.time() - st.session_state.start_time) / 60)
 st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE <span style="font-size:12px; color:#888;">UPTIME: {uptime}m</span></h3>', unsafe_allow_html=True)
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("PRIX XRP", f"{px:.4f} $")
 col2.metric("PROFIT TOTAL", f"+{st.session_state.profit_total:.4f} $")
-col3.metric("DERNIER GAIN", st.session_state.last_gain_info) # <--- NOUVEAUTÉ ICI
+col3.metric("DERNIER GAIN", st.session_state.last_gain_info)
 col4.metric("WALLET TOTAL", f"{cash_total:.2f} $")
 st.divider()
 
-# Reste du code (Sidebar et Liste des bots) inchangé...
-with st.sidebar:
-    st.header("⚡ PILOTE AUTO")
-    p_in = st.number_input("ACHAT (IN)", value=1.4000, format="%.4f")
-    p_out = st.number_input("VENTE (OUT)", value=1.4500, format="%.4f")
-    b_val = st.number_input("BUDGET", value=25.0)
-    bot_sel = st.selectbox("CHOISIR BOT", [f"B{i+1}" for i in range(100)])
-    if st.button(f"🚀 ACTIVER {bot_sel}", use_container_width=True):
-        if kraken:
-            try:
-                if not kraken.markets: kraken.load_markets()
-                pa_f = float(kraken.price_to_precision('XRP/USDC', p_in))
-                vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
-                res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
-                st.session_state.bots[bot_sel].update({"status": "ACHAT", "pa": pa_f, "pv": p_out, "oid": res['id'], "budget": b_val})
-                sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique, st.session_state.last_gain_info)
-                st.rerun()
-            except Exception as e: st.error(f"Kraken: {e}")
+# --- 8. LANCEUR RAPIDE (NOUVEAU) ---
+st.write("⚡ **LANCEUR ÉCLAIR**")
+c_nb, c_in, c_out, c_go = st.columns([1,1,1,1])
+nb_to_run = c_nb.number_input("Nombre de bots", min_value=1, max_value=100, value=5)
+fast_in = c_in.number_input("IN", value=px if px > 0 else 1.4000, format="%.4f")
+fast_out = c_out.number_input("OUT", value=(px*1.01) if px > 0 else 1.4100, format="%.4f")
 
-# Liste des bots actifs
+if c_go.button("🚀 LANCER LA SÉRIE", use_container_width=True):
+    count_launched = 0
+    if kraken:
+        for i in range(100):
+            name = f"B{i+1}"
+            if st.session_state.bots[name]["status"] == "LIBRE" and count_launched < nb_to_run:
+                try:
+                    if not kraken.markets: kraken.load_markets()
+                    pa_f = float(kraken.price_to_precision('XRP/USDC', fast_in))
+                    vol = float(kraken.amount_to_precision('XRP/USDC', 25.0 / pa_f))
+                    res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
+                    st.session_state.bots[name].update({"status": "ACHAT", "pa": pa_f, "pv": fast_out, "oid": res['id'], "budget": 25.0})
+                    count_launched += 1
+                except: continue
+        sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique, st.session_state.last_gain_info)
+        st.success(f"{count_launched} bots lancés d'un coup !")
+        st.rerun()
+
+st.divider()
+
+# --- 9. LISTE DES BOTS ACTIFS ---
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 for name in actifs:
     bot = st.session_state.bots[name]
