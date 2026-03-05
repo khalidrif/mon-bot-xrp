@@ -5,17 +5,17 @@ import os
 import time
 from datetime import datetime
 
-# --- 1. PATCH DE SÉCURITÉ ET IMPORTS ---
+# --- 1. SÉCURITÉ IMPORTS ---
 try:
     import ccxt
 except ImportError:
-    st.error("Module CCXT manquant.")
+    st.error("Module CCXT manquant dans requirements.txt")
     st.stop()
 
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# --- 2. CONFIGURATION & REFRESH (15s) ---
+# --- 2. CONFIG & REFRESH (15s) ---
 st.set_page_config(page_title="XRP AUTO-PILOT PRO", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") 
 
@@ -49,9 +49,9 @@ kraken = None
 try:
     kraken = get_kraken_connection()
 except:
-    st.sidebar.error("Erreur API Kraken")
+    st.sidebar.error("⚠️ Erreur API Kraken (Vérifiez Secrets)")
 
-# --- 5. STYLE CSS (CLAIRE) ---
+# --- 5. STYLE CSS ---
 st.markdown("""
     <style>
     .stApp { background-color: #F0F2F6 !important; }
@@ -66,7 +66,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 6. SIDEBAR CMD ---
+# --- 6. SIDEBAR CMD (LANCEMENT) ---
 with st.sidebar:
     st.header("⚡ PILOTE AUTO")
     p_in = st.number_input("ACHAT (IN)", value=1.4000, format="%.4f")
@@ -80,9 +80,16 @@ with st.sidebar:
                 if not kraken.markets: kraken.load_markets()
                 pa_f = float(kraken.price_to_precision('XRP/USDC', p_in))
                 vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
+                
+                # ENVOI KRAKEN
                 res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
+                
+                # MISE À JOUR & SAUVEGARDE
                 st.session_state.bots[bot_sel].update({"status": "ACHAT", "pa": pa_f, "pv": p_out, "oid": res['id'], "budget": b_val})
                 sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique)
+                
+                # SYNCHRO FLASH
+                time.sleep(0.5)
                 st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
@@ -108,6 +115,7 @@ if kraken:
 
         for name, bot in st.session_state.bots.items():
             if bot["status"] != "LIBRE" and bot["oid"] != "NONE":
+                # SI L'ORDRE N'EST PLUS SUR KRAKEN -> IL EST EXÉCUTÉ
                 if bot["oid"] not in oids_kraken:
                     try:
                         check = kraken.fetch_order(bot["oid"])
@@ -126,6 +134,7 @@ if kraken:
                                 st.session_state.historique.insert(0, f"[{now}] {name} : +{profit:.4f} $")
                                 st.session_state.historique = st.session_state.historique[:5]
                                 
+                                # RELANCE AUTO ACHAT (COMPOUNDING)
                                 pa_f = float(kraken.price_to_precision('XRP/USDC', bot["pa"]))
                                 vol_a = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0) + profit) / pa_f))
                                 a_res = kraken.create_limit_buy_order('XRP/USDC', vol_a, pa_f, {'post-only': True})
@@ -150,7 +159,7 @@ st.divider()
 
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 if not actifs:
-    st.info("Aucun bot actif. Utilisez la barre latérale pour lancer un cycle.")
+    st.info("Aucun bot actif. Lancez un bot dans la barre latérale.")
 else:
     for name in actifs:
         bot = st.session_state.bots[name]
