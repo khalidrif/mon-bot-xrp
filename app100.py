@@ -49,7 +49,7 @@ kraken = None
 try:
     kraken = get_kraken_connection()
 except:
-    st.sidebar.error("Erreur API")
+    st.sidebar.error("Erreur API Kraken")
 
 # --- 5. STYLE CSS ---
 st.markdown("""
@@ -66,7 +66,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 6. SIDEBAR ---
+# --- 6. SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚡ PILOTE AUTO")
     p_in = st.number_input("ACHAT (IN)", value=1.4000, format="%.4f")
@@ -93,7 +93,7 @@ with st.sidebar:
         sauvegarder(st.session_state.bots, 0.0, [])
         st.rerun()
 
-# --- 7. LOGIQUE LIVE & AUTO-RELANCE ---
+# --- 7. LOGIQUE LIVE & AUTO-RELANCE ANTI-DOUBLON ---
 px, cash_total = 0.0, 0.0
 if kraken:
     try:
@@ -108,26 +108,31 @@ if kraken:
 
         for name, bot in st.session_state.bots.items():
             if bot["status"] != "LIBRE" and bot["oid"] != "NONE":
+                # SI L'ORDRE N'EST PLUS SUR KRAKEN -> IL EST FINI
                 if bot["oid"] not in oids_kraken:
                     try:
                         check = kraken.fetch_order(bot["oid"])
                         if check['status'] == 'closed':
-                            if bot["status"] == "ACHAT":
+                            # --- VERROU ANTI-DOUBLON IMMEDIAT ---
+                            old_status = bot["status"]
+                            st.session_state.bots[name]["oid"] = "NONE" 
+                            
+                            if old_status == "ACHAT":
                                 # PASSAGE EN VENTE
                                 vol_v = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0)) / bot["pa"]))
                                 v_res = kraken.create_limit_sell_order('XRP/USDC', vol_v, bot["pv"])
                                 st.session_state.bots[name].update({"status": "VENTE", "oid": v_res['id']})
-                            elif bot["status"] == "VENTE":
-                                # VENTE FINIE -> COMPOUNDING & RELANCE
+                                
+                            elif old_status == "VENTE":
+                                # VENTE FINIE -> RELANCE AUTO
                                 profit = (float(bot["pv"]) - float(bot["pa"])) * (bot["budget"] / bot["pa"])
                                 st.session_state.profit_total += profit
                                 
-                                # Ajout à l'historique
                                 now = datetime.now().strftime("%H:%M:%S")
-                                st.session_state.historique.insert(0, f"[{now}] {name} : Cycle fini +{profit:.4f} $")
-                                st.session_state.historique = st.session_state.historique[:5] # Garde les 5 derniers
+                                st.session_state.historique.insert(0, f"[{now}] {name} : +{profit:.4f} $")
+                                st.session_state.historique = st.session_state.historique[:5]
 
-                                # RELANCE AUTO
+                                # NOUVEL ACHAT AUTO
                                 pa_f = float(kraken.price_to_precision('XRP/USDC', bot["pa"]))
                                 vol_a = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0) + profit) / pa_f))
                                 a_res = kraken.create_limit_buy_order('XRP/USDC', vol_a, pa_f, {'post-only': True})
@@ -137,8 +142,9 @@ if kraken:
                                     "cycles": int(bot.get("cycles", 0)) + 1, 
                                     "gain": float(bot.get("gain", 0)) + profit
                                 })
+                            
                             sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique)
-                            st.rerun()
+                            st.rerun() # STOP LE SCRIPT ICI ET REPART PROPRE
                     except: pass
     except: st.caption("🔄 Synchro Kraken...")
 
@@ -150,7 +156,6 @@ c2.metric("NET PROFIT", f"+{st.session_state.profit_total:.4f} $")
 c3.metric("WALLET TOTAL", f"{cash_total:.2f} $")
 st.divider()
 
-# Liste des bots actifs
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
 if not actifs:
     st.info("Aucun bot actif. Utilisez la barre latérale pour lancer un cycle.")
@@ -167,9 +172,8 @@ else:
                 <span class="flash-box">{bot["budget"] + bot.get("gain",0):.2f} $</span>
             </div>''', unsafe_allow_html=True)
 
-# SECTION HISTORIQUE DES PROFITS
 if st.session_state.historique:
     st.write("---")
-    st.write("📊 **JOURNAL DES PROFITS (DERNIERS CYCLES)**")
+    st.write("📊 **JOURNAL DES PROFITS**")
     for event in st.session_state.historique:
         st.markdown(f'<div class="histo-line">{event}</div>', unsafe_allow_html=True)
