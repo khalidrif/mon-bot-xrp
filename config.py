@@ -1,13 +1,19 @@
+
 import ccxt
 import streamlit as st
 
 def get_kraken_connection():
-    # On utilise les étiquettes, PAS tes vrais codes ici
-    api_key = st.secrets["API_KEY"]
-    api_secret = st.secrets["API_SECRET"]
-
-    return ccxt.kraken({
-        'apiKey': api_key,
-        'secret': api_secret,
+    # Connexion sécurisée via les Secrets Streamlit
+    exchange = ccxt.kraken({
+        'apiKey': st.secrets["API_KEY"],
+        'secret': st.secrets["API_SECRET"],
         'enableRateLimit': True,
+        'timeout': 60000,
     })
+    
+    # FORCE LE CHARGEMENT (Règle ton erreur précédente)
+    exchange.load_markets() 
+    
+    return exchange
+
+
