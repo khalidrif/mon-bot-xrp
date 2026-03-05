@@ -2,9 +2,10 @@ import ccxt
 import time
 
 def get_kraken_connection():
-    # REMPLACE LES VALEURS CI-DESSOUS PAR TES VRAIES CLÉS KRAKEN
-    api_key = 'TA_CLE_API_ICI' 
-    api_secret = 'TON_SECRET_API_ICI'
+    # Remplace bien par tes vraies clés ici
+    # .strip() sert à enlever les espaces accidentels
+    api_key = 'TA_CLE_ICI'.strip() 
+    api_secret = 'TON_SECRET_ICI'.strip()
 
     return ccxt.kraken({
         'apiKey': api_key,
