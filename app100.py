@@ -3,8 +3,9 @@ import sys
 import json
 import os
 import time
+from datetime import datetime
 
-# --- 1. PATCH DE SÉCURITÉ ---
+# --- 1. PATCH DE SÉCURITÉ ET IMPORTS ---
 try:
     import ccxt
 except ImportError:
@@ -20,9 +21,9 @@ st_autorefresh(interval=15000, key="datarefresh")
 
 FILE_MEMOIRE = "etat_bots.json"
 
-def sauvegarder(bots, total):
+def sauvegarder(bots, total, histo):
     with open(FILE_MEMOIRE, "w") as f: 
-        json.dump({"bots": bots, "profit_total": total}, f)
+        json.dump({"bots": bots, "profit_total": total, "historique": histo}, f)
 
 def charger():
     if os.path.exists(FILE_MEMOIRE):
@@ -31,21 +32,23 @@ def charger():
         except: return None
     return None
 
-# --- 3. INITIALISATION ---
+# --- 3. INITIALISATION MÉMOIRE ---
 if 'bots' not in st.session_state:
     mem = charger()
     if mem:
         st.session_state.bots = mem.get("bots")
         st.session_state.profit_total = mem.get("profit_total", 0.0)
+        st.session_state.historique = mem.get("historique", [])
     else:
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
         st.session_state.profit_total = 0.0
+        st.session_state.historique = []
 
 # --- 4. CONNEXION KRAKEN ---
 kraken = None
 try:
     kraken = get_kraken_connection()
-except Exception as e:
+except:
     st.sidebar.error("Erreur API")
 
 # --- 5. STYLE CSS ---
@@ -59,18 +62,19 @@ st.markdown("""
     .status-a { color: #fd7e14; font-weight: bold; width: 70px; }
     .flash-box { background-color: #FFC107; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
     .badge-cycle { background-color: #007bff; color: white; padding: 1px 10px; border-radius: 3px; font-size: 11px; font-weight: 900; }
+    .histo-line { font-family: monospace; font-size: 12px; color: #28a745; background: #E8F5E9; padding: 5px; border-radius: 4px; margin-bottom: 2px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 6. SIDEBAR CMD ---
+# --- 6. SIDEBAR ---
 with st.sidebar:
     st.header("⚡ PILOTE AUTO")
     p_in = st.number_input("ACHAT (IN)", value=1.4000, format="%.4f")
     p_out = st.number_input("VENTE (OUT)", value=1.4500, format="%.4f")
     b_val = st.number_input("BUDGET (USDC)", value=25.0)
-    bot_sel = st.selectbox("BOT", [f"B{i+1}" for i in range(100)])
+    bot_sel = st.selectbox("SÉLECTIONNER BOT", [f"B{i+1}" for i in range(100)])
     
-    if st.button(f"🚀 ACTIVER AUTO {bot_sel}", use_container_width=True):
+    if st.button(f"🚀 ACTIVER {bot_sel}", use_container_width=True):
         if kraken:
             try:
                 if not kraken.markets: kraken.load_markets()
@@ -78,14 +82,18 @@ with st.sidebar:
                 vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
                 res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
                 st.session_state.bots[bot_sel].update({"status": "ACHAT", "pa": pa_f, "pv": p_out, "oid": res['id'], "budget": b_val})
-                sauvegarder(st.session_state.bots, st.session_state.profit_total); st.rerun()
+                sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique)
+                st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
     if st.button("🚨 STOP & CLEAR ALL", use_container_width=True):
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
-        sauvegarder(st.session_state.bots, 0.0); st.rerun()
+        st.session_state.profit_total = 0.0
+        st.session_state.historique = []
+        sauvegarder(st.session_state.bots, 0.0, [])
+        st.rerun()
 
-# --- 7. LOGIQUE DE BOUCLE INFINIE (AUTO-RELANCE) ---
+# --- 7. LOGIQUE LIVE & AUTO-RELANCE ---
 px, cash_total = 0.0, 0.0
 if kraken:
     try:
@@ -105,47 +113,63 @@ if kraken:
                         check = kraken.fetch_order(bot["oid"])
                         if check['status'] == 'closed':
                             if bot["status"] == "ACHAT":
-                                # 1. PASSAGE EN VENTE
+                                # PASSAGE EN VENTE
                                 vol_v = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0)) / bot["pa"]))
                                 v_res = kraken.create_limit_sell_order('XRP/USDC', vol_v, bot["pv"])
                                 st.session_state.bots[name].update({"status": "VENTE", "oid": v_res['id']})
                             elif bot["status"] == "VENTE":
-                                # 2. VENTE FINIE -> CALCUL PROFIT
+                                # VENTE FINIE -> COMPOUNDING & RELANCE
                                 profit = (float(bot["pv"]) - float(bot["pa"])) * (bot["budget"] / bot["pa"])
                                 st.session_state.profit_total += profit
                                 
-                                # 3. RELANCE AUTOMATIQUE DU CYCLE (ACHAT IMMEDIAT)
+                                # Ajout à l'historique
+                                now = datetime.now().strftime("%H:%M:%S")
+                                st.session_state.historique.insert(0, f"[{now}] {name} : Cycle fini +{profit:.4f} $")
+                                st.session_state.historique = st.session_state.historique[:5] # Garde les 5 derniers
+
+                                # RELANCE AUTO
                                 pa_f = float(kraken.price_to_precision('XRP/USDC', bot["pa"]))
                                 vol_a = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0) + profit) / pa_f))
                                 a_res = kraken.create_limit_buy_order('XRP/USDC', vol_a, pa_f, {'post-only': True})
                                 
                                 st.session_state.bots[name].update({
-                                    "status": "ACHAT", 
-                                    "oid": a_res['id'], 
+                                    "status": "ACHAT", "oid": a_res['id'], 
                                     "cycles": int(bot.get("cycles", 0)) + 1, 
                                     "gain": float(bot.get("gain", 0)) + profit
                                 })
-                            sauvegarder(st.session_state.bots, st.session_state.profit_total); st.rerun()
+                            sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique)
+                            st.rerun()
                     except: pass
     except: st.caption("🔄 Synchro Kraken...")
 
 # --- 8. AFFICHAGE ---
-st.markdown(f'<h3><span class="status-dot"></span>AUTO-PILOT ACTIVE</h3>', unsafe_allow_html=True)
+st.markdown(f'<h3><span class="status-dot"></span>TERMINAL AUTO-PILOT</h3>', unsafe_allow_html=True)
 c1, c2, c3 = st.columns(3)
 c1.metric("PRIX XRP", f"{px:.4f} $")
 c2.metric("NET PROFIT", f"+{st.session_state.profit_total:.4f} $")
 c3.metric("WALLET TOTAL", f"{cash_total:.2f} $")
 st.divider()
 
+# Liste des bots actifs
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
-for name in actifs:
-    bot = st.session_state.bots[name]
-    cl = "status-v" if bot["status"] == "VENTE" else "status-a"
-    st.markdown(f'''
-        <div class="bot-line">
-            <b style="color:#2C3E50;">{name}</b>
-            <span class="{cl}">{bot["status"]}</span>
-            <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
-            <span class="badge-cycle">{bot.get("cycles",0)} CYCLES</span>
-            <span class="flash-box">{bot["budget"] + bot.get("gain",0):.2f} $</span>
-        </div>''', unsafe_allow_html=True)
+if not actifs:
+    st.info("Aucun bot actif. Utilisez la barre latérale pour lancer un cycle.")
+else:
+    for name in actifs:
+        bot = st.session_state.bots[name]
+        cl = "status-v" if bot["status"] == "VENTE" else "status-a"
+        st.markdown(f'''
+            <div class="bot-line">
+                <b style="color:#2C3E50;">{name}</b>
+                <span class="{cl}">{bot["status"]}</span>
+                <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
+                <span class="badge-cycle">{bot.get("cycles",0)} CYC</span>
+                <span class="flash-box">{bot["budget"] + bot.get("gain",0):.2f} $</span>
+            </div>''', unsafe_allow_html=True)
+
+# SECTION HISTORIQUE DES PROFITS
+if st.session_state.historique:
+    st.write("---")
+    st.write("📊 **JOURNAL DES PROFITS (DERNIERS CYCLES)**")
+    for event in st.session_state.historique:
+        st.markdown(f'<div class="histo-line">{event}</div>', unsafe_allow_html=True)
