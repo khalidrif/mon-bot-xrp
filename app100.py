@@ -14,20 +14,21 @@ except ImportError:
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# --- 2. INITIALISATION KRAKEN (DOIT ÊTRE ICI) ---
+# --- 2. INITIALISATION KRAKEN ---
 kraken = None
 try:
     kraken = get_kraken_connection()
 except Exception as e:
     st.sidebar.error("Erreur de connexion API")
 
-# --- 3. CONFIGURATION & REFRESH ---
+# --- 3. CONFIGURATION & REFRESH (15s) ---
 st.set_page_config(page_title="XRP Terminal Pro", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") 
 
 FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder(bots, total):
-    with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": total}, f)
+    with open(FILE_MEMOIRE, "w") as f: 
+        json.dump({"bots": bots, "profit_total": total}, f)
 
 def charger():
     if os.path.exists(FILE_MEMOIRE):
@@ -45,7 +46,7 @@ if 'bots' not in st.session_state:
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
         st.session_state.profit_total = 0.0
 
-# --- 4. STYLE CSS ---
+# --- 4. STYLE CSS (CLAIR / BLOOMBERG) ---
 st.markdown("""
     <style>
     .stApp { background-color: #F0F2F6 !important; }
@@ -79,34 +80,39 @@ with st.sidebar:
                 st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
-# --- 6. LOGIQUE LIVE & SURVEILLANCE ---
+# --- 6. LOGIQUE LIVE & SURVEILLANCE DES ORDRES ---
 px, cash = 0.0, 0.0
 if kraken:
     try:
+        time.sleep(1) # Délai pour éviter le "Spam API"
         if not kraken.markets: kraken.load_markets()
+        
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
+        
         bal = kraken.fetch_balance()
         cash = bal.get('USDC', {}).get('free', 0.0)
 
+        # Vérification automatique des ordres pour les cycles
         for name, bot in st.session_state.bots.items():
             if bot["status"] != "LIBRE" and bot["oid"] != "NONE":
                 try:
                     order = kraken.fetch_order(bot["oid"])
-                    if order['status'] == 'closed' and bot["status"] == "ACHAT":
-                        vol_v = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"]+bot.get("gain",0))/bot["pa"]))
-                        v_res = kraken.create_limit_sell_order('XRP/USDC', vol_v, bot["pv"])
-                        st.session_state.bots[name].update({"status": "VENTE", "oid": v_res['id']})
+                    if order['status'] == 'closed':
+                        if bot["status"] == "ACHAT":
+                            # PASSAGE EN VENTE
+                            vol_v = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"]+bot.get("gain",0))/bot["pa"]))
+                            v_res = kraken.create_limit_sell_order('XRP/USDC', vol_v, bot["pv"])
+                            st.session_state.bots[name].update({"status": "VENTE", "oid": v_res['id']})
+                        else:
+                            # VENTE FINIE -> PROFIT !
+                            profit = (bot["pv"] - bot["pa"]) * (bot["budget"]/bot["pa"])
+                            st.session_state.profit_total += profit
+                            st.session_state.bots[name].update({"status": "LIBRE", "oid": "NONE", "cycles": bot.get("cycles", 0)+1, "gain": bot.get("gain", 0)+profit})
                         sauvegarder(st.session_state.bots, st.session_state.profit_total)
-                    
-                    elif order['status'] == 'closed' and bot["status"] == "VENTE":
-                        profit = (bot["pv"] - bot["pa"]) * (bot["budget"]/bot["pa"])
-                        st.session_state.profit_total += profit
-                        st.session_state.bots[name].update({"status": "LIBRE", "oid": "NONE", "cycles": bot.get("cycles", 0)+1, "gain": bot.get("gain", 0)+profit})
-                        sauvegarder(st.session_state.bots, st.session_state.profit_total)
-                except: pass
-    except:
-        st.warning("⚠️ Synchro Kraken...")
+                except: continue
+    except Exception as e:
+        st.caption(f"🔄 Synchro Kraken... {str(e)[:30]}")
 
 # --- 7. AFFICHAGE ---
 st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
