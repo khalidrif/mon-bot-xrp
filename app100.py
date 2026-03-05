@@ -5,9 +5,21 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE BLOOMBERG
-st.set_page_config(page_title="XRP Bloomberg DIRECT ORDER", layout="wide")
-st.markdown("<style>.main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }</style>", unsafe_allow_html=True)
+# 1. RETOUR DU STYLE "BLOOMBERG HIGH-CONTRAST"
+st.set_page_config(page_title="XRP Bloomberg DIRECT LIVE", layout="wide")
+st.markdown("""
+    <style>
+    .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
+    [data-testid="stMetric"] { background-color: #FFFFFF !important; border-radius: 4px; padding: 10px; }
+    [data-testid="stMetricValue"] { color: #000000 !important; font-size: 20px !important; font-weight: 900 !important; }
+    [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 12px !important; font-weight: bold !important; }
+    .bot-line { border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+    .p-in { color: #00FF00; font-weight: bold; }
+    .p-out { color: #FF0000; font-weight: bold; }
+    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 6px; border-radius: 2px; font-weight: 900; font-size: 13px; }
+    .bot-id { color: #555555; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # 2. CONNEXION ET MÉMOIRE
 kraken = get_kraken_connection()
@@ -33,7 +45,7 @@ if 'bots' not in st.session_state:
         st.session_state.profit_total = 0.0
     st.session_state.bankroll = 0.0
 
-# --- SIDEBAR ---
+# --- SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚡ CMD DIRECT")
     p_in_set = st.number_input("TARGET IN", value=1.4000, format="%.4f")
@@ -54,48 +66,70 @@ with st.sidebar:
                 pa_f = float(kraken.price_to_precision('XRP/USDC', p_in_set))
                 pv_f = float(kraken.price_to_precision('XRP/USDC', p_out_set))
                 
-                # --- ACTION : PLACEMENT IMMEDIAT DE L'ORDRE D'ACHAT ---
+                # ACTION : PLACEMENT IMMEDIAT D'ORDRE
                 vol = float(kraken.amount_to_precision('XRP/USDC', budget_val / pa_f))
                 try:
                     res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
                     st.session_state.bots[id_b].update({"status": "ACHAT_OUVERT", "pa": pa_f, "pv": pv_f, "budget": budget_val, "oid": res['id']})
                     sauvegarder(st.session_state.bots, st.session_state.profit_total)
-                    st.success(f"ORDRE {id_b} PLACÉ : ID {res['id']}")
+                    st.toast(f"✅ ORDRE {id_b} PLACÉ : {res['id']}")
                     st.rerun()
-                except Exception as e:
-                    st.error(f"REFUS KRAKEN : {e}")
+                except Exception as e: st.error(f"KRAKEN REFUS : {e}")
         else:
             if c2.button(f"OFF {i+1}", key=f"o{i}"):
-                # Annulation de l'ordre sur Kraken si on coupe le bot
+                # Annulation automatique de l'ordre sur Kraken
                 try:
                     if st.session_state.bots[id_b]["oid"] != "NONE":
                         kraken.cancel_order(st.session_state.bots[id_b]["oid"])
                 except: pass
                 st.session_state.bots[id_b].update({"status": "LIBRE", "oid": "NONE"}); st.rerun()
 
-# --- BOUCLE PRINCIPALE ---
+# --- MAIN LOOP ---
 live = st.empty()
+count = 0
+
 while True:
     try:
-        px = kraken.fetch_ticker('XRP/USDC')['last']
+        ticker = kraken.fetch_ticker('XRP/USDC')
+        px = ticker['last']
+        if count % 5 == 0:
+            bal = kraken.fetch_balance()
+            st.session_state.bankroll = bal.get('USDC', {}).get('free', 0.0)
+        
         with live.container():
-            st.write(f"### MARKET : {px:.4f}")
-            for name, bot in st.session_state.bots.items():
+            st.write(f"### MARKET FEED : {px:.4f}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("BANKROLL", f"{st.session_state.bankroll:.2f} USDC")
+            c2.metric("XRP PRICE", f"{px:.4f}")
+            c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
+            st.divider()
+            
+            actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
+            for name in actifs:
+                bot = st.session_state.bots[name]
+                actuel_b = bot["budget"] + bot["gain"]
+                
+                # DIAGNOSTIC RAPIDE
                 if bot["status"] == "ACHAT_OUVERT":
-                    # Le bot surveille si l'achat est complété sur Kraken
-                    st.info(f"⏳ {name} : Ordre d'Achat ouvert à {bot['pa']} (ID: {bot['oid']})")
-                    # Ici, on pourrait ajouter une logique pour vérifier si l'ordre est 'closed'
-                    # Pour simplifier, si le prix touche pa, on considère qu'il va passer en VENTE
-                    if px <= bot["pa"]:
-                        st.session_state.bots[name]["status"] = "SURVEILLANCE_VENTE"
-                        sauvegarder(st.session_state.bots, st.session_state.profit_total)
+                    status_txt = "OUVERT"
+                    sc = "#FFA500" # Orange
+                else:
+                    status_txt = "ACTIF"
+                    sc = "#00FF00" # Vert
+                
+                # Logic de bascule automatique si prix touché
+                if bot["status"] == "ACHAT_OUVERT" and px <= bot["pa"]:
+                    st.session_state.bots[name]["status"] = "SURVEILLANCE_VENTE"
+                    sauvegarder(st.session_state.bots, st.session_state.profit_total)
 
-                elif bot["status"] == "SURVEILLANCE_VENTE":
-                    st.success(f"📈 {name} : XRP acheté ! Attente pour vendre à {bot['pv']}")
-                    if px >= bot["pv"]:
-                        # Placement de l'ordre de vente
-                        vol = float(kraken.amount_to_precision('XRP/USDC', bot["budget"] / bot["pa"]))
-                        res = kraken.create_limit_sell_order('XRP/USDC', vol, bot["pv"])
-                        st.session_state.bots[name].update({"status": "ACHAT_OUVERT", "oid": res['id']}) # Recommence cycle
+                st.markdown(f'''
+                    <div class="bot-line">
+                        <span class="bot-id">{name}</span>
+                        <span style="color:{sc}; font-weight:bold;">{status_txt}</span>
+                        <span><span class="p-in">{bot["pa"]}</span> → <span class="p-out">{bot["pv"]}</span></span>
+                        <span class="flash-box">{actuel_b:.2f} USDC</span>
+                    </div>''', unsafe_allow_html=True)
+                
     except: pass
+    count += 1
     time.sleep(10)
