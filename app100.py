@@ -5,6 +5,20 @@ import time
 import json
 import os
 from config import get_kraken_connection
+import streamlit as st
+import sys
+
+# Patch de sécurité pour CCXT sur Streamlit Cloud
+try:
+    import ccxt
+except ImportError:
+    st.error("Installation de CCXT en cours... Patientez et relancez.")
+    st.stop()
+
+import time
+import json
+import os
+# ... la suite de tes imports (config, etc.)
 
 # 1. CONFIGURATION ET STYLE BLOOMBERG LIGHT
 st.set_page_config(page_title="XRP 100 BOTS TERMINAL", layout="wide")
@@ -94,3 +108,4 @@ st.dataframe(
 # Rafraîchissement automatique toutes les 15 secondes
 time.sleep(15)
 st.rerun()
+
