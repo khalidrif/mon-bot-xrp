@@ -1,7 +1,7 @@
 import streamlit as st
 import sys
 
-# --- PATCH DE SÉCURITÉ ---
+# --- PATCH DE SÉCURITÉ CCXT ---
 try:
     import ccxt
 except ImportError:
@@ -14,26 +14,25 @@ import os
 from streamlit_autorefresh import st_autorefresh
 from config import get_kraken_connection
 
-# 1. RETOUR AU STYLE "BLOOMBERG ORIGINAL"
-st.set_page_config(page_title="XRP Bloomberg 100", layout="wide")
+# 1. STYLE CLAIR & PRO (PAS DE NOIR)
+st.set_page_config(page_title="XRP Terminal Pro", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") # Refresh auto 15s
 
 st.markdown("""
     <style>
-    .stApp { background-color: #000000 !important; }
-    [data-testid="stMetric"] { background-color: #FFFFFF !important; border-radius: 4px; padding: 10px; }
-    [data-testid="stMetricValue"] { color: #000000 !important; font-size: 20px !important; font-weight: 900 !important; }
-    [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 12px !important; font-weight: bold !important; }
+    .stApp { background-color: #F0F2F6 !important; }
+    [data-testid="stMetric"] { background-color: #FFFFFF !important; border: 1px solid #DDE1E7; border-radius: 8px; padding: 15px; }
+    [data-testid="stMetricValue"] { color: #0070FF !important; font-size: 24px !important; font-weight: 800 !important; }
     .bot-line { 
-        border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; 
-        justify-content: space-between; align-items: center; font-size: 13px; color: white;
-        font-family: 'Courier New', monospace;
+        border-bottom: 1px solid #E6E9EF; padding: 12px 10px; display: flex; 
+        justify-content: space-between; align-items: center; background-color: #FFFFFF;
+        margin-bottom: 3px; border-radius: 5px; font-size: 13px;
     }
-    .status-v { color: #00FF00; font-weight: bold; }
-    .status-a { color: #FFA500; font-weight: bold; }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 6px; border-radius: 2px; font-weight: 900; }
-    .badge-cash { background-color: #222222; color: #888; padding: 2px 6px; border-radius: 2px; font-size: 11px; }
-    .bot-id { color: #555555; font-weight: bold; width: 40px; }
+    .status-v { color: #28a745; font-weight: bold; width: 60px; }
+    .status-a { color: #fd7e14; font-weight: bold; width: 60px; }
+    .flash-box { background-color: #FFC107; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
+    .badge-cash { background-color: #EAECEE; color: #566573; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+    .bot-id { color: #2C3E50; font-weight: bold; width: 50px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -50,12 +49,13 @@ if 'bots' not in st.session_state:
 
 # --- SIDEBAR CMD ---
 with st.sidebar:
-    st.header("⚡ CMD 100 BOTS")
+    st.header("⚙️ CONFIGURATION")
     p_in = st.number_input("TARGET IN", value=1.4000, format="%.4f")
     p_out = st.number_input("TARGET OUT", value=1.4500, format="%.4f")
-    b_val = st.number_input("BUDGET", value=25.0)
+    b_val = st.number_input("BUDGET (USDC)", value=25.0)
     
-    bot_sel = st.selectbox("SÉLECTION BOT", [f"B{i+1}" for i in range(100)])
+    st.divider()
+    bot_sel = st.selectbox("SÉLECTIONNER BOT", [f"B{i+1}" for i in range(100)])
     
     if st.button(f"🚀 GO {bot_sel}", use_container_width=True):
         if kraken:
@@ -65,41 +65,45 @@ with st.sidebar:
                 vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
                 res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
                 st.session_state.bots[bot_sel].update({"status": "ACHAT", "pa": pa_f, "pv": p_out, "oid": res['id'], "budget": b_val})
-                st.success(f"Ordre {bot_sel} envoyé !")
+                st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
-    if st.button("🚨 RESET ALL 100", use_container_width=True):
-        st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
+    if st.button("🚨 STOP TOUS LES BOTS", use_container_width=True):
+        for b in st.session_state.bots:
+            st.session_state.bots[b].update({"status": "LIBRE", "oid": "NONE"})
         st.rerun()
 
 # --- MAIN DISPLAY ---
 try:
-    px = kraken.fetch_ticker('XRP/USDC')['last'] if kraken else 1.40
+    px = kraken.fetch_ticker('XRP/USDC')['last'] if kraken else 0.0
     bal = kraken.fetch_balance() if kraken else {}
     cash = bal.get('USDC', {}).get('free', 0.0)
 
-    st.write(f"### MARKET FEED : {px:.4f} XRP/USDC")
+    st.title("🖥️ TERMINAL XRP LIVE")
     c1, c2, c3 = st.columns(3)
-    c1.metric("BANKROLL", f"{cash:.2f} $")
-    c2.metric("NET GAIN", f"+{st.session_state.profit_total:.4f} $")
-    c3.metric("BOTS ACTIFS", len([n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]))
+    c1.metric("PRIX XRP", f"{px:.4f} $")
+    c2.metric("GAIN TOTAL", f"+{st.session_state.profit_total:.4f} $")
+    c3.metric("CASH DISPO", f"{cash:.2f} $")
     st.divider()
 
-    # AFFICHAGE DES 100 LIGNES
-    for i in range(100):
-        name = f"B{i+1}"
-        bot = st.session_state.bots[name]
-        st_lab = bot["status"]
-        cl = "status-v" if st_lab == "VENTE" else "status-a" if st_lab == "ACHAT" else "status-idle"
-        txt_status = st_lab if st_lab != "LIBRE" else "IDLE"
-        
-        st.markdown(f'''
-            <div class="bot-line">
-                <span class="bot-id">{name}</span>
-                <span class="{cl}">{txt_status}</span>
-                <span style="color:#555;">{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
-                <span class="badge-cash">CASH: {cash:.2f}$</span>
-                <span class="flash-box">{bot["budget"] + bot["gain"]:.2f} $</span>
-            </div>''', unsafe_allow_html=True)
+    # --- FILTRAGE : ON N'AFFICHE QUE LES BOTS ACTIFS ---
+    actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
+
+    if not actifs:
+        st.info("Aucun bot n'est lancé. Utilisez la barre latérale pour démarrer.")
+    else:
+        for name in actifs:
+            bot = st.session_state.bots[name]
+            st_lab = bot["status"]
+            cl = "status-v" if st_lab == "VENTE" else "status-a"
+            
+            st.markdown(f'''
+                <div class="bot-line">
+                    <span class="bot-id">{name}</span>
+                    <span class="{cl}">{st_lab}</span>
+                    <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
+                    <span class="badge-cash">CASH: {cash:.2f}$</span>
+                    <span class="flash-box">{bot["budget"] + bot["gain"]:.2f} $</span>
+                </div>''', unsafe_allow_html=True)
 except:
-    st.info("Chargement du Terminal Bloomberg...")
+    st.info("Connexion Kraken en cours...")
