@@ -5,7 +5,7 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "BLOOMBERG HIGH-CONTRAST" (RETOUR AU STYLE D'ORIGINE)
+# 1. STYLE "BLOOMBERG HIGH-CONTRAST"
 st.set_page_config(page_title="XRP Bloomberg FORCE LIVE", layout="wide")
 st.markdown("""
     <style>
@@ -43,6 +43,7 @@ if 'bots' not in st.session_state:
     else:
         st.session_state.bots = {f"Bot_{i+1}": {"status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0} for i in range(100)}
         st.session_state.profit_total = 0.0
+    st.session_state.bankroll = 0.0
 
 # --- SIDEBAR CMD ---
 with st.sidebar:
@@ -52,7 +53,7 @@ with st.sidebar:
     budget_base = st.number_input("BASE USDC", value=10.0)
     
     col_a, col_b = st.columns(2)
-    if col_a.button("🚨 RESET ALL"):
+    if col_a.button("🚨 RESET"):
         st.session_state.profit_total = 0.0
         for b in st.session_state.bots: st.session_state.bots[b].update({"gain": 0.0, "cycles": 0})
         sauvegarder_donnees(st.session_state.bots, 0.0); st.rerun()
@@ -66,30 +67,35 @@ with st.sidebar:
         if st.session_state.bots[name]["status"] == "LIBRE":
             if c1.button(f"GO {i+1}", key=f"g{i}"):
                 if not kraken.markets: kraken.load_markets()
-                # CORRECTION : XRP/USDC ICI
                 pa = float(kraken.price_to_precision('XRP/USDC', p_in_set))
                 pv = float(kraken.price_to_precision('XRP/USDC', p_out_set))
                 st.session_state.bots[name].update({"status": "ACHAT", "p_achat": pa, "p_vente": pv})
                 sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total); st.rerun()
         else:
             if c2.button(f"OFF {i+1}", key=f"o{i}"):
-                st.session_state.bots[name].update({"status": "LIBRE"})
-                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total); st.rerun()
+                st.session_state.bots[name].update({"status": "LIBRE"}); st.rerun()
 
 # --- MAIN LOOP ---
 live = st.empty()
+count = 0
+
 while True:
     try:
         if not kraken.markets: kraken.load_markets()
+        
+        # Récupération Prix (Toujours)
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
-        bal = kraken.fetch_balance()
-        bankroll = bal.get('USDC', {}).get('free', 0.0)
+        
+        # Récupération Balance (1 fois sur 3 pour éviter le Rate Limit)
+        if count % 3 == 0:
+            bal = kraken.fetch_balance()
+            st.session_state.bankroll = bal.get('USDC', {}).get('free', 0.0)
         
         with live.container():
             st.write(f"### MARKET FEED - XRP/USDC (LIVE)")
             c1, c2, c3 = st.columns(3)
-            c1.metric("BANKROLL", f"{bankroll:.2f} USDC")
+            c1.metric("BANKROLL", f"{st.session_state.bankroll:.2f} USDC")
             c2.metric("XRP PRICE", f"{px:.4f}")
             c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
             st.divider()
@@ -115,18 +121,20 @@ while True:
                         st.toast(f"💰 PROFIT #{i+1} (+{g:.2f})")
                     
                     sc = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-                    st.markdown(f'''
-                    <div class="bot-line">
-                        <span class="bot-id">#{i+1:02d}</span>
-                        <span style="color:{sc}; font-weight:bold;">{bot["status"]}</span>
-                        <span><span class="p-in">{bot["p_achat"]}</span> → <span class="p-out">{bot["p_vente"]}</span></span>
-                        <span class="flash-box">{val_snow:.2f} USDC</span>
-                        <span class="flash-box">{bot["cycles"]} CYC</span>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                    time.sleep(0.08)
+                    st.markdown(f'<div class="bot-line"><span class="bot-id">#{i+1:02d}</span><span style="color:{sc};">{bot["status"]}</span><span>{bot["p_achat"]}->{bot["p_vente"]}</span><span class="flash-box">{val_snow:.2f} USDC</span></div>', unsafe_allow_html=True)
+                    
+                    # PAUSE ANTI-RATE-LIMIT ENTRE BOTS
+                    time.sleep(0.2)
+            
+        count += 1
+        sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
 
     except Exception as e:
-        if "nonce" in str(e).lower(): time.sleep(1)
+        if "Rate limit" in str(e):
+            st.warning("Kraken Rate Limit : Pause de 30s...")
+            time.sleep(30)
+        elif "nonce" in str(e).lower(): time.sleep(2)
         else: st.write(f"SYSTEM: {str(e)[:40]}")
-    time.sleep(5)
+    
+    # PAUSE GÉNÉRALE PLUS LONGUE
+    time.sleep(15)
