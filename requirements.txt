@@ -1,6 +1,8 @@
 ccxt
 streamlit
+pandas
 streamlit-autorefresh
+
 
 
 
