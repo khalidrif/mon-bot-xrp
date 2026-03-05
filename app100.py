@@ -5,7 +5,7 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "BLOOMBERG HIGH-CONTRAST"
+# 1. STYLE "BLOOMBERG HIGH-CONTRAST" OPTIMISÉ
 st.set_page_config(page_title="XRP Bloomberg PRO", layout="wide")
 st.markdown("""
     <style>
@@ -13,7 +13,9 @@ st.markdown("""
     [data-testid="stMetric"] { background-color: #FFFFFF !important; border-radius: 4px; padding: 10px; }
     [data-testid="stMetricValue"] { color: #000000 !important; font-size: 22px !important; font-weight: 900 !important; }
     .bot-line { border-bottom: 1px solid #222222; padding: 10px 0px; display: flex; justify-content: space-between; align-items: center; }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 8px; border-radius: 2px; font-weight: 900; }
+    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 8px; border-radius: 2px; font-weight: 900; margin-left: 10px; }
+    .xrp-badge { background-color: #0070FF; color: #FFFFFF; padding: 2px 8px; border-radius: 2px; font-weight: 900; font-size: 12px; }
+    .bot-id { color: #555555; font-weight: bold; width: 40px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -82,33 +84,40 @@ while True:
         if count % 5 == 0: st.session_state.bankroll = kraken.fetch_balance().get('USDC', {}).get('free', 0.0)
         
         with live.container():
-            st.write(f"### MARKET FEED : {px:.4f} | {time.strftime('%H:%M:%S')}")
+            st.write(f"### MARKET FEED : {px:.4f} XRP/USDC")
             c1, c2, c3 = st.columns(3)
             c1.metric("BANKROLL", f"{st.session_state.bankroll:.2f} USDC")
             c2.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
-            c3.metric("BOTS ACTIFS", len([n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]))
+            c3.metric("ACTIVE", len([n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]))
             st.divider()
             
             for name, bot in st.session_state.bots.items():
                 if bot["status"] != "LIBRE":
                     actuel_b = bot["budget"] + bot["gain"]
+                    xrp_qty = actuel_b / (bot["pa"] if bot["pa"] > 0 else px)
                     
-                    # VERIFICATION AUTOMATIQUE KRAKEN (Toutes les 2 boucles)
+                    # VERIFICATION AUTO KRAKEN
                     if bot["status"] == "ACHAT_OUVERT" and count % 2 == 0:
                         try:
                             order_info = kraken.fetch_order(bot["oid"])
                             if order_info['status'] == 'closed':
                                 st.session_state.bots[name]["status"] = "EN_VENTE"
-                                # Placement automatique de l'ordre de vente
-                                vol = float(kraken.amount_to_precision('XRP/USDC', actuel_b / bot["pa"]))
+                                vol = float(kraken.amount_to_precision('XRP/USDC', xrp_qty))
                                 v_res = kraken.create_limit_sell_order('XRP/USDC', vol, bot["pv"])
                                 st.session_state.bots[name]["oid"] = v_res['id']
                                 sauvegarder(st.session_state.bots, st.session_state.profit_total)
-                                st.toast(f"💰 ACHAT COMPLÉTÉ {name} -> VENTE PLACÉE")
+                                st.toast(f"💰 ACHAT OK {name}")
                         except: pass
 
                     sc = "#FFA500" if "ACHAT" in bot["status"] else "#00FF00"
-                    st.markdown(f'''<div class="bot-line"><span>{name}</span><span style="color:{sc};font-weight:bold;">{bot["status"]}</span><span>{bot["pa"]}->{bot["pv"]}</span><span class="flash-box">{actuel_b:.2f} USDC</span></div>''', unsafe_allow_html=True)
+                    st.markdown(f'''
+                        <div class="bot-line">
+                            <span class="bot-id">{name}</span>
+                            <span style="color:{sc};font-weight:bold;">{bot["status"]}</span>
+                            <span>{bot["pa"]} → {bot["pv"]}</span>
+                            <span class="xrp-badge">{xrp_qty:.2f} XRP</span>
+                            <span class="flash-box">{actuel_b:.2f} USDC</span>
+                        </div>''', unsafe_allow_html=True)
     except: pass
     count += 1
     time.sleep(10)
