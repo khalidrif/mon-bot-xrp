@@ -5,7 +5,7 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE BLOOMBERG (NE TOUCHE À RIEN)
+# 1. STYLE BLOOMBERG (STRICT)
 st.set_page_config(page_title="XRP Bloomberg FORCE LIVE", layout="wide")
 st.markdown("""
     <style>
@@ -21,16 +21,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CONNEXION ET CHARGEMENT DES MARCHÉS (CORRECTION ICI)
+# 2. CONNEXION ET MÉMOIRE
 kraken = get_kraken_connection()
-
-if 'markets_loaded' not in st.session_state:
-    with st.spinner("Initialisation Kraken..."):
-        try:
-            kraken.load_markets()
-            st.session_state.markets_loaded = True
-        except Exception as e:
-            st.error(f"Erreur Kraken : {e}")
 
 FILE_MEMOIRE = "etat_bots.json"
 def sauvegarder_donnees(bots, profit_total):
@@ -72,10 +64,14 @@ with st.sidebar:
         c1, c2 = st.columns(2)
         if st.session_state.bots[name]["status"] == "LIBRE":
             if c1.button(f"GO {i+1}", key=f"g{i}"):
-                pa = float(kraken.price_to_precision('XRP/USDC', p_in_set))
-                pv = float(kraken.price_to_precision('XRP/USDC', p_out_set))
-                st.session_state.bots[name].update({"status": "ACHAT", "p_achat": pa, "p_vente": pv})
-                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total); st.rerun()
+                try:
+                    # FIX: Force load markets avant precision
+                    if not kraken.markets: kraken.load_markets()
+                    pa = float(kraken.price_to_precision('XRP/USDC', p_in_set))
+                    pv = float(kraken.price_to_precision('XRP/USDC', p_out_set))
+                    st.session_state.bots[name].update({"status": "ACHAT", "p_achat": pa, "p_vente": pv})
+                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total); st.rerun()
+                except Exception as e: st.error(f"Market Error: {e}")
         else:
             if c2.button(f"OFF {i+1}", key=f"o{i}"):
                 st.session_state.bots[name].update({"status": "LIBRE"}); st.rerun()
@@ -84,6 +80,9 @@ with st.sidebar:
 live = st.empty()
 while True:
     try:
+        # Vérification et chargement initial au début de la boucle
+        if not kraken.markets: kraken.load_markets()
+        
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
         bal = kraken.fetch_balance()
@@ -107,7 +106,7 @@ while True:
                     if bot["status"] == "ACHAT" and px <= bot["p_achat"]:
                         kraken.create_limit_buy_order('XRP/USDC', vol, bot["p_achat"])
                         st.session_state.bots[name]["status"] = "VENTE"
-                        st.toast(f"✅ BUY #{i+1}")
+                        st.toast(f"✅ BUY EXEC: Bot {i+1}")
                     elif bot["status"] == "VENTE" and px >= bot["p_vente"]:
                         kraken.create_limit_sell_order('XRP/USDC', vol, bot["p_vente"])
                         g = (bot['p_vente'] - bot['p_achat']) * vol
@@ -115,9 +114,9 @@ while True:
                         st.session_state.bots[name].update({"gain": bot["gain"]+g, "cycles": bot["cycles"]+1, "status": "ACHAT"})
                         st.toast(f"💰 PROFIT #{i+1} (+{g:.2f})")
                     
-                    status_color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-                    st.markdown(f'<div class="bot-line"><span class="bot-id">#{i+1:02d}</span><span style="color:{status_color};">{bot["status"]}</span><span>{bot["p_achat"]}->{bot["p_vente"]}</span><span class="flash-box">{val_snow:.2f} USDC</span></div>', unsafe_allow_html=True)
-                    time.sleep(0.05) # PAUSE ANTI-NONCE
+                    sc = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
+                    st.markdown(f'<div class="bot-line"><span class="bot-id">#{i+1:02d}</span><span style="color:{sc};">{bot["status"]}</span><span>{bot["p_achat"]}->{bot["p_vente"]}</span><span class="flash-box">{val_snow:.2f} USDC</span></div>', unsafe_allow_html=True)
+                    time.sleep(0.08) # Équilibre Anti-Nonce / Vitesse
             
             sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
 
@@ -125,3 +124,4 @@ while True:
         if "nonce" in str(e).lower(): time.sleep(1)
         else: st.write(f"SYSTEM: {str(e)[:50]}")
     time.sleep(5)
+
