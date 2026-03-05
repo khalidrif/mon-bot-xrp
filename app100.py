@@ -47,7 +47,7 @@ if 'bots' not in st.session_state:
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("CMD")
-    mode_reel = st.toggle("LIVE TRADING (OFF = TEST)", value=False) # Par défaut en TEST
+    mode_reel = st.toggle("LIVE TRADING (OFF = TEST)", value=False)
     p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
     p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
     budget_base = st.number_input("BASE USD", value=10.0)
@@ -59,7 +59,7 @@ with st.sidebar:
             if c1.button(f"GO {i+1}", key=f"l_{i}"):
                 try:
                     pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in_set)), float(kraken.price_to_precision('XRP/USDC', p_out_set))
-                    st.session_state.bots[name].update({"id": "ID_TEST", "status": "ACHAT", "p_achat": pa, "p_vente": pv})
+                    st.session_state.bots[name].update({"id": "ACTIVE", "status": "ACHAT", "p_achat": pa, "p_vente": pv})
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
                     st.rerun()
                 except Exception as e: st.error(e)
@@ -80,7 +80,7 @@ while True:
         with live.container():
             st.write(f"### MARKET FEED - XRP/USDC")
             c1, c2, c3 = st.columns(3)
-            c1.metric("BANKROLL", "5.70$")
+            c1.metric("BANKROLL", "ACTIF")
             c2.metric("XRP PRICE", f"{px:.4f}")
             c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
             st.divider()
@@ -102,21 +102,31 @@ while True:
                     </div>
                     ''', unsafe_allow_html=True)
                     
-                    # --- LOGIQUE DE SIMULATION ---
-                    if bot["status"] == "ACHAT":
-                        st.session_state.bots[name].update({"status": "VENTE"})
-                        st.toast(f"Bot {i+1} : Achat Simulé -> VENTE")
-                    else:
-                        g = (bot['p_vente'] - bot['p_achat']) * (val_snow / bot['p_achat'])
-                        st.session_state.profit_total += g
-                        st.session_state.bots[name]["gain"] += g
-                        st.session_state.bots[name]["cycles"] += 1
-                        st.session_state.bots[name].update({"status": "ACHAT"})
-                        st.toast(f"💰 Gain : +{g:.4f}")
+                    # --- LOGIQUE RÉELLE ---
+                    if mode_reel:
+                        volume_xrp = float(kraken.amount_to_precision('XRP/USDC', budget_base / px))
+                        
+                        if bot["status"] == "ACHAT" and px <= bot["p_achat"]:
+                            try:
+                                kraken.create_limit_buy_order('XRP/USDC', volume_xrp, bot["p_achat"])
+                                st.session_state.bots[name].update({"status": "VENTE"})
+                                st.toast(f"LIVE: Achat Bot {i+1} @ {bot['p_achat']}")
+                            except Exception as e: st.error(f"Err Achat #{i+1}: {e}")
+
+                        elif bot["status"] == "VENTE" and px >= bot["p_vente"]:
+                            try:
+                                kraken.create_limit_sell_order('XRP/USDC', volume_xrp, bot["p_vente"])
+                                g = (bot['p_vente'] - bot['p_achat']) * volume_xrp
+                                st.session_state.profit_total += g
+                                st.session_state.bots[name]["gain"] += g
+                                st.session_state.bots[name]["cycles"] += 1
+                                st.session_state.bots[name].update({"status": "ACHAT"})
+                                st.toast(f"LIVE: Vente Bot {i+1} +{g:.2f}$")
+                            except Exception as e: st.error(f"Err Vente #{i+1}: {e}")
                     
                     sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
 
     except Exception as e:
-        st.write(f"SYSTEM: {str(e)[:30]}")
+        st.write(f"SYSTEM: {str(e)[:50]}")
     
-    time.sleep(10) # Pause de 10s pour voir les gains monter
+    time.sleep(5)
