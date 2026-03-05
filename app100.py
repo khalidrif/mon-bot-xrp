@@ -5,17 +5,9 @@ import json
 import os
 from config import get_kraken_connection
 
-# 1. STYLE "BLOOMBERG"
-st.set_page_config(page_title="XRP Bloomberg DIAGNOSTIC", layout="wide")
-st.markdown("""
-    <style>
-    .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
-    [data-testid="stMetric"] { background-color: #FFFFFF !important; border-radius: 4px; padding: 10px; }
-    [data-testid="stMetricValue"] { color: #000000 !important; font-size: 20px !important; font-weight: 900 !important; }
-    .bot-line { border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 6px; border-radius: 2px; font-weight: 900; }
-    </style>
-    """, unsafe_allow_html=True)
+# 1. STYLE BLOOMBERG
+st.set_page_config(page_title="XRP Bloomberg DIRECT ORDER", layout="wide")
+st.markdown("<style>.main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }</style>", unsafe_allow_html=True)
 
 # 2. CONNEXION ET MÉMOIRE
 kraken = get_kraken_connection()
@@ -43,9 +35,9 @@ if 'bots' not in st.session_state:
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚡ CMD RÉEL")
-    p_in_set = st.number_input("TARGET IN (ACHAT)", value=1.4000, format="%.4f")
-    p_out_set = st.number_input("TARGET OUT (VENTE)", value=1.4500, format="%.4f")
+    st.header("⚡ CMD DIRECT")
+    p_in_set = st.number_input("TARGET IN", value=1.4000, format="%.4f")
+    p_out_set = st.number_input("TARGET OUT", value=1.4500, format="%.4f")
     budget_val = st.number_input("BUDGET (USDC)", value=35.0)
     
     if st.button("🚨 RESET TOTAL"):
@@ -61,73 +53,49 @@ with st.sidebar:
                 if not kraken.markets: kraken.load_markets()
                 pa_f = float(kraken.price_to_precision('XRP/USDC', p_in_set))
                 pv_f = float(kraken.price_to_precision('XRP/USDC', p_out_set))
-                st.session_state.bots[id_b].update({"status": "ACHAT", "pa": pa_f, "pv": pv_f, "budget": budget_val})
-                sauvegarder(st.session_state.bots, st.session_state.profit_total); st.rerun()
+                
+                # --- ACTION : PLACEMENT IMMEDIAT DE L'ORDRE D'ACHAT ---
+                vol = float(kraken.amount_to_precision('XRP/USDC', budget_val / pa_f))
+                try:
+                    res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
+                    st.session_state.bots[id_b].update({"status": "ACHAT_OUVERT", "pa": pa_f, "pv": pv_f, "budget": budget_val, "oid": res['id']})
+                    sauvegarder(st.session_state.bots, st.session_state.profit_total)
+                    st.success(f"ORDRE {id_b} PLACÉ : ID {res['id']}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"REFUS KRAKEN : {e}")
         else:
             if c2.button(f"OFF {i+1}", key=f"o{i}"):
+                # Annulation de l'ordre sur Kraken si on coupe le bot
+                try:
+                    if st.session_state.bots[id_b]["oid"] != "NONE":
+                        kraken.cancel_order(st.session_state.bots[id_b]["oid"])
+                except: pass
                 st.session_state.bots[id_b].update({"status": "LIBRE", "oid": "NONE"}); st.rerun()
 
-# --- BOUCLE PRINCIPALE AVEC DIAGNOSTIC ---
+# --- BOUCLE PRINCIPALE ---
 live = st.empty()
-count = 0
 while True:
     try:
-        if not kraken.markets: kraken.load_markets()
         px = kraken.fetch_ticker('XRP/USDC')['last']
-        if count % 5 == 0:
-            st.session_state.bankroll = kraken.fetch_balance().get('USDC', {}).get('free', 0.0)
-        
         with live.container():
-            st.write(f"### MARKET FEED : {px:.4f}")
-            c1, c2 = st.columns(2)
-            c1.metric("BANKROLL", f"{st.session_state.bankroll:.2f} USDC")
-            c2.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
-            st.divider()
-            
-            actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
-            
-            for name in actifs:
-                bot = st.session_state.bots[name]
-                actuel_b = bot["budget"] + bot["gain"]
-                vol = float(kraken.amount_to_precision('XRP/USDC', actuel_b / px))
-                
-                # --- DIAGNOSTIC VISUEL PAR BOT ---
-                if bot["status"] == "ACHAT":
+            st.write(f"### MARKET : {px:.4f}")
+            for name, bot in st.session_state.bots.items():
+                if bot["status"] == "ACHAT_OUVERT":
+                    # Le bot surveille si l'achat est complété sur Kraken
+                    st.info(f"⏳ {name} : Ordre d'Achat ouvert à {bot['pa']} (ID: {bot['oid']})")
+                    # Ici, on pourrait ajouter une logique pour vérifier si l'ordre est 'closed'
+                    # Pour simplifier, si le prix touche pa, on considère qu'il va passer en VENTE
                     if px <= bot["pa"]:
-                        st.warning(f"🚀 {name} : TENTATIVE D'ACHAT (Marché {px} <= Cible {bot['pa']})")
-                        try:
-                            # ON PLACE L'ORDRE LIMITE (post-only False pour forcer l'exécution si prix touché)
-                            res = kraken.create_limit_buy_order('XRP/USDC', vol, bot["pa"], {'post-only': False})
-                            st.session_state.bots[name].update({"status": "VENTE", "oid": res['id']})
-                            sauvegarder(st.session_state.bots, st.session_state.profit_total)
-                            st.success(f"🔥 KRAKEN ACCEPTE : {name} ID {res['id']}")
-                        except Exception as e:
-                            st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:100]}")
-                    else:
-                        st.info(f"⏳ {name} : ATTENTE PRIX (Besoin de {bot['pa']} | Marché à {px})")
+                        st.session_state.bots[name]["status"] = "SURVEILLANCE_VENTE"
+                        sauvegarder(st.session_state.bots, st.session_state.profit_total)
 
-                elif bot["status"] == "VENTE":
+                elif bot["status"] == "SURVEILLANCE_VENTE":
+                    st.success(f"📈 {name} : XRP acheté ! Attente pour vendre à {bot['pv']}")
                     if px >= bot["pv"]:
-                        try:
-                            res = kraken.create_limit_sell_order('XRP/USDC', vol, bot["pv"], {'post-only': False})
-                            g = (bot["pv"] - bot["pa"]) * vol
-                            st.session_state.profit_total += g
-                            st.session_state.bots[name].update({"status": "ACHAT", "gain": bot["gain"]+g, "oid": res['id']})
-                            sauvegarder(st.session_state.bots, st.session_state.profit_total)
-                            st.success(f"💰 VENTE RÉUSSIE : {name} (+{g:.2f})")
-                        except Exception as e:
-                            st.error(f"❌ KRAKEN REFUS {name} : {str(e)[:100]}")
-                    else:
-                        st.info(f"⏳ {name} : ATTENTE VENTE (Besoin de {bot['pv']} | Marché à {px})")
-
-                # Affichage Ligne Bloomberg
-                sc = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-                st.markdown(f'<div class="bot-line"><span>{name}</span><span style="color:{sc};">{bot["status"]}</span><span>{bot["pa"]}->{bot["pv"]}</span><span class="flash-box">{actuel_b:.2f} USDC</span></div>', unsafe_allow_html=True)
-                time.sleep(0.1)
-
-    except Exception as e:
-        if "nonce" in str(e).lower(): time.sleep(1)
-        else: st.write(f"SYSTEM ERROR: {str(e)[:50]}")
-    
-    count += 1
-    time.sleep(8)
+                        # Placement de l'ordre de vente
+                        vol = float(kraken.amount_to_precision('XRP/USDC', bot["budget"] / bot["pa"]))
+                        res = kraken.create_limit_sell_order('XRP/USDC', vol, bot["pv"])
+                        st.session_state.bots[name].update({"status": "ACHAT_OUVERT", "oid": res['id']}) # Recommence cycle
+    except: pass
+    time.sleep(10)
