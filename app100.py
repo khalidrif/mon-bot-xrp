@@ -44,20 +44,20 @@ if 'bots' not in st.session_state:
         st.session_state.bots.update(memoire.get("bots", {}))
         st.session_state.profit_total = memoire.get("profit_total", 0.0)
 
-# --- SIDEBAR ---
+# --- SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚡ MODE REAL TIME")
     st.warning("FORCE LIVE ACTIVE")
     p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
     p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
-    budget_base = st.number_input("BASE USD", value=10.0)
+    budget_base = st.number_input("BASE USDC", value=10.0)
     
     st.divider()
-    if st.button("🚨 RESET GAINS & CYCLES"):
+    if st.button("🚨 RESET GAINS & CYCLES", use_container_width=True):
         st.session_state.profit_total = 0.0
         for b in st.session_state.bots:
             st.session_state.bots[b]["gain"] = 0.0
-            st.session_state.bots[name]["cycles"] = 0
+            st.session_state.bots[b]["cycles"] = 0
         sauvegarder_donnees(st.session_state.bots, 0.0)
         st.rerun()
     st.divider()
@@ -84,15 +84,16 @@ live = st.empty()
 
 while True:
     try:
+        # Récupération Prix et Balance USDC réelle
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
-        bal = kraken.fetch_balance()
-        bankroll = bal.get('USDC', {}).get('free', 0.0)
+        balance = kraken.fetch_balance()
+        bankroll_usdc = balance.get('USDC', {}).get('free', 0.0)
         
         with live.container():
             st.write(f"### MARKET FEED - XRP/USDC (LIVE)")
             c1, c2, c3 = st.columns(3)
-            c1.metric("BANKROLL", f"{bankroll:.2f} USDC")
+            c1.metric("BANKROLL (USDC)", f"{bankroll_usdc:.2f}")
             c2.metric("XRP PRICE", f"{px:.4f}")
             c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
             st.divider()
@@ -101,7 +102,7 @@ while True:
                 name = f"Bot_{i+1}"
                 bot = st.session_state.bots[name]
                 if bot["status"] != "LIBRE":
-                    # EFFET BOULE DE NEIGE : Budget + Gains accumulés
+                    # BOULE DE NEIGE
                     val_snow = budget_base + bot['gain']
                     status_color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
                     
@@ -136,9 +137,16 @@ while True:
                             st.toast(f"LIVE SELL EXEC: Bot {i+1} (+{g:.2f})")
                         except Exception as e: st.error(f"Error Sell #{i+1}: {e}")
                     
-                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+                    # PAUSE ANTI-NONCE
+                    time.sleep(0.05)
+            
+            sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
 
     except Exception as e:
-        st.write(f"SYSTEM: {str(e)[:40]}")
+        if "Invalid nonce" in str(e):
+            st.warning("Système : Resynchronisation du Nonce...")
+            time.sleep(1)
+        else:
+            st.write(f"SYSTEM ERROR: {str(e)[:50]}")
     
     time.sleep(5)
