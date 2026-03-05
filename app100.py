@@ -1,29 +1,29 @@
 import streamlit as st
+import ccxt
 import sys
 import json
 import os
 import time
 from datetime import datetime
 
-# --- 1. PATCH DE SÉCURITÉ ET IMPORTS ---
-try:
-    import ccxt
-except ImportError:
-    st.error("Module CCXT manquant.")
-    st.stop()
-
-from streamlit_autorefresh import st_autorefresh
-from config import get_kraken_connection
-
-# --- 2. INITIALISATION KRAKEN (DOIT ÊTRE ICI POUR ÉVITER NAMEERROR) ---
+# --- 1. CONFIGURATION DES SECRETS ET CONNEXION ---
+# On crée la variable 'kraken' immédiatement au démarrage
 kraken = None
 try:
-    kraken = get_kraken_connection()
+    if "KRAKEN_KEY" in st.secrets:
+        kraken = ccxt.kraken({
+            'apiKey': st.secrets["KRAKEN_KEY"],
+            'secret': st.secrets["KRAKEN_SECRET"],
+            'enableRateLimit': True,
+        })
+    else:
+        st.error("🔑 Clés API manquantes dans les Secrets Streamlit !")
 except Exception as e:
-    st.sidebar.error("Erreur de connexion API")
+    st.error(f"❌ Erreur de connexion Kraken : {e}")
 
-# --- 3. CONFIGURATION & REFRESH (15s) ---
+# --- 2. CONFIGURATION STREAMLIT ---
 st.set_page_config(page_title="XRP Terminal Pro", layout="wide")
+from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=15000, key="datarefresh") 
 
 FILE_MEMOIRE = "etat_bots.json"
@@ -39,7 +39,7 @@ def charger():
         except: return None
     return None
 
-# --- 4. INITIALISATION MÉMOIRE ---
+# --- 3. INITIALISATION MÉMOIRE ---
 if 'bots' not in st.session_state:
     mem = charger()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -53,7 +53,7 @@ if 'bots' not in st.session_state:
         st.session_state.daily_gain = 0.0
     st.session_state.last_date = today
 
-# --- 5. STYLE ---
+# --- 4. STYLE ---
 profit_color = "#28a745" if st.session_state.profit_total > 0 else "#0070FF"
 st.markdown(f"""
     <style>
@@ -68,7 +68,7 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 6. SIDEBAR CMD ---
+# --- 5. SIDEBAR CMD ---
 with st.sidebar:
     st.header("⚙️ CONFIG")
     p_in = st.number_input("ACHAT (IN)", value=1.4000, format="%.4f")
@@ -79,7 +79,7 @@ with st.sidebar:
     if st.button(f"🚀 ACTIVER {bot_sel}", use_container_width=True):
         if kraken:
             try:
-                time.sleep(1) # Sécurité API
+                time.sleep(1)
                 if not kraken.markets: kraken.load_markets()
                 pa_f = float(kraken.price_to_precision('XRP/USDC', p_in))
                 vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
@@ -89,7 +89,7 @@ with st.sidebar:
                 st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
-# --- 7. LOGIQUE LIVE & SYNCHRO RÉELLE ---
+# --- 6. LOGIQUE LIVE & SYNCHRO ---
 px, cash_total = 0.0, 0.0
 if kraken:
     try:
@@ -98,18 +98,11 @@ if kraken:
         px, bal = ticker['last'], kraken.fetch_balance()
         cash_total = bal.get('USDC', {}).get('total', 0.0)
         
-        # --- SCANNER D'ORDRES OUVERTS ---
         open_orders = kraken.fetch_open_orders('XRP/USDC')
         oids_ouverts = [o['id'] for o in open_orders]
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        if st.session_state.last_date != today:
-            st.session_state.daily_gain = 0.0
-            st.session_state.last_date = today
-
         for name, bot in st.session_state.bots.items():
             if bot["status"] != "LIBRE" and bot["oid"] != "NONE":
-                # SI L'ORDRE N'EST PLUS SUR KRAKEN -> IL EST FINI
                 if bot["oid"] not in oids_ouverts:
                     try:
                         check = kraken.fetch_order(bot["oid"])
@@ -133,7 +126,7 @@ if kraken:
                     except: pass
     except: st.caption("🔄 Synchro Kraken...")
 
-# --- 8. AFFICHAGE ---
+# --- 7. AFFICHAGE ---
 st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("PRIX XRP", f"{px:.4f} $")
