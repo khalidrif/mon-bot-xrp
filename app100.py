@@ -26,6 +26,7 @@ st.set_page_config(page_title="XRP Terminal Pro", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh") 
 
 FILE_MEMOIRE = "etat_bots.json"
+
 def sauvegarder(bots, total):
     with open(FILE_MEMOIRE, "w") as f: 
         json.dump({"bots": bots, "profit_total": total}, f)
@@ -80,39 +81,57 @@ with st.sidebar:
                 st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
-# --- 6. LOGIQUE LIVE & SURVEILLANCE DES ORDRES ---
+    if st.button("🚨 STOP TOUS LES BOTS", use_container_width=True):
+        for b in st.session_state.bots:
+            st.session_state.bots[b].update({"status": "LIBRE", "oid": "NONE"})
+        sauvegarder(st.session_state.bots, st.session_state.profit_total)
+        st.rerun()
+
+# --- 6. LOGIQUE LIVE & SURVEILLANCE DES ORDRES (FORCE REFRESH) ---
 px, cash = 0.0, 0.0
 if kraken:
     try:
-        time.sleep(1) # Délai pour éviter le "Spam API"
         if not kraken.markets: kraken.load_markets()
-        
         ticker = kraken.fetch_ticker('XRP/USDC')
         px = ticker['last']
-        
         bal = kraken.fetch_balance()
         cash = bal.get('USDC', {}).get('free', 0.0)
 
-        # Vérification automatique des ordres pour les cycles
+        # BOUCLE DE VERIFICATION DES CYCLES
         for name, bot in st.session_state.bots.items():
             if bot["status"] != "LIBRE" and bot["oid"] != "NONE":
                 try:
-                    order = kraken.fetch_order(bot["oid"])
-                    if order['status'] == 'closed':
+                    # On demande le statut réel à Kraken
+                    order_info = kraken.fetch_order(bot["oid"])
+                    statut_reel = order_info['status']
+                    
+                    if statut_reel == 'closed':
                         if bot["status"] == "ACHAT":
-                            # PASSAGE EN VENTE
-                            vol_v = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"]+bot.get("gain",0))/bot["pa"]))
-                            v_res = kraken.create_limit_sell_order('XRP/USDC', vol_v, bot["pv"])
+                            # PASSAGE EN VENTE REELLE
+                            vol_v = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0)) / bot["pa"]))
+                            pv_f = float(kraken.price_to_precision('XRP/USDC', bot["pv"]))
+                            v_res = kraken.create_limit_sell_order('XRP/USDC', vol_v, pv_f)
                             st.session_state.bots[name].update({"status": "VENTE", "oid": v_res['id']})
-                        else:
-                            # VENTE FINIE -> PROFIT !
-                            profit = (bot["pv"] - bot["pa"]) * (bot["budget"]/bot["pa"])
-                            st.session_state.profit_total += profit
-                            st.session_state.bots[name].update({"status": "LIBRE", "oid": "NONE", "cycles": bot.get("cycles", 0)+1, "gain": bot.get("gain", 0)+profit})
+                            st.toast(f"✅ {name} : ACHAT FINI -> VENTE PLACÉE", icon="🚀")
+                        
+                        elif bot["status"] == "VENTE":
+                            # VENTE FINIE -> PROFIT ET CYCLE +1
+                            diff = float(bot["pv"]) - float(bot["pa"])
+                            profit_net = diff * (bot["budget"] / bot["pa"])
+                            st.session_state.profit_total += profit_net
+                            st.session_state.bots[name].update({
+                                "status": "LIBRE", 
+                                "oid": "NONE", 
+                                "cycles": bot.get("cycles", 0) + 1, 
+                                "gain": bot.get("gain", 0) + profit_net
+                            })
+                            st.toast(f"💰 {name} : VENTE FINIE ! CYCLE +1", icon="💎")
+                        
                         sauvegarder(st.session_state.bots, st.session_state.profit_total)
+                        st.rerun() # Rafraîchissement forcé pour voir le cycle changer
                 except: continue
     except Exception as e:
-        st.caption(f"🔄 Synchro Kraken... {str(e)[:30]}")
+        st.caption(f"🔄 Synchro Kraken...")
 
 # --- 7. AFFICHAGE ---
 st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
@@ -134,6 +153,6 @@ else:
                 <b style="color:#2C3E50;">{name}</b>
                 <span class="{cl}">{bot["status"]}</span>
                 <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
-                <span class="badge-cycle">{bot.get("cycles",0)} CYCLES</span>
+                <span class="badge-cycle">{bot.get("cycles", 0)} CYCLES</span>
                 <span class="flash-box">{bot["budget"] + bot.get("gain",0):.2f} $</span>
             </div>''', unsafe_allow_html=True)
