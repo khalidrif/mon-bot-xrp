@@ -21,9 +21,9 @@ st_autorefresh(interval=15000, key="datarefresh")
 
 FILE_MEMOIRE = "etat_bots.json"
 
-def sauvegarder(bots, total, histo, last_gain):
+def sauvegarder(bots, total, last_gain):
     with open(FILE_MEMOIRE, "w") as f: 
-        json.dump({"bots": bots, "profit_total": total, "historique": histo, "last_gain": last_gain}, f)
+        json.dump({"bots": bots, "profit_total": total, "last_gain": last_gain}, f)
 
 def charger():
     if os.path.exists(FILE_MEMOIRE):
@@ -32,18 +32,16 @@ def charger():
         except: return None
     return None
 
-# --- 3. INITIALISATION MÉMOIRE ---
+# --- 3. INITIALISATION ---
 if 'bots' not in st.session_state:
     mem = charger()
     if mem:
         st.session_state.bots = mem.get("bots")
         st.session_state.profit_total = mem.get("profit_total", 0.0)
-        st.session_state.historique = mem.get("historique", [])
         st.session_state.last_gain_info = mem.get("last_gain", "En attente...")
     else:
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
         st.session_state.profit_total = 0.0
-        st.session_state.historique = []
         st.session_state.last_gain_info = "En attente..."
 
 # --- 4. CONNEXION ---
@@ -53,14 +51,14 @@ try:
 except:
     st.sidebar.error("Erreur API Kraken")
 
-# --- 5. STYLE CLAIR ---
+# --- 5. STYLE ---
 profit_color = "#28a745" if st.session_state.profit_total > 0 else "#0070FF"
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #F0F2F6 !important; }}
     .status-dot {{ height: 10px; width: 10px; background-color: #00FF00; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #00FF00; animation: blinker 1.5s linear infinite; margin-right: 10px; }}
     @keyframes blinker {{ 50% {{ opacity: 0; }} }}
-    [data-testid="stMetricValue"] {{ color: {profit_color} !important; font-weight: 900 !important; font-size: 20px !important; }}
+    [data-testid="stMetricValue"] {{ color: {profit_color} !important; font-weight: 900 !important; font-size: 22px !important; }}
     .bot-line {{ border-bottom: 1px solid #E6E9EF; padding: 10px; display: flex; justify-content: space-between; align-items: center; background-color: #FFFFFF; margin-bottom: 3px; border-radius: 5px; font-size: 13px; }}
     .status-v {{ color: #28a745; font-weight: bold; width: 70px; }}
     .status-a {{ color: #fd7e14; font-weight: bold; width: 70px; }}
@@ -68,13 +66,13 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 6. SIDEBAR (LA SEULE COMMANDE) ---
+# --- 6. SIDEBAR ---
 with st.sidebar:
-    st.header("⚙️ CONFIGURATION")
+    st.header("⚙️ CONFIG")
     p_in = st.number_input("ACHAT (IN)", value=1.4000, format="%.4f")
     p_out = st.number_input("VENTE (OUT)", value=1.4500, format="%.4f")
-    b_val = st.number_input("BUDGET (USDC)", value=25.0)
-    bot_sel = st.selectbox("SÉLECTIONNER BOT", [f"B{i+1}" for i in range(100)])
+    b_val = st.number_input("BUDGET", value=25.0)
+    bot_sel = st.selectbox("BOT", [f"B{i+1}" for i in range(100)])
     
     if st.button(f"🚀 ACTIVER {bot_sel}", use_container_width=True):
         if kraken:
@@ -84,15 +82,13 @@ with st.sidebar:
                 vol = float(kraken.amount_to_precision('XRP/USDC', b_val / pa_f))
                 res = kraken.create_limit_buy_order('XRP/USDC', vol, pa_f, {'post-only': True})
                 st.session_state.bots[bot_sel].update({"status": "ACHAT", "pa": pa_f, "pv": p_out, "oid": res['id'], "budget": b_val})
-                sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique, st.session_state.last_gain_info)
+                sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.last_gain_info)
                 st.rerun()
             except Exception as e: st.error(f"Kraken: {e}")
 
-    if st.button("🚨 STOP & CLEAR ALL", use_container_width=True):
+    if st.button("🚨 STOP ALL", use_container_width=True):
         st.session_state.bots = {f"B{i+1}": {"status": "LIBRE", "pa": 0.0, "pv": 0.0, "budget": 25.0, "gain": 0.0, "oid": "NONE", "cycles": 0} for i in range(100)}
-        st.session_state.profit_total = 0.0
-        st.session_state.historique = []
-        sauvegarder(st.session_state.bots, 0.0, [], "En attente...")
+        sauvegarder(st.session_state.bots, 0.0, "En attente...")
         st.rerun()
 
 # --- 7. LOGIQUE LIVE & SYNCHRO ---
@@ -123,17 +119,16 @@ if kraken:
                                 st.session_state.profit_total += profit
                                 now = datetime.now().strftime("%H:%M:%S")
                                 st.session_state.last_gain_info = f"+{profit:.4f}$ ({now})"
-                                st.session_state.historique.insert(0, f"[{now}] {name}: +{profit:.4f}$")
                                 pa_f = float(kraken.price_to_precision('XRP/USDC', bot["pa"]))
                                 vol_a = float(kraken.amount_to_precision('XRP/USDC', (bot["budget"] + bot.get("gain", 0) + profit) / pa_f))
                                 a_res = kraken.create_limit_buy_order('XRP/USDC', vol_a, pa_f, {'post-only': True})
                                 st.session_state.bots[name].update({"status": "ACHAT", "oid": a_res['id'], "cycles": int(bot.get("cycles", 0)) + 1, "gain": float(bot.get("gain", 0)) + profit})
-                            sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique, st.session_state.last_gain_info)
+                            sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.last_gain_info)
                             st.rerun()
                     except: pass
     except: st.caption("🔄 Synchro Kraken...")
 
-# --- 8. AFFICHAGE ---
+# --- 8. AFFICHAGE FINAL ---
 st.markdown(f'<h3><span class="status-dot"></span>TERMINAL XRP LIVE</h3>', unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("PRIX XRP", f"{px:.4f} $")
@@ -143,25 +138,22 @@ c4.metric("WALLET TOTAL", f"{cash_total:.2f} $")
 st.divider()
 
 actifs = [n for n, b in st.session_state.bots.items() if b["status"] != "LIBRE"]
-if not actifs:
-    st.info("Aucun bot actif. Utilisez la barre latérale.")
-else:
-    for name in actifs:
-        bot = st.session_state.bots[name]
-        col_info, col_btn = st.columns([0.9, 0.1])
-        with col_info:
-            st.markdown(f'''
-                <div class="bot-line">
-                    <b style="color:#2C3E50;">{name}</b>
-                    <span class="{"status-v" if bot["status"] == "VENTE" else "status-a"}">{bot["status"]}</span>
-                    <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
-                    <span style="background:#EAECEE; padding:2px 6px; border-radius:3px; font-size:11px;">{bot.get("cycles",0)} CYC</span>
-                    <span class="flash-box">{bot["budget"] + bot.get("gain",0):.2f} $</span>
-                </div>''', unsafe_allow_html=True)
-        if col_btn.button("❌", key=f"del_{name}"):
-            try:
-                if bot["oid"] != "NONE": kraken.cancel_order(bot["oid"])
-            except: pass
-            st.session_state.bots[name].update({"status": "LIBRE", "oid": "NONE"})
-            sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.historique, st.session_state.last_gain_info)
-            st.rerun()
+for name in actifs:
+    bot = st.session_state.bots[name]
+    col_info, col_btn = st.columns([0.92, 0.08])
+    with col_info:
+        st.markdown(f'''
+            <div class="bot-line">
+                <b style="color:#2C3E50;">{name}</b>
+                <span class="{"status-v" if bot["status"] == "VENTE" else "status-a"}">{bot["status"]}</span>
+                <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
+                <span style="background:#EAECEE; padding:2px 6px; border-radius:3px; font-size:11px;">{bot.get("cycles",0)} CYC</span>
+                <span class="flash-box">{bot["budget"] + bot.get("gain",0):.2f} $</span>
+            </div>''', unsafe_allow_html=True)
+    if col_btn.button("❌", key=f"del_{name}"):
+        try:
+            if bot["oid"] != "NONE": kraken.cancel_order(bot["oid"])
+        except: pass
+        st.session_state.bots[name].update({"status": "LIBRE", "oid": "NONE"})
+        sauvegarder(st.session_state.bots, st.session_state.profit_total, st.session_state.last_gain_info)
+        st.rerun()
