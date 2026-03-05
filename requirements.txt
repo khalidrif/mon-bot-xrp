@@ -1,5 +1,7 @@
 ccxt==4.2.50
 streamlit
 pandas
+streamlit-autorefresh
+
 
 
