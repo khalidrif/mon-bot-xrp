@@ -1,52 +1,35 @@
 import streamlit as st
-import ccxt
+import pandas as pd
 import time
-from config import get_kraken_connection
 
-# 1. STYLE CLAIR ET NET
+# 1. CONFIGURATION SIMPLE
 st.set_page_config(page_title="XRP 100 BOTS", layout="wide")
-st.markdown("""
-    <style>
-    .bot-row { border-bottom: 1px solid #ddd; padding: 5px; display: flex; justify-content: space-between; font-family: monospace; }
-    .status-idle { color: #ccc; }
-    .status-active { color: #007bff; font-weight: bold; }
-    .badge-cash { background-color: #FFD700; color: black; padding: 2px 5px; font-weight: bold; border-radius: 3px; }
-    </style>
-    """, unsafe_allow_html=True)
 
-# 2. INITIALISATION MÉMOIRE (NOM UNIQUE POUR FORCER)
-if 'session_100_bots' not in st.session_state:
-    st.session_state.session_100_bots = {f"B{i+1}": {"status": "IDLE", "pa": 0.0, "pv": 0.0} for i in range(100)}
-
-# --- SIDEBAR ULTRA-LÉGÈRE (UN SEUL BOUTON) ---
-with st.sidebar:
-    st.header("⚡ COMMANDES")
-    bot_selectionne = st.selectbox("CHOISIR UN BOT", [f"B{i+1}" for i in range(100)])
-    p_in = st.number_input("TARGET IN", value=1.4000, format="%.4f")
-    p_out = st.number_input("TARGET OUT", value=1.4500, format="%.4f")
-    
-    if st.button(f"🚀 LANCER {bot_selectionne}"):
-        st.session_state.session_100_bots[bot_selectionne].update({"status": "ACHAT", "pa": p_in, "pv": p_out})
-        st.success(f"{bot_selectionne} est maintenant ACTIF")
-
-    if st.button("🚨 RESET TOTAL"):
-        st.session_state.session_100_bots = {f"B{i+1}": {"status": "IDLE", "pa": 0.0, "pv": 0.0} for i in range(100)}
-        st.rerun()
-
-# --- INTERFACE PRINCIPALE ---
+# 2. TITRE
 st.title("🖥️ TERMINAL XRP - 100 BOTS")
 
-# AFFICHAGE STRICT DES 100 LIGNES
-for i in range(100):
-    name = f"B{i+1}"
-    bot = st.session_state.session_100_bots[name]
-    st_class = "status-active" if bot["status"] != "IDLE" else "status-idle"
-    
-    st.markdown(f'''
-        <div class="bot-row">
-            <span style="font-weight:bold; width:50px;">{name}</span>
-            <span class="{st_class}">{bot["status"]}</span>
-            <span>{bot["pa"]:.4f} → {bot["pv"]:.4f}</span>
-            <span class="badge-cash">25.00 $</span>
-        </div>
-    ''', unsafe_allow_html=True)
+# 3. INITIALISATION FORCEE D'UNE LISTE DE 100
+if 'ma_liste_bots' not in st.session_state:
+    # Création d'un tableau de 100 lignes
+    data = []
+    for i in range(1, 101):
+        data.append({"BOT": f"B{i}", "STATUT": "IDLE", "ACHAT": 1.40, "VENTE": 1.45, "BUDGET": "25.00$"})
+    st.session_state.ma_liste_bots = data
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("⚙️ CONTROLE")
+    if st.button("🚨 RÉINITIALISER TOUT (FORCE 100)"):
+        data = []
+        for i in range(1, 101):
+            data.append({"BOT": f"B{i}", "STATUT": "IDLE", "ACHAT": 1.40, "VENTE": 1.45, "BUDGET": "25.00$"})
+        st.session_state.ma_liste_bots = data
+        st.rerun()
+
+# --- AFFICHAGE SOUS FORME DE TABLEAU (IMPOSSIBLE A CACHER) ---
+df = pd.DataFrame(st.session_state.ma_liste_bots)
+st.table(df) # st.table affiche TOUTES les lignes d'un coup sans scroll interne
+
+# RAFRAICHISSEMENT
+time.sleep(10)
+st.rerun()
