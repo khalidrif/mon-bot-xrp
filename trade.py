@@ -11,7 +11,11 @@ def main():
     try:
         print("🚀 DEBUT DU BOT KRAKEN...")
         res = k.query_public('Ticker', {'pair': PAIR})
-        prix = float(res['result'][next(iter(res['result']))]['c'])
+        
+        # CORRECTION ICI : On prend le premier élément [0] de la liste 'c'
+        infos_paire = res['result'][next(iter(res['result']))]
+        prix = float(infos_paire['c'][0]) 
+        
         print(f"📈 Prix XRP: {prix} USDC")
 
         bal = k.query_private('Balance')['result']
@@ -27,9 +31,10 @@ def main():
                 'ordertype': 'market',
                 'volume': str(round(volume, 1))
             })
-            print(f"✅ REPONSE : {order}")
+            print(f"✅ REPONSE KRAKEN : {order}")
         else:
             print("❌ SOLDE TROP FAIBLE")
+            
     except Exception as e:
         print(f"❌ ERREUR : {e}")
 
