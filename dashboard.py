@@ -1,10 +1,9 @@
 import streamlit as st
 import krakenex
-import pandas as pd
 
 # 1. Configuration
-st.set_page_config(page_title="Kraken Multi-Bot Expert", layout="wide")
-st.title("❄️ XRP Snowball : Pilotage Individuel")
+st.set_page_config(page_title="XRP Command Center", layout="wide")
+st.title("🎮 Centre de Contrôle XRP")
 
 # 2. Connexion
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
@@ -12,81 +11,76 @@ k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"
 # 3. Données Marché
 try:
     res_ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})
-    prix_actuel = float(res_ticker['result']['XRPUSDC']['c'])
+    prix_actuel = float(res_ticker['result']['XRPUSDC']['c'][0])
+    st.metric("Prix XRP actuel", f"{prix_actuel:.4f} USDC", delta="Marché en direct")
+    
     res_open = k.query_private('OpenOrders')['result']['open']
-    st.metric("🚀 Prix XRP actuel", f"{prix_actuel:.4f} USDC")
 except:
-    st.error("Connexion Kraken impossible.")
+    st.error("Connexion Kraken impossible (Vérifie tes clés ou la maintenance).")
     res_open = {}
 
-# 4. Formulaire de lancement
-with st.form("form_bot"):
-    num_prochain = len(res_open) + 1
-    st.subheader(f"➕ Configurer le Bot {num_prochain}")
-    col1, col2, col3 = st.columns(3)
-    p_achat = col1.number_input("Prix ACHAT (Entrée)", value=1.0400, format="%.4f")
-    p_vente = col2.number_input("Prix VENTE (Sortie)", value=1.5000, format="%.4f")
-    vol = col3.number_input("Quantité (XRP)", value=12.0)
-    submit = st.form_submit_button(f"🚀 LANCER LE BOT {num_prochain}")
+# 4. Zone de Lancement (Design épuré)
+with st.expander("🚀 LANCER UN NOUVEAU BOT", expanded=True):
+    col1, col2, col3, col4 = st.columns(4)
+    p_in = col1.number_input("ACHAT (Bas)", value=1.0400, format="%.4f")
+    p_out = col2.number_input("VENTE (Haut)", value=1.5000, format="%.4f")
+    vol = col3.number_input("Quantité XRP", value=12.0)
+    
+    if col4.button("⚡ ACTIVER", use_container_width=True):
+        try:
+            # On stocke le prix d'entrée dans userref (multiplié par 1000)
+            memo = int(p_in * 1000)
+            order_data = {
+                'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_in), 'volume': str(vol),
+                'userref': str(memo),
+                'close[ordertype]': 'limit', 'close[price]': str(p_out), 'close[type]': 'sell'
+            }
+            k.query_private('AddOrder', order_data)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erreur : {e}")
 
-if submit:
-    try:
-        memo_prix = int(p_achat * 10000)
-        order_data = {
-            'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_achat), 'volume': str(vol),
-            'userref': str(memo_prix),
-            'close[ordertype]': 'limit', 'close[price]': str(p_vente), 'close[type]': 'sell'
-        }
-        k.query_private('AddOrder', order_data)
-        st.success(f"✅ Bot lancé !")
-        st.rerun()
-    except Exception as e:
-        st.error(f"Erreur : {e}")
-
-# 5. TABLEAU DE BORD
 st.write("---")
-st.subheader("📋 Liste des Bots Actifs")
 
-dict_annuler = {} # Pour stocker les IDs de chaque bot
+# 5. Le Mur des Bots (Affichage par Cartes)
+st.subheader(f"🤖 Mes Bots Actifs ({len(res_open)})")
 
 if res_open:
-    data_display = []
-    for i, (oid, det) in enumerate(res_open.items(), start=1):
-        t = det['descr']['type'].upper()
-        p_ordre = float(det['descr']['price'])
-        nom_visuel = f"Bot {i}"
-        dict_annuler[nom_visuel] = oid # On lie le nom à l'ID Kraken
-        
-        try:
-            p_achat_init = int(det.get('userref', 0)) / 10000
-        except:
-            p_achat_init = 0.0
+    # On crée une grille de 3 colonnes pour les cartes
+    cols = st.columns(3)
+    for i, (oid, det) in enumerate(res_open.items()):
+        with cols[i % 3]:
+            type_o = det['descr']['type'].upper()
+            prix_o = float(det['descr']['price'])
+            
+            # Récupération du prix d'entrée mémorisé
+            try:
+                p_in_memo = int(det.get('userref', 0)) / 1000
+            except: p_in_memo = 0.0
 
-        if t == "BUY":
-            p_achat_txt, p_vente_txt, etat, coul = f"{p_ordre:.4f}", "---", "🟢 ACHAT", "buy"
-        else:
-            p_achat_txt, p_vente_txt, etat, coul = f"{p_achat_init:.4f} ✅", f"{p_ordre:.4f}", "🔴 VENTE", "sell"
-
-        data_display.append({"BOT": nom_visuel, "ACHAT": p_achat_txt, "VENTE": p_vente_txt, "ÉTAT": etat, "VALEUR": f"{p_ordre * float(det['vol']):.2f} USDC", "_style": coul})
-    
-    df = pd.DataFrame(data_display)
-    st.dataframe(df.style.apply(lambda r: ['background-color: rgba(46, 204, 113, 0.2)' if r['_style'] == 'buy' else 'background-color: rgba(231, 76, 60, 0.2)'] * len(r), axis=1), use_container_width=True, column_order=("BOT", "ACHAT", "VENTE", "ÉTAT", "VALEUR"))
-
-    # --- NOUVEAU : ANNULATION INDIVIDUELLE ---
-    st.write("### 🛠️ Gestion Individuelle")
-    col_del, col_btn = st.columns([2, 1])
-    bot_a_supprimer = col_del.selectbox("Choisir un bot à arrêter :", options=list(dict_annuler.keys()))
-    
-    if col_btn.button("🗑️ SUPPRIMER CE BOT"):
-        id_kraken = dict_annuler[bot_a_supprimer]
-        k.query_private('CancelOrder', {'txid': id_kraken})
-        st.warning(f"{bot_a_supprimer} annulé.")
-        st.rerun()
+            # Design de la carte
+            color = "green" if type_o == "BUY" else "red"
+            emoji = "📥" if type_o == "BUY" else "💰"
+            
+            with st.container(border=True):
+                st.markdown(f"### {emoji} Bot {i+1}")
+                if type_o == "BUY":
+                    st.write(f"**Objectif :** Acheter à **{prix_o:.4f}**")
+                    st.write(f"**Sortie prévue :** {p_out if 'p_out' in locals() else '---'}")
+                else:
+                    st.write(f"✅ **Acheté à :** {p_in_memo:.4f}")
+                    st.write(f"🎯 **Cible Vente :** **{prix_o:.4f}**")
+                
+                st.write(f"💎 **Valeur :** {prix_o * float(det['vol']):.2f} USDC")
+                
+                # Bouton STOP unique pour ce bot
+                if st.button(f"❌ STOP BOT {i+1}", key=oid):
+                    k.query_private('CancelOrder', {'txid': oid})
+                    st.rerun()
 else:
-    st.info("Aucun bot actif.")
+    st.info("Aucun bot ne tourne. C'est le moment d'en lancer un !")
 
-# 6. RESET TOTAL
-st.write("---")
-if st.sidebar.button("⚠️ RESET TOTAL"):
+# 6. Bouton de secours
+if st.sidebar.button("🗑️ TOUT ANNULER"):
     k.query_private('CancelAll')
     st.rerun()
