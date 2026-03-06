@@ -1,54 +1,71 @@
 import streamlit as st
 import krakenex
+import time
 
-# 1. Connexion (Récupère tes clés dans Secrets GitHub/Streamlit)
-k = krakenex.API(key = st.secrets["KRAKEN_KEY"], secret = st.secrets["KRAKEN_SECRET"])
+# 1. CONNEXION
+k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
-st.title("⚡ XRP Simple Trader")
+st.title("🔄 XRP INFINITE LOOP BOT")
 
-# 2. Paramètres du Bot
-with st.container():
-    col1, col2, col3 = st.columns(3)
-    p_achat = col1.number_input("Prix d'Achat (USDC)", value=1.0500, format="%.4f")
-    p_vente = col2.number_input("Prix de Vente (USDC)", value=1.1000, format="%.4f")
-    quantite = col3.number_input("Quantité (XRP)", value=20.0)
+# 2. PARAMÈTRES
+with st.sidebar:
+    st.header("Configuration")
+    p_achat = st.number_input("Prix Achat", value=1.0500, format="%.4f")
+    p_vente = st.number_input("Prix Vente", value=1.1000, format="%.4f")
+    vol = st.number_input("Volume XRP", value=10.0)
+    delay = st.slider("Pause scan (sec)", 5, 60, 10)
 
-# 3. Bouton d'action
-if st.button("🚀 LANCER LE CYCLE (ACHAT -> VENTE)", use_container_width=True):
-    # On prépare l'ordre d'achat avec une condition de fermeture (vente) intégrée
-    params = {
-        'pair': 'XRPUSDC',
-        'type': 'buy',
-        'ordertype': 'limit',
-        'price': str(round(p_achat, 4)),
-        'volume': str(quantite),
-        # Dès que l'achat est complété, Kraken place cet ordre de vente :
-        'close[ordertype]': 'limit',
-        'close[price]': str(round(p_vente, 4)),
-        'close[type]': 'sell'
-    }
+# 3. ÉTAT DU BOT
+if 'running' not in st.session_state:
+    st.session_state.running = False
+
+col_run, col_stop = st.columns(2)
+if col_run.button("▶️ DÉMARRER LA BOUCLE", use_container_width=True):
+    st.session_state.running = True
+
+if col_stop.button("⏹️ ARRÊTER LE BOT", use_container_width=True):
+    st.session_state.running = False
+    st.rerun()
+
+# 4. LOGIQUE DE LA BOUCLE
+status_area = st.empty() # Zone pour afficher ce que fait le bot
+
+if st.session_state.running:
+    status_area.info("🤖 Bot en ligne. Scan des ordres...")
     
-    reponse = k.query_private('AddOrder', params)
-    
-    if reponse.get('error'):
-        st.error(f"Erreur : {reponse['error']}")
-    else:
-        st.success(f"Bot activé ! ID: {reponse['result']['txid'][0]}")
-        st.balloons()
+    while st.session_state.running:
+        try:
+            # Vérifier les ordres ouverts
+            res = k.query_private('OpenOrders')
+            ordres = res.get('result', {}).get('open', {})
+            
+            # SI AUCUN ORDRE : On relance un cycle d'achat
+            if not ordres:
+                status_area.warning("🔄 Aucun ordre trouvé. Création d'un cycle Achat -> Vente...")
+                params = {
+                    'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 
+                    'price': str(p_achat), 'volume': str(vol),
+                    'close[ordertype]': 'limit', 'close[price]': str(p_vente), 'close[type]': 'sell'
+                }
+                k.query_private('AddOrder', params)
+                st.success("✅ Nouveau cycle placé !")
+            
+            else:
+                # On affiche l'ordre en cours
+                for oid, info in ordres.items():
+                    status_area.info(f"⏳ En attente : {info['descr']['order']}")
+            
+        except Exception as e:
+            st.error(f"Erreur : {e}")
+        
+        time.sleep(delay) # Pause pour ne pas saturer l'API
+        
+else:
+    status_area.write("💤 Bot en sommeil.")
 
+# 5. AFFICHAGE SIMPLE DU SOLDE
 st.divider()
-
-# 4. Affichage des ordres en attente
-st.subheader("🤖 Ordres Actifs sur Kraken")
 try:
-    ordres = k.query_private('OpenOrders').get('result', {}).get('open', {})
-    if ordres:
-        for oid, info in ordres.items():
-            st.code(f"{info['descr']['order']} | ID: {oid}")
-            if st.button("❌ Annuler", key=oid):
-                k.query_private('CancelOrder', {'txid': oid})
-                st.rerun()
-    else:
-        st.info("Aucun bot ne tourne actuellement.")
-except:
-    st.warning("Impossible de lire les ordres. Vérifie tes clés API.")
+    bal = k.query_private('Balance')['result']
+    st.write(f"💰 **Portefeuille :** {bal.get('USDC', '0')} USDC | {bal.get('XRP', '0')} XRP")
+except: pass
