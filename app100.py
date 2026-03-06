@@ -9,15 +9,31 @@ try:
         'secret': st.secrets["KRAKEN_SECRET"],
         'enableRateLimit': True,
     })
+    # Correction pour éviter l'erreur de sécurité Kraken sur iPhone
+    kraken.nonce = lambda: kraken.milliseconds()
 except:
     st.error("🔑 Erreur de clés API dans les Secrets")
 
 st.set_page_config(page_title="XRP SOLO PING-PONG", layout="centered")
 st.title("🏓 XRP Solo Ping-Pong")
 
-# 2. MÉMOIRE DU BOT (Une seule ligne immortelle)
+# --- BOUTON DE RESET TOTAL (DANS LA BARRE LATERALE) ---
+if st.sidebar.button("🧹 RESET TOTAL (0 CYCLE / 0 PROFIT)"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
+
+# 2. MÉMOIRE DU BOT
 if 'bot' not in st.session_state:
-    st.session_state.bot = {"status": "OFF", "pa": 1.40, "pv": 1.45, "budget": 25.0, "oid": None, "cycles": 0, "profit_total": 0.0}
+    st.session_state.bot = {
+        "status": "OFF", 
+        "pa": 1.40, 
+        "pv": 1.45, 
+        "budget": 71.35, 
+        "oid": None, 
+        "cycles": 0, 
+        "profit_total": 0.0
+    }
 
 # 3. RÉGLAGES DU CYCLE
 with st.container():
@@ -46,46 +62,45 @@ else:
 
 st.divider()
 
-# 5. LOGIQUE DE BOUCLE AUTOMATIQUE (LE MOTEUR)
+# 5. LOGIQUE DE BOUCLE AUTOMATIQUE
 if st.session_state.bot["status"] != "OFF" and st.session_state.bot["oid"]:
     try:
-        # On demande le statut réel à Kraken
         order = kraken.fetch_order(st.session_state.bot["oid"])
         
         if order['status'] == 'closed':
             if st.session_state.bot["status"] == "ACHAT":
-                # L'achat est fini -> On place la VENTE immédiatement
+                # VENTE
                 vol_v = order['amount']
                 res = kraken.create_limit_sell_order('XRP/USDC', vol_v, st.session_state.bot["pv"])
                 st.session_state.bot.update({"status": "VENTE", "oid": res['id']})
-                st.toast("✅ Achat OK ! Ordre de vente placé.")
+                st.toast("✅ Achat OK ! Vente placée.")
             
             elif st.session_state.bot["status"] == "VENTE":
-                # La vente est finie -> Profit + Relance ACHAT (La Boucle !)
+                # PROFIT + RELANCE
                 profit = (st.session_state.bot["pv"] - st.session_state.bot["pa"]) * (st.session_state.bot["budget"] / st.session_state.bot["pa"])
                 st.session_state.bot["profit_total"] += profit
                 st.session_state.bot["cycles"] += 1
                 
-                # Relance l'achat au prix initial
                 vol_a = float(kraken.amount_to_precision('XRP/USDC', st.session_state.bot["budget"] / st.session_state.bot["pa"]))
                 res = kraken.create_limit_buy_order('XRP/USDC', vol_a, st.session_state.bot["pa"], {'post-only': True})
                 
                 st.session_state.bot.update({"status": "ACHAT", "oid": res['id']})
-                st.toast(f"💰 Vente OK ! Cycle {st.session_state.bot['cycles']} lancé.")
+                st.toast(f"💰 Cycle {st.session_state.bot['cycles']} terminé.")
             st.rerun()
 
-    except Exception as e: st.caption(f"Synchronisation Kraken... {e}")
+    except Exception as e: st.caption(f"Synchronisation... {e}")
 
 # 6. AFFICHAGE DES SCORES
-ticker = kraken.fetch_ticker('XRP/USDC')
-px = ticker['last']
-
-c1, c2, c3 = st.columns(3)
-c1.metric("PRIX XRP", f"{px:.4f} $")
-c2.metric("STATUT", st.session_state.bot["status"])
-c3.metric("NET PROFIT", f"+{st.session_state.bot['profit_total']:.4f} $")
-
-st.info(f"📊 Cycles réussis : **{st.session_state.bot['cycles']}**")
+try:
+    ticker = kraken.fetch_ticker('XRP/USDC')
+    px = ticker['last']
+    c1, c2, c3 = st.columns(3)
+    c1.metric("PRIX XRP", f"{px:.4f} $")
+    c2.metric("STATUT", st.session_state.bot["status"])
+    c3.metric("PROFIT", f"+{st.session_state.bot['profit_total']:.4f} $")
+    st.info(f"📊 Cycles réussis : **{st.session_state.bot['cycles']}**")
+except:
+    st.write("Connexion Kraken...")
 
 # RAFRAICHISSEMENT AUTO TOUTES LES 15 SECONDES
 time.sleep(15)
