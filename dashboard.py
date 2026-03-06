@@ -1,74 +1,76 @@
 import streamlit as st
 import krakenex
+import time
 
-# 1. CONFIGURATION & CONNEXION
-st.set_page_config(page_title="XRP Grid Bot", layout="wide")
+# 1. CONNEXION
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
-st.title("🤖 XRP GRID BOT (BITGET STYLE)")
+st.set_page_config(page_title="XRP Snowball Bot")
+st.title("❄️ XRP BOULE DE NEIGE")
 
-# 2. RÉCUPÉRATION SOLDE & PRIX
-try:
-    ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})['result']['XRPUSDC']
-    prix_actuel = float(ticker['c'][0])
-    
-    bal = k.query_private('Balance')['result']
-    usdc_dispo = float(bal.get('USDC', 0))
-    xrp_dispo = float(bal.get('XRP', 0))
-    
-    st.sidebar.metric("Prix XRP", f"{prix_actuel:.4f} $")
-    st.sidebar.write(f"💰 **Solde :** {usdc_dispo:.2f} USDC | {xrp_dispo:.2f} XRP")
-except:
-    st.error("Erreur de connexion API. Vérifiez vos secrets.")
-    prix_actuel = 1.0
+# 2. RÉGLAGES DU BOT
+with st.sidebar:
+    st.header("Paramètres")
+    p_achat = st.number_input("Prix d'Achat", value=1.0500, format="%.4f")
+    p_vente = st.number_input("Prix de Vente", value=1.1000, format="%.4f")
+    vol_initial = st.number_input("Volume Initial (XRP)", value=20.0)
+    st.info("Le bot réinvestit tout le profit automatiquement.")
 
-# 3. RÉGLAGES DE LA GRILLE
-st.subheader("🚀 Paramètres du Bot")
-c1, c2, c3, c4 = st.columns(4)
+if 'running' not in st.session_state:
+    st.session_state.running = False
+if 'cycles' not in st.session_state:
+    st.session_state.cycles = 0
 
-p_min = c1.number_input("Prix Bas (Support)", value=round(prix_actuel * 0.95, 4), format="%.4f")
-p_max = c2.number_input("Prix Haut (Résistance)", value=round(prix_actuel * 1.05, 4), format="%.4f")
-n_grids = c3.number_input("Niveaux de grille", value=5, min_value=2)
-vol = c4.number_input("XRP par niveau", value=10.0)
+# 3. CONTRÔLE
+c1, c2 = st.columns(2)
+if c1.button("▶️ DÉMARRER LE SNOWBALL"):
+    st.session_state.running = True
+if c2.button("⏹️ ARRÊTER"):
+    st.session_state.running = False
 
-# 4. ACTION : DÉPLOIEMENT
-if st.button("▶️ DÉMARRER LA GRILLE", use_container_width=True, type="primary"):
-    intervalle = (p_max - p_min) / (n_grids - 1)
-    
-    for i in range(n_grids):
-        p_achat = round(p_min + (i * intervalle), 4)
-        p_vente = round(p_achat + intervalle, 4)
-        
-        # Ordre conditionnel : l'achat déclenche la vente sur Kraken
-        params = {
-            'pair': 'XRPUSDC',
-            'type': 'buy',
-            'ordertype': 'limit',
-            'price': str(p_achat),
-            'volume': str(vol),
-            'close[ordertype]': 'limit',
-            'close[price]': str(p_vente),
-            'close[type]': 'sell'
-        }
-        k.query_private('AddOrder', params)
-    
-    st.success(f"Grille de {n_grids} niveaux activée !")
-    st.rerun()
+# 4. LOGIQUE DE LA BOUCLE
+status = st.empty()
 
-st.divider()
+if st.session_state.running:
+    while st.session_state.running:
+        try:
+            # On regarde s'il y a un ordre en cours
+            res = k.query_private('OpenOrders')
+            ordres = res.get('result', {}).get('open', {})
 
-# 5. GESTION DES ORDRES ACTIFS
-st.subheader("📦 Missions en cours")
-try:
-    ordres = k.query_private('OpenOrders').get('result', {}).get('open', {})
-    if ordres:
-        for oid, det in ordres.items():
-            st.write(f"📍 {det['descr']['order']} | ID: `{oid[:8]}`")
-        
-        if st.button("🗑️ TOUT ANNULER & STOP", type="secondary"):
-            k.query_private('CancelAll')
-            st.rerun()
-    else:
-        st.info("Aucun bot actif pour le moment.")
-except:
-    pass
+            if not ordres:
+                # Étape Boule de Neige : On calcule le nouveau volume
+                # On regarde le solde USDC disponible
+                bal = k.query_private('Balance')['result']
+                usdc_dispo = float(bal.get('USDC', 0))
+                
+                # On calcule combien on peut acheter avec TOUT l'USDC (moins 1% pour les frais)
+                nouveau_vol = (usdc_dispo * 0.99) / p_achat
+                
+                if nouveau_vol < 10: # Minimum Kraken
+                    nouveau_vol = vol_initial
+                
+                status.success(f"🔄 Lancement Cycle #{st.session_state.cycles + 1}")
+                status.write(f"Volume réinvesti : **{nouveau_vol:.2f} XRP**")
+                
+                # Placement de l'ordre Achat -> Vente
+                params = {
+                    'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit',
+                    'price': str(round(p_achat, 4)), 'volume': str(round(nouveau_vol, 1)),
+                    'close[ordertype]': 'limit', 'close[price]': str(round(p_vente, 4)), 'close[type]': 'sell'
+                }
+                k.query_private('AddOrder', params)
+                st.session_state.cycles += 1
+                
+            else:
+                for oid, det in ordres.items():
+                    status.info(f"⏳ Cycle {st.session_state.cycles} en cours : {det['descr']['order']}")
+
+        except Exception as e:
+            status.error(f"Erreur : {e}")
+
+        time.sleep(15) # Attend 15 sec avant de revérifier
+        st.rerun()
+
+else:
+    status.write("💤 Bot à l'arrêt.")
