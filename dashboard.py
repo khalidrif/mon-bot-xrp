@@ -3,8 +3,8 @@ import krakenex
 import pandas as pd
 
 # 1. Configuration
-st.set_page_config(page_title="Kraken Snowball Expert", layout="wide")
-st.title("❄️ XRP Snowball : Prix + Coche ✅")
+st.set_page_config(page_title="Kraken Multi-Bot Expert", layout="wide")
+st.title("❄️ XRP Snowball : Console de Pilotage")
 
 # 2. Connexion
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
@@ -28,59 +28,59 @@ with st.form("form_bot"):
     st.subheader(f"➕ Configurer le Bot {num_prochain}")
     col1, col2, col3 = st.columns(3)
     p_in = col1.number_input("Prix ACHAT (Entrée)", value=1.0400, format="%.4f")
-    p_out = col2.number_input("Prix SORTIE (Vente)", value=1.5000, format="%.4f")
+    p_out = col2.number_input("Prix SORTIE (Vente)", value=1.4080, format="%.4f")
     vol = col3.number_input("Quantité (XRP)", value=12.0)
     submit = st.form_submit_button(f"🚀 LANCER LE BOT {num_prochain}")
 
 if submit:
     try:
-        # On mémorise le prix d'entrée dans userref (multiplié par 10000)
-        memo_prix = int(p_in * 10000)
+        # On mémorise l'ACHAT dans 'userref' (multiplié par 10000)
+        memo_in = int(p_in * 10000)
         order_data = {
             'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_in), 'volume': str(vol),
-            'userref': str(memo_prix),
+            'userref': str(memo_in),
             'close[ordertype]': 'limit', 'close[price]': str(p_out), 'close[type]': 'sell'
         }
         k.query_private('AddOrder', order_data)
-        st.success("✅ Bot lancé !")
+        st.success(f"✅ Bot {num_prochain} lancé !")
         st.rerun()
     except Exception as e:
         st.error(f"Erreur : {e}")
 
-# 5. TABLEAU DE BORD (Correction Prix + Coche)
+# 5. TABLEAU DE BORD (Correction Affichage Séparé)
 st.write("---")
-st.subheader("📋 État de tes Bots")
+st.subheader("📋 Liste des Bots")
 
 if res_open:
     data_display = []
     for i, (oid, det) in enumerate(res_open.items(), start=1):
         t = det['descr']['type'].upper()
         p_actuel_ordre = float(det['descr']['price'])
-        v_ordre = float(det['vol'])
         
-        # Récupération du prix d'entrée mémorisé dans Kraken
+        # On récupère le prix d'entrée mémorisé dans Kraken
         try:
-            p_in_memo = int(det.get('userref', 0)) / 10000
+            val_ref = int(det.get('userref', 0))
+            p_in_memo = val_ref / 10000 if val_ref > 0 else 0.0
         except:
             p_in_memo = 0.0
 
+        # LOGIQUE D'AFFICHAGE DEMANDÉE
         if t == "BUY":
+            p_entree_txt = f"{p_actuel_ordre:.4f}"
+            p_sortie_txt = "---"
             etat = "🟢 ATTENTE ACHAT"
-            # On affiche le prix d'achat prévu
-            p_in_txt = f"{p_actuel_ordre:.4f}"
-            p_out_txt = "---"
         else:
+            # Si c'est une vente, on montre le prix d'achat avec sa COCHE
+            p_entree_txt = f"{p_in_memo:.4f} ✅" if p_in_memo > 0 else "--- ✅"
+            p_sortie_txt = f"{p_actuel_ordre:.4f}"
             etat = "🔴 ATTENTE VENTE"
-            # ICI LA CORRECTION : On affiche le prix d'achat mémorisé + la COCHE ✅
-            p_in_txt = f"{p_in_memo:.4f} ✅" if p_in_memo > 0 else "--- ✅"
-            p_out_txt = f"{p_actuel_ordre:.4f}"
 
         data_display.append({
             "Bot": f"Bot {i}",
             "État": etat,
-            "Prix Entrée": p_in_txt,
-            "Prix Sortie": p_out_txt,
-            "Valeur du Bot": f"{p_actuel_ordre * v_ordre:.2f} USDC",
+            "Prix ENTRÉE": p_entree_txt,
+            "Prix SORTIE": p_sortie_txt,
+            "Valeur Totale": f"{p_actuel_ordre * float(det['vol']):.2f} USDC",
             "_style": t
         })
     
@@ -93,7 +93,7 @@ if res_open:
     st.dataframe(
         df.style.apply(style_rows, axis=1),
         use_container_width=True,
-        column_order=("Bot", "État", "Prix Entrée", "Prix Sortie", "Valeur du Bot")
+        column_order=("Bot", "État", "Prix ENTRÉE", "Prix SORTIE", "Valeur Totale")
     )
 else:
     st.info("Aucun bot actif.")
