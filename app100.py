@@ -1,30 +1,41 @@
-import streamlit as st
-import requests
+import krakenex
 import time
 
-# 1. Look minimaliste
-st.set_page_config(page_title="XRP PRICE", layout="centered")
+# --- CONFIGURATION ---
+# Remplacez par vos clés API Kraken
+API_KEY = 'VOTRE_CLE_API_PUBLIQUE'
+API_SECRET = 'VOTRE_CLE_API_PRIVEE'
 
-# 2. Fonction pour lire le prix sur Kraken (Public)
-def get_price():
-    try:
-        url = "https://api.kraken.com"
-        res = requests.get(url).json()
-        return float(res['result']['XRPUSDC']['c'][0])
-    except:
-        return None
+# Initialisation de l'API
+k = krakenex.API()
+k.key = API_KEY
+k.secret = API_SECRET
 
-# 3. Affichage unique
-placeholder = st.empty()
-
-while True:
-    px = get_price()
-    with placeholder.container():
-        if px:
-            # Affiche juste le prix en très gros
-            st.write(f"# {px:.4f} $")
-        else:
-            st.write("Connexion...")
+def afficher_prix_xrp():
+    """Récupère et affiche le dernier prix du XRP sur Kraken."""
+    # Symbole Kraken pour XRP/USD (utilisez 'XXRPZEUR' pour l'Euro)
+    paire = 'XXRPZUSD'
     
-    # Mise à jour toutes les 5 secondes
-    time.sleep(5)
+    try:
+        # Requête publique pour le Ticker
+        reponse = k.query_public('Ticker', {'pair': paire})
+        
+        if not reponse.get('error'):
+            # Extraction du prix (champ 'c' = Last closed trade)
+            # Structure : ['prix', 'volume du lot']
+            dernier_prix = reponse['result'][paire]['c'][0]
+            print(f"[{time.strftime('%H:%M:%S')}] Prix XRP: {dernier_prix} USD")
+        else:
+            print(f"Erreur API : {reponse['error']}")
+            
+    except Exception as e:
+        print(f"Erreur de connexion : {e}")
+
+if __name__ == "__main__":
+    print("--- Démarrage du suivi XRP (Kraken) ---")
+    try:
+        while True:
+            afficher_prix_xrp()
+            time.sleep(10)  # Pause de 10 secondes entre chaque relevé
+    except KeyboardInterrupt:
+        print("\nArrêt du script par l'utilisateur.")
