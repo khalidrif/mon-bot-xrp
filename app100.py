@@ -1,69 +1,42 @@
 import streamlit as st
 import ccxt
-import time
 
-# --- 1. INITIALISATION ---
-st.set_page_config(page_title="XRP TEST MODE", layout="centered")
+st.set_page_config(page_title="XRP CANCEL TEST", layout="centered")
 
 @st.cache_resource
 def init_k():
-    try:
-        ex = ccxt.kraken({
-            'apiKey': st.secrets["KRAKEN_KEY"],
-            'secret': st.secrets["KRAKEN_SECRET"],
-            'enableRateLimit': True,
-        })
-        ex.nonce = lambda: ex.milliseconds()
-        return ex
-    except Exception as e:
-        st.error(f"❌ Erreur Configuration Secrets : {e}")
-        return None
+    ex = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
+        'enableRateLimit': True,
+    })
+    ex.nonce = lambda: ex.milliseconds()
+    return ex
 
 k = init_k()
 
-# --- 2. MÉMOIRE DU TEST ---
-if 'test' not in st.session_state:
-    st.session_state.test = {"step": 1, "log": "En attente..."}
+st.title("🗑️ Test d'Annulation Kraken")
 
-st.title("🧪 Mode Test Kraken")
+# Affichage des ordres ouverts pour voir celui de 0.50$
+try:
+    orders = k.fetch_open_orders('XRP/USDC')
+    if orders:
+        st.write("### Ordre(s) trouvé(s) :")
+        for o in orders:
+            st.code(f"ID: {o['id']} | {o['side']} | {o['amount']} XRP à {o['price']}$")
+        
+        if st.button("🗑️ FORCE ANNULATION DE TOUT", type="primary", use_container_width=True):
+            try:
+                # On utilise la commande globale pour être sûr à 100%
+                k.cancel_all_orders('XRP/USDC')
+                st.success("✅ TOUT A ÉTÉ ANNULÉ ! Vérifie ton compte Kraken, l'ordre à 0.50$ doit avoir disparu.")
+            except Exception as e:
+                st.error(f"❌ Erreur lors de l'annulation : {e}")
+    else:
+        st.info("Aucun ordre ouvert trouvé sur XRP/USDC. (L'ordre a peut-être déjà été annulé ou n'existe plus)")
 
-# --- 3. TEST ÉTAPE PAR ÉTAPE ---
+except Exception as e:
+    st.error(f"Erreur de lecture : {e}")
 
-# TEST 1 : LECTURE DU COMPTE
-if st.button("🔍 TEST 1 : LIRE LE SOLDE"):
-    try:
-        bal = k.fetch_balance()
-        usdc = bal['total'].get('USDC', 0)
-        xrp = bal['total'].get('XRP', 0)
-        st.success(f"✅ Connexion réussie !\nSolde : {usdc} USDC | {xrp} XRP")
-        st.session_state.test["step"] = 2
-    except Exception as e:
-        st.error(f"❌ Échec de lecture : {e}\n(Vérifiez les permissions 'Query Funds' de votre clé API)")
-
-# TEST 2 : ANNULATION (Si Test 1 OK)
-if st.session_state.test["step"] >= 2:
-    st.divider()
-    if st.button("🧹 TEST 2 : NETTOYER KRAKEN"):
-        try:
-            k.cancel_all_orders('XRP/USDC')
-            st.success("✅ Kraken a accepté l'ordre d'annulation.")
-            st.session_state.test["step"] = 3
-        except Exception as e:
-            st.error(f"❌ Échec annulation : {e}\n(Vérifiez la permission 'Modify Orders')")
-
-# TEST 3 : PLACEMENT ORDRE (Si Test 2 OK)
-if st.session_state.test["step"] >= 3:
-    st.divider()
-    st.warning("⚠️ Ce test va placer un VRAI ordre d'achat à 0.50$ (très bas) pour tester l'écriture.")
-    if st.button("📝 TEST 3 : PLACER ORDRE TEST"):
-        try:
-            # On place un achat à 0.50$ (pour être sûr qu'il ne soit pas exécuté)
-            res = k.create_limit_buy_order('XRP/USDC', 10, 0.50)
-            st.success(f"✅ ORDRE PLACÉ ! ID: {res['id']}")
-            st.info("Allez voir sur votre appli Kraken, l'ordre à 0.50$ doit être présent.")
-        except Exception as e:
-            st.error(f"❌ Échec placement : {e}")
-
-if st.button("🔄 RECOMMENCER LES TESTS"):
-    st.session_state.test["step"] = 1
+if st.button("🔄 Rafraîchir la liste"):
     st.rerun()
