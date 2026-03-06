@@ -1,0 +1,7 @@
+# Streamlit secrets (contient tes clés API Kraken)
+.streamlit/
+
+# Environnement virtuel Python
+venv/
+__pycache__/
+.env
