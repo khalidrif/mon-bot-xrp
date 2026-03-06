@@ -3,19 +3,20 @@ import ccxt
 import time
 import streamlit.components.v1 as components
 
-# --- 1. CONFIGURATION ---
-st.set_page_config(page_title="XRP BOT FLEXIBLE", layout="centered")
+# --- 1. CONFIGURATION ANTI-NONCE ---
+st.set_page_config(page_title="XRP BOT ULTRA-SHIELD", layout="centered")
 
 @st.cache_resource
 def init_k():
     try:
-        ex = ccxt.kraken({
+        exchange = ccxt.kraken({
             'apiKey': st.secrets["KRAKEN_KEY"],
             'secret': st.secrets["KRAKEN_SECRET"],
             'enableRateLimit': True,
         })
-        ex.nonce = lambda: ex.milliseconds()
-        return ex
+        # FIX DEFINITIF POUR L'ERREUR NONCE
+        exchange.nonce = lambda: exchange.milliseconds()
+        return exchange
     except: return None
 
 k = init_k()
@@ -31,9 +32,11 @@ if 'bot' not in st.session_state:
 
 bot = st.session_state.bot
 
-# --- 3. SYNC KRAKEN ---
+# --- 3. SYNC KRAKEN (SÉCURISÉE) ---
 def get_kraken_status():
     try:
+        # Petite pause pour éviter le spam API
+        time.sleep(0.2)
         open_orders = k.fetch_open_orders('XRP/USDC')
         ticker = k.fetch_ticker('XRP/USDC')
         bal = k.fetch_balance()
@@ -43,7 +46,7 @@ def get_kraken_status():
 orders, px, bal = get_kraken_status()
 
 # --- 4. DASHBOARD ---
-st.title("🏓 XRP Ping-Pong Flexible")
+st.title("🛡️ XRP Bot Ultra-Shield")
 
 if bal:
     u_free = bal['free'].get('USDC', 0.0)
@@ -69,37 +72,41 @@ if bal:
 
 st.divider()
 
-# --- 5. RÉGLAGES (MODIFIABLES EN DIRECT) ---
+# --- 5. RÉGLAGES ---
 st.subheader("⚙️ Ajuster les prix")
 col_in, col_out = st.columns(2)
 new_pa = col_in.number_input("ACHAT (IN)", value=bot["pa"], format="%.4f")
 new_pv = col_out.number_input("VENTE (OUT)", value=bot["pv"], format="%.4f")
 
-# --- 6. LOGIQUE DE MODIFICATION EN DIRECT ---
+# --- 6. LOGIQUE DE MODIFICATION (SÉCURISÉE ANTI-NONCE) ---
 if orders and (new_pa != bot["pa"] or new_pv != bot["pv"]):
     if st.button("🔄 APPLIQUER LES NOUVEAUX PRIX", use_container_width=True, type="primary"):
         try:
-            # On annule tout sur Kraken
+            # Étape 1 : Annuler tout
             k.cancel_all_orders('XRP/USDC')
-            time.sleep(1) # Petit temps de pause pour Kraken
+            st.toast("Annulation en cours...")
             
-            # On met à jour la mémoire locale
-            bot.update({"pa": new_pa, "pv": new_pv})
+            # Étape 2 : Pause forcée de 2 secondes pour laisser Kraken respirer
+            time.sleep(2) 
             
-            # On relance l'ordre selon ce qu'on a en main (USDC ou XRP)
+            # Étape 3 : Ré-interroger le solde après annulation
             new_bal = k.fetch_balance()
-            if new_bal['free'].get('USDC', 0) > 7:
-                vol = float(k.amount_to_precision('XRP/USDC', new_bal['free']['USDC'] / new_pa))
-                k.create_limit_buy_order('XRP/USDC', vol, new_pa, {'post-only': True})
-            elif new_bal['free'].get('XRP', 0) > 5:
-                k.create_limit_sell_order('XRP/USDC', new_bal['free']['XRP'], new_pv)
+            u, x = new_bal['free'].get('USDC', 0.0), new_bal['free'].get('XRP', 0.0)
             
-            st.success("✅ Prix mis à jour sur Kraken !")
+            # Étape 4 : Placer le nouvel ordre
+            if x > 5:
+                k.create_limit_sell_order('XRP/USDC', x, new_pv)
+            elif u > 7:
+                vol = float(k.amount_to_precision('XRP/USDC', u / new_pa))
+                k.create_limit_buy_order('XRP/USDC', vol, new_pa, {'post-only': True})
+            
+            bot.update({"pa": new_pa, "pv": new_pv})
+            st.success("✅ Mise à jour réussie !")
             st.rerun()
         except Exception as e:
-            st.error(f"Erreur lors de la mise à jour : {e}")
+            st.error(f"Erreur : {e}")
 
-# --- 7. BOUTONS START / STOP ---
+# --- 7. START / STOP ---
 if not orders:
     if st.button("🚀 LANCER LA BOUCLE", use_container_width=True, type="primary"):
         try:
@@ -118,7 +125,7 @@ else:
         bot["status"] = "OFF"
         st.rerun()
 
-# --- 8. MOTEUR (15S) ---
+# --- 8. MOTEUR ---
 if bot["status"] == "ON":
     @st.fragment(run_every=15)
     def engine():
