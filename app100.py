@@ -1,43 +1,33 @@
 import streamlit as st
-import ccxt
+import requests
 import time
 
-# --- 1. CONNEXION ---
-st.set_page_config(page_title="RESET TOTAL", layout="centered")
+# Configuration de la page
+st.set_page_config(page_title="XRP LIVE", layout="centered")
 
-@st.cache_resource
-def init_k():
+# Fonction pour récupérer le prix public (sans API Key)
+def get_xrp_price():
     try:
-        ex = ccxt.kraken({
-            'apiKey': st.secrets["KRAKEN_KEY"],
-            'secret': st.secrets["KRAKEN_SECRET"],
-            'enableRateLimit': True,
-        })
-        ex.nonce = lambda: ex.milliseconds()
-        return ex
-    except: return None
-
-k = init_k()
-
-st.title("🧹 Grand Nettoyage")
-
-# --- 2. ACTION DE RESET ---
-if st.button("🚨 EFFACER TOUT ET REPARTIR À ZÉRO", use_container_width=True, type="primary"):
-    # A. On vide la mémoire de l'iPhone/PC
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    
-    # B. On annule TOUS les ordres sur Kraken
-    try:
-        k.cancel_all_orders('XRP/USDC')
-        st.success("✅ Kraken : Tous les ordres annulés.")
+        url = "https://api.kraken.com"
+        response = requests.get(url).json()
+        price = response['result']['XRPUSDC']['c'][0]
+        return float(price)
     except:
-        st.warning("⚠️ Aucun ordre à annuler sur Kraken.")
-    
-    st.success("✅ Mémoire locale : Vidée.")
-    st.info("Le bot est maintenant comme neuf (0 cycle, 0 profit).")
-    st.balloons()
-    time.sleep(2)
-    st.rerun()
+        return None
 
-st.write("Cliquez sur le bouton pour remettre le bot à 0 cycle et 0 profit.")
+# Affichage minimaliste
+st.title("🪙 XRP Price")
+
+# Conteneur pour le rafraîchissement
+placeholder = st.empty()
+
+while True:
+    price = get_xrp_price()
+    with placeholder.container():
+        if price:
+            st.metric(label="Kraken XRP/USDC", value=f"{price:.4f} $")
+        else:
+            st.write("Connexion en cours...")
+    
+    # Pause de 10 secondes avant de recharger le prix
+    time.sleep(10)
