@@ -2,13 +2,35 @@ import streamlit as st
 import krakenex
 import time
 
-# 1. STYLE NOIR & CYAN
-st.set_page_config(page_title="XRP Snowball", layout="centered")
+# 1. STYLE JAUNE & NOIR (Style Bitget/Binance)
+st.set_page_config(page_title="XRP Gold Snowball", layout="centered")
 st.markdown("""
     <style>
-    .stApp { background-color: #0E1117; color: white; }
-    div[data-testid="stMetric"] { background-color: #161B22; border: 1px solid #30363D; padding: 15px; border-radius: 10px; }
-    label[data-testid="stWidgetLabel"] { color: #58A6FF !important; font-weight: bold; }
+    /* Fond noir profond */
+    .stApp { background-color: #000000; color: #F3BA2F; }
+    
+    /* Metrics en Jaune Gold */
+    div[data-testid="stMetric"] { 
+        background-color: #121212; 
+        border: 1px solid #F3BA2F; 
+        padding: 15px; 
+        border-radius: 10px; 
+    }
+    [data-testid="stMetricValue"] { color: #F3BA2F !important; font-weight: bold; }
+    [data-testid="stMetricLabel"] { color: #FFFFFF !important; }
+
+    /* Inputs et Boutons */
+    label[data-testid="stWidgetLabel"] { color: #F3BA2F !important; font-weight: bold; }
+    .stButton>button { 
+        background-color: #F3BA2F !important; 
+        color: black !important; 
+        border: none !important;
+        font-weight: bold !important;
+    }
+    .stButton>button:hover { background-color: #FFD700 !important; }
+    
+    /* Input background */
+    input { background-color: #121212 !important; color: white !important; border: 1px solid #F3BA2F !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -21,36 +43,38 @@ try:
     bal = k.query_private('Balance')['result']
     usdc = float(bal.get('USDC', 0))
     
-    st.title("❄️ XRP SNOWBALL")
+    st.markdown("<h1 style='text-align: center; color: #F3BA2F;'>🟡 XRP GOLD BOT</h1>", unsafe_allow_html=True)
+    
     c1, c2 = st.columns(2)
     c1.metric("PRIX XRP", f"{prix_actuel:.4f} $")
-    c2.metric("TON SOLDE", f"{usdc:.2f} USDC")
+    c2.metric("SOLDE DISPONIBLE", f"{usdc:.2f} USDC")
 except:
-    st.error("Connexion Kraken...")
+    st.error("Connexion Kraken en cours...")
 
-st.divider()
+st.markdown("<hr style='border: 0.5px solid #F3BA2F;'>", unsafe_allow_html=True)
 
-# 3. RÉGLAGES & BOUTONS
-p_in = st.number_input("ACHAT (Prix Bas)", value=1.3600, format="%.4f")
-p_out = st.number_input("VENTE (Prix Haut)", value=1.4000, format="%.4f")
+# 3. RÉGLAGES
+p_in = st.number_input("PRIX ACHAT (Bas)", value=1.3600, format="%.4f")
+p_out = st.number_input("PRIX VENTE (Haut)", value=1.4000, format="%.4f")
 
 if 'run' not in st.session_state: st.session_state.run = False
 
 col_run, col_stop = st.columns(2)
-if col_run.button("▶️ LANCER", use_container_width=True, type="primary"):
+if col_run.button("▶️ DÉMARRER LE BOT", use_container_width=True):
     st.session_state.run = True
-if col_stop.button("⏹️ STOP", use_container_width=True):
+
+if col_stop.button("⏹️ ARRÊTER & ANNULER", use_container_width=True):
     st.session_state.run = False
     k.query_private('CancelAll')
     st.rerun()
 
-# 4. MOTEUR SIMPLE
+# 4. MOTEUR SNOWBALL
 status = st.empty()
 if st.session_state.run:
     try:
         ordres = k.query_private('OpenOrders').get('result', {}).get('open', {})
         if not ordres:
-            # Calcule le volume avec tes 29$ (ou ton nouveau solde)
+            # Calcul du volume avec tes USDC
             vol = (usdc * 0.98) / p_in
             if vol >= 10:
                 params = {
@@ -60,12 +84,12 @@ if st.session_state.run:
                 k.query_private('AddOrder', params)
                 status.success(f"✅ Nouveau cycle : {vol:.1f} XRP envoyés")
             else:
-                status.error("Solde insuffisant (min 10 XRP)")
+                status.error("Solde trop faible (< 10 XRP)")
         else:
             for oid, det in ordres.items():
-                status.info(f"⏳ MISSION : {det['descr']['order']}")
+                status.warning(f"🟡 EN MISSION : {det['descr']['order']}")
     except Exception as e:
-        status.error(f"API : {e}")
+        status.error(f"API Error: {e}")
 
     time.sleep(15)
     st.rerun()
