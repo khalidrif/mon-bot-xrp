@@ -1,123 +1,107 @@
 import streamlit as st
-import pandas as pd
 import ccxt
 import time
-import json
-import os
-from config import get_kraken_connection
 
-# 1. STYLE "BLOOMBERG HIGH-CONTRAST"
-st.set_page_config(page_title="XRP Bloomberg Contrast", layout="wide")
-st.markdown("""
-    <style>
-    .main { background-color: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; }
-    [data-testid="stMetric"] { background-color: #FFFFFF !important; border-radius: 4px; padding: 10px; }
-    [data-testid="stMetricValue"] { color: #000000 !important; font-size: 20px !important; font-weight: 900 !important; }
-    [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 12px !important; font-weight: bold !important; }
-    .bot-line { border-bottom: 1px solid #222222; padding: 8px 0px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
-    .p-in { color: #00FF00; font-weight: bold; }
-    .p-out { color: #FF0000; font-weight: bold; }
-    .flash-box { background-color: #FFFF00; color: #000000; padding: 2px 6px; border-radius: 2px; font-weight: 900; font-size: 13px; }
-    .bot-id { color: #555555; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
+# 1. CONNEXION KRAKEN (DIRECTE)
+try:
+    kraken = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
+        'enableRateLimit': True,
+    })
+    # Correction pour éviter l'erreur de sécurité Kraken sur iPhone
+    kraken.nonce = lambda: kraken.milliseconds()
+except:
+    st.error("🔑 Erreur de clés API dans les Secrets")
 
-# 2. MÉMOIRE ET CONFIG
-FILE_MEMOIRE = "etat_bots.json"
-def sauvegarder_donnees(bots, profit_total):
-    with open(FILE_MEMOIRE, "w") as f: json.dump({"bots": bots, "profit_total": profit_total}, f)
+st.set_page_config(page_title="XRP SOLO PING-PONG", layout="centered")
+st.title("🏓 XRP Solo Ping-Pong")
 
-def charger_donnees():
-    if os.path.exists(FILE_MEMOIRE):
+# --- BOUTON DE RESET TOTAL (DANS LA BARRE LATERALE) ---
+if st.sidebar.button("🧹 RESET TOTAL (0 CYCLE / 0 PROFIT)"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
+
+# 2. MÉMOIRE DU BOT
+if 'bot' not in st.session_state:
+    st.session_state.bot = {
+        "status": "OFF", 
+        "pa": 1.40, 
+        "pv": 1.45, 
+        "budget": 71.35, 
+        "oid": None, 
+        "cycles": 0, 
+        "profit_total": 0.0
+    }
+
+# 3. RÉGLAGES DU CYCLE
+with st.container():
+    col1, col2, col3 = st.columns(3)
+    p_achat = col1.number_input("PRIX ACHAT (IN)", value=st.session_state.bot["pa"], format="%.4f")
+    p_vente = col2.number_input("PRIX VENTE (OUT)", value=st.session_state.bot["pv"], format="%.4f")
+    budget = col3.number_input("BUDGET (USDC)", value=st.session_state.bot["budget"])
+
+# 4. BOUTON START / STOP
+if st.session_state.bot["status"] == "OFF":
+    if st.button("🚀 DÉMARRER LE CYCLE INFINI", use_container_width=True, type="primary"):
         try:
-            with open(FILE_MEMOIRE, "r") as f: return json.load(f)
-        except: return None
-    return None
+            if not kraken.markets: kraken.load_markets()
+            vol = float(kraken.amount_to_precision('XRP/USDC', budget / p_achat))
+            res = kraken.create_limit_buy_order('XRP/USDC', vol, p_achat, {'post-only': True})
+            st.session_state.bot.update({"status": "ACHAT", "pa": p_achat, "pv": p_vente, "budget": budget, "oid": res['id']})
+            st.rerun()
+        except Exception as e: st.error(f"Erreur : {e}")
+else:
+    if st.button("🛑 ARRÊTER LE BOT", use_container_width=True):
+        try: kraken.cancel_order(st.session_state.bot["oid"])
+        except: pass
+        st.session_state.bot["status"] = "OFF"
+        st.session_state.bot["oid"] = None
+        st.rerun()
 
-kraken = get_kraken_connection()
-memoire = charger_donnees()
+st.divider()
 
-if 'bots' not in st.session_state:
-    st.session_state.bots = {f"Bot_{i+1}": {"id": None, "status": "LIBRE", "p_achat": 0.0, "p_vente": 0.0, "cycles": 0, "gain": 0.0} for i in range(100)}
-    st.session_state.profit_total = 0.0
-    if memoire:
-        st.session_state.bots.update(memoire.get("bots", {}))
-        st.session_state.profit_total = memoire.get("profit_total", 0.0)
-
-# --- SIDEBAR ---
-with st.sidebar:
-    st.header("CMD")
-    mode_reel = st.toggle("LIVE TRADING (OFF = TEST)", value=False) # Par défaut en TEST
-    p_in_set = st.number_input("TARGET IN", value=1.4440, format="%.4f")
-    p_out_set = st.number_input("TARGET OUT", value=1.4460, format="%.4f")
-    budget_base = st.number_input("BASE USD", value=10.0)
-    st.divider()
-    for i in range(100):
-        name = f"Bot_{i+1}"
-        c1, c2 = st.columns(2)
-        if st.session_state.bots[name]["status"] == "LIBRE":
-            if c1.button(f"GO {i+1}", key=f"l_{i}"):
-                try:
-                    pa, pv = float(kraken.price_to_precision('XRP/USDC', p_in_set)), float(kraken.price_to_precision('XRP/USDC', p_out_set))
-                    st.session_state.bots[name].update({"id": "ID_TEST", "status": "ACHAT", "p_achat": pa, "p_vente": pv})
-                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                    st.rerun()
-                except Exception as e: st.error(e)
-        else:
-            if c2.button(f"OFF {i+1}", key=f"off_{i}"):
-                st.session_state.bots[name].update({"id": None, "status": "LIBRE"})
-                sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
-                st.rerun()
-
-# --- MAIN ---
-live = st.empty()
-
-while True:
+# 5. LOGIQUE DE BOUCLE AUTOMATIQUE
+if st.session_state.bot["status"] != "OFF" and st.session_state.bot["oid"]:
     try:
-        ticker = kraken.fetch_ticker('XRP/USDC')
-        px = ticker['last']
+        order = kraken.fetch_order(st.session_state.bot["oid"])
         
-        with live.container():
-            st.write(f"### MARKET FEED - XRP/USDC")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("BANKROLL", "5.70$")
-            c2.metric("XRP PRICE", f"{px:.4f}")
-            c3.metric("NET GAIN", f"+{st.session_state.profit_total:.4f}")
-            st.divider()
+        if order['status'] == 'closed':
+            if st.session_state.bot["status"] == "ACHAT":
+                # VENTE
+                vol_v = order['amount']
+                res = kraken.create_limit_sell_order('XRP/USDC', vol_v, st.session_state.bot["pv"])
+                st.session_state.bot.update({"status": "VENTE", "oid": res['id']})
+                st.toast("✅ Achat OK ! Vente placée.")
             
-            for i in range(100):
-                name = f"Bot_{i+1}"
-                bot = st.session_state.bots[name]
-                if bot["status"] != "LIBRE":
-                    val_snow = budget_base + bot['gain']
-                    status_color = "#FFA500" if bot["status"] == "ACHAT" else "#00FF00"
-                    
-                    st.markdown(f'''
-                    <div class="bot-line">
-                        <span class="bot-id">#{i+1:02d}</span>
-                        <span style="color:{status_color}; font-weight:bold;">{bot["status"]}</span>
-                        <span><span class="p-in">{bot["p_achat"]}</span> → <span class="p-out">{bot["p_vente"]}</span></span>
-                        <span class="flash-box">{val_snow:.2f}$</span>
-                        <span class="flash-box">{bot["cycles"]}</span>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                    
-                    # --- LOGIQUE DE SIMULATION ---
-                    if bot["status"] == "ACHAT":
-                        st.session_state.bots[name].update({"status": "VENTE"})
-                        st.toast(f"Bot {i+1} : Achat Simulé -> VENTE")
-                    else:
-                        g = (bot['p_vente'] - bot['p_achat']) * (val_snow / bot['p_achat'])
-                        st.session_state.profit_total += g
-                        st.session_state.bots[name]["gain"] += g
-                        st.session_state.bots[name]["cycles"] += 1
-                        st.session_state.bots[name].update({"status": "ACHAT"})
-                        st.toast(f"💰 Gain : +{g:.4f}")
-                    
-                    sauvegarder_donnees(st.session_state.bots, st.session_state.profit_total)
+            elif st.session_state.bot["status"] == "VENTE":
+                # PROFIT + RELANCE
+                profit = (st.session_state.bot["pv"] - st.session_state.bot["pa"]) * (st.session_state.bot["budget"] / st.session_state.bot["pa"])
+                st.session_state.bot["profit_total"] += profit
+                st.session_state.bot["cycles"] += 1
+                
+                vol_a = float(kraken.amount_to_precision('XRP/USDC', st.session_state.bot["budget"] / st.session_state.bot["pa"]))
+                res = kraken.create_limit_buy_order('XRP/USDC', vol_a, st.session_state.bot["pa"], {'post-only': True})
+                
+                st.session_state.bot.update({"status": "ACHAT", "oid": res['id']})
+                st.toast(f"💰 Cycle {st.session_state.bot['cycles']} terminé.")
+            st.rerun()
 
-    except Exception as e:
-        st.write(f"SYSTEM: {str(e)[:30]}")
-    
-    time.sleep(10) # Pause de 10s pour voir les gains monter
+    except Exception as e: st.caption(f"Synchronisation... {e}")
 
+# 6. AFFICHAGE DES SCORES
+try:
+    ticker = kraken.fetch_ticker('XRP/USDC')
+    px = ticker['last']
+    c1, c2, c3 = st.columns(3)
+    c1.metric("PRIX XRP", f"{px:.4f} $")
+    c2.metric("STATUT", st.session_state.bot["status"])
+    c3.metric("PROFIT", f"+{st.session_state.bot['profit_total']:.4f} $")
+    st.info(f"📊 Cycles réussis : **{st.session_state.bot['cycles']}**")
+except:
+    st.write("Connexion Kraken...")
+
+# RAFRAICHISSEMENT AUTO TOUTES LES 15 SECONDES
+time.sleep(15)
+st.rerun()
