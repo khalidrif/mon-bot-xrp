@@ -2,11 +2,3 @@ krakenex
 pandas
 plotly
 streamlit
-
-
-
-
-
-
-
-
