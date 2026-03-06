@@ -1,0 +1,26 @@
+name: Execution du Bot Kraken
+on:
+  schedule:
+    - cron: '0 * * * *' # S'exécute automatiquement toutes les heures
+  workflow_dispatch:      # Permet de le lancer manuellement avec un bouton
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recupere le code
+        uses: actions/checkout@v4
+
+      - name: Installe Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Installe les librairies
+        run: pip install -r requirements.txt
+
+      - name: Lance le script
+        env:
+          KRAKEN_KEY: ${{ secrets.KRAKEN_KEY }}
+          KRAKEN_SECRET: ${{ secrets.KRAKEN_SECRET }}
+        run: python bot.py
