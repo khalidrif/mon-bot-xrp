@@ -1,77 +1,46 @@
 import streamlit as st
 import krakenex
-import time
 
-# --- CONFIGURATION API ---
+# 1. CONNEXION
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
-st.set_page_config(page_title="XRP Grid Bot", layout="centered")
-st.title("🕸️ XRP Grid Trading Bot")
+st.title("🤖 BOT XRP GRID")
 
-# --- PARAMÈTRES DE LA GRILLE ---
-with st.sidebar:
-    st.header("Réglages de la Grille")
-    p_min = st.number_input("Prix Bas (Support)", value=1.0000, format="%.4f")
-    p_max = st.number_input("Prix Haut (Résistance)", value=1.2000, format="%.4f")
-    n_grids = st.number_input("Nombre de Grilles (Niveaux)", value=5, min_value=2)
-    vol_per_grid = st.number_input("Volume XRP par niveau", value=10.0)
+# 2. RÉGLAGES
+c1, c2, c3 = st.columns(3)
+p_bas = c1.number_input("Prix Min", value=1.00, format="%.4f")
+p_haut = c2.number_input("Prix Max", value=1.20, format="%.4f")
+n_niveaux = c3.number_input("Niveaux", value=5, min_value=2)
+vol = st.number_input("XRP par niveau", value=10.0)
+
+# 3. ACTION : LANCER LA GRILLE
+if st.button("🚀 DÉPLOYER LA GRILLE", use_container_width=True):
+    intervalle = (p_haut - p_bas) / (n_niveaux - 1)
     
-    st.divider()
-    if st.button("🔴 STOP & ANNULER TOUT", type="primary", use_container_width=True):
-        k.query_private('CancelAll')
-        st.cache_data.clear()
-        st.rerun()
-
-# --- LOGIQUE DE CALCUL ---
-# Génère les niveaux de prix entre min et max
-niveaux = [round(p_min + (p_max - p_min) * i / (n_grids - 1), 4) for i in range(n_grids)]
-
-# --- INTERFACE ---
-c1, c2 = st.columns(2)
-
-if c1.button("🚀 LANCER LA GRILLE", use_container_width=True):
-    # Récupérer le prix actuel pour savoir où placer les achats et les ventes
-    ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})
-    prix_actuel = float(ticker['result']['XRPUSDC']['c'][0])
-    
-    st.info(f"Prix actuel : {prix_actuel}$. Placement des ordres...")
-    
-    for p in niveaux:
-        # Si le niveau est sous le prix actuel -> ACHAT
-        if p < prix_actuel:
-            type_o = 'buy'
-            p_tp = p * 1.02 # On revend 2% plus haut par défaut
-        # Si le niveau est au dessus -> VENTE
-        else:
-            type_o = 'sell'
-            p_tp = p * 0.98 # On rachete 2% plus bas par défaut
-            
+    for i in range(n_niveaux):
+        prix_achat = round(p_bas + (i * intervalle), 4)
+        prix_vente = round(prix_achat + intervalle, 4)
+        
+        # Ordre Achat qui déclenche une Vente dès qu'il est rempli
         params = {
-            'pair': 'XRPUSDC',
-            'type': type_o,
-            'ordertype': 'limit',
-            'price': str(p),
-            'volume': str(vol_per_grid),
-            'close[ordertype]': 'limit',
-            'close[price]': str(round(p_tp, 4)),
-            'close[type]': 'sell' if type_o == 'buy' else 'buy'
+            'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit',
+            'price': str(prix_achat), 'volume': str(vol),
+            'close[ordertype]': 'limit', 'close[price]': str(prix_vente), 'close[type]': 'sell'
         }
         k.query_private('AddOrder', params)
-    st.success(f"Grille de {n_grids} niveaux déployée !")
+    st.success("Grille placée sur Kraken !")
 
-# --- MONITORING ---
-st.subheader("📦 État de ta grille")
+st.divider()
+
+# 4. MONITORING & STOP
 try:
-    res = k.query_private('OpenOrders').get('result', {}).get('open', {})
-    if res:
-        st.write(f"Nombre d'ordres actifs : **{len(res)}**")
-        for oid, det in res.items():
-            st.caption(f"ID: {oid[:5]}.. | {det['descr']['order']}")
+    ordres = k.query_private('OpenOrders')['result']['open']
+    if ordres:
+        st.write(f"📈 {len(ordres)} ordres actifs")
+        if st.button("🗑️ TOUT ANNULER", type="primary"):
+            k.query_private('CancelAll')
+            st.rerun()
     else:
-        st.info("Aucune grille active.")
+        st.info("Aucun bot en cours.")
 except:
-    st.warning("Connexion en attente...")
-
-# Rafraîchissement automatique pour simuler la boucle
-time.sleep(10)
-st.rerun()
+    st.error("Vérifie tes clés API.")
