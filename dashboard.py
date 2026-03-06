@@ -1,60 +1,59 @@
 import streamlit as st
 import krakenex
-import pandas as pd
 
-st.set_page_config(page_title="Kraken Multi-Bot", layout="wide")
-st.title("🎛️ Console de Pilotage Multi-Bots (Individuels)")
+st.title("🎯 Bot XRP : Ordres Liés (Achat puis Vente)")
 
-# 1. Connexion
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
-# 2. Infos Marché
+# 1. Infos Marché
 res = k.query_public('Ticker', {'pair': 'XRPUSDC'})
-prix_actuel = float(res['result']['XRPUSDC']['c'][0])
+prix_actuel = float(res['result']['XRPUSDC']['c'])
 st.metric("Prix XRP actuel", f"{prix_actuel} USDC")
 
-# 3. Formulaire pour 1 Bot Spécifique
-with st.expander("➕ Créer un nouveau Bot (Achat + Vente)", expanded=True):
+with st.form("bot_individuel"):
+    st.write("### Configurer 1 Bot (Achat ➔ Vente automatique)")
     c1, c2, c3 = st.columns(3)
-    p_achat = c1.number_input("Prix d'ACHAT (Limit)", value=round(prix_actuel * 0.98, 4), format="%.4f")
-    p_vente = c2.number_input("Prix de VENTE (Limit)", value=round(prix_actuel * 1.02, 4), format="%.4f")
-    vol = c3.number_input("Quantité (XRP)", value=15.0, step=1.0)
+    p_achat = c1.number_input("Prix d'ACHAT souhaité", value=round(prix_actuel*0.99, 4), format="%.4f")
+    p_vente = c2.number_input("Prix de VENTE (Profit)", value=round(prix_actuel*1.02, 4), format="%.4f")
+    vol = c3.number_input("Quantité (XRP)", value=15.0)
     
-    if st.button("🚀 LANCER CE BOT"):
-        try:
-            # Ordre d'achat
-            o_buy = k.query_private('AddOrder', {'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_achat), 'volume': str(vol)})
-            # Ordre de vente
-            o_sell = k.query_private('AddOrder', {'pair': 'XRPUSDC', 'type': 'sell', 'ordertype': 'limit', 'price': str(p_vente), 'volume': str(vol)})
-            st.success(f"✅ Bot Activé : Achat {p_achat} / Vente {p_vente}")
-        except Exception as e:
-            st.error(f"Erreur : {e}")
+    submit = st.form_submit_button("🚀 LANCER CE BOT")
 
-# 4. Liste des ordres séparés
-st.write("---")
-st.write("### 📋 Liste de mes ordres actifs (Grille)")
-try:
-    res_orders = k.query_private('OpenOrders')['result']['open']
-    if res_orders:
-        data = []
-        for oid, det in res_orders.items():
-            data.append({
-                "ID": oid,
-                "Type": det['descr']['type'].upper(),
-                "Prix": det['descr']['price'],
-                "Volume": det['vol'],
-                "Statut": det['status']
-            })
-        df = pd.DataFrame(data)
-        st.dataframe(df, use_container_width=True)
+if submit:
+    try:
+        # ON UTILISE 'close' : Cela crée un ordre de vente qui ne s'active 
+        # QUE SI l'achat est rempli (Filled). C'est beaucoup plus propre !
+        order_data = {
+            'pair': 'XRPUSDC',
+            'type': 'buy',
+            'ordertype': 'limit',
+            'price': str(p_achat),
+            'volume': str(vol),
+            'close[ordertype]': 'limit',
+            'close[price]': str(p_vente),
+            'close[pair]': 'XRPUSDC',
+            'close[type]': 'sell'
+        }
         
-        # Option pour tout annuler
-        if st.button("🗑️ ANNULER TOUS LES ORDRES"):
-            for oid in res_orders.keys():
-                k.query_private('CancelOrder', {'txid': oid})
-            st.warning("Tous les ordres ont été annulés.")
-            st.rerun()
+        res = k.query_private('AddOrder', order_data)
+        
+        if res.get('result'):
+            st.success(f"✅ Bot programmé ! Achat à {p_achat}. La vente à {p_vente} s'activera toute seule après l'achat.")
+            st.json(res['result']['txid'])
+        else:
+            st.error(f"Erreur Kraken : {res.get('error')}")
+            
+    except Exception as e:
+        st.error(f"Erreur technique : {e}")
+
+# Affichage des ordres
+st.write("---")
+st.write("### 📋 Mes ordres en attente")
+try:
+    open_orders = k.query_private('OpenOrders')['result']['open']
+    if open_orders:
+        st.write(open_orders)
     else:
-        st.info("Aucun bot ne tourne actuellement.")
+        st.info("Aucun ordre en attente.")
 except:
-    st.info("En attente de données...")
+    st.write("Connexion en cours...")
