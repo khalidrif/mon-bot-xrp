@@ -52,37 +52,40 @@ st.subheader("📋 Liste des Bots Actifs")
 
 if res_open:
     data_display = []
-    # Compteur pour l'ID visuel
     for i, (oid, det) in enumerate(res_open.items(), start=1):
         type_actuel = det['descr']['type'].upper()
         prix_ordre = float(det['descr']['price'])
         vol_ordre = float(det['vol'])
         
-        # Affichage propre sans pointillés
-        # Si c'est un achat (Vert), on remplit la colonne Entrée
-        # Si c'est une vente (Rouge), on remplit la colonne Sortie
-        p_in = f"{prix_ordre:.4f}" if type_actuel == "BUY" else "Effectué ✅"
-        p_out = f"{prix_ordre:.4f}" if type_actuel == "SELL" else "En attente..."
+        # Logique d'affichage demandée : "Prix + État"
+        if type_actuel == "BUY":
+            p_in = f"{prix_ordre:.4f} (En attente)"
+            p_out = "En attente..."
+        else:
+            # Si c'est une vente, l'achat a été fait à un prix inférieur. 
+            # On estime le prix d'entrée par rapport au prix actuel ou on laisse la place.
+            p_in = "✅ Effectué"
+            p_out = f"{prix_ordre:.4f} (Cible)"
 
         data_display.append({
             "ID": f"Bot {i}",
-            "État": "🟢 ATTENTE ACHAT" if type_actuel == "BUY" else "🔴 ATTENTE VENTE",
+            "État": "🟢 ACHAT" if type_actuel == "BUY" else "🔴 VENTE",
             "Prix Entrée": p_in,
             "Prix Sortie": p_out,
-            "Montant + Profit": f"{prix_ordre * vol_ordre:.2f} USDC",
+            "Valeur Totale": f"{prix_ordre * vol_ordre:.2f} USDC",
             "_style": type_actuel
         })
     
     df = pd.DataFrame(data_display)
 
     def style_rows(row):
-        color = 'background-color: rgba(46, 204, 113, 0.2)' if row['_style'] == 'BUY' else 'background-color: rgba(231, 76, 60, 0.2)'
+        color = 'background-color: rgba(46, 204, 113, 0.15)' if row['_style'] == 'BUY' else 'background-color: rgba(231, 76, 60, 0.15)'
         return [color] * len(row)
 
     st.dataframe(
         df.style.apply(style_rows, axis=1),
         use_container_width=True,
-        column_order=("ID", "État", "Prix Entrée", "Prix Sortie", "Montant + Profit")
+        column_order=("ID", "État", "Prix Entrée", "Prix Sortie", "Valeur Totale")
     )
 else:
     st.info("Aucun bot actif.")
