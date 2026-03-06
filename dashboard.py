@@ -5,23 +5,26 @@ import pandas as pd
 st.set_page_config(page_title="Kraken Smart-Bot", layout="wide")
 st.title("🛡️ Console de Pilotage XRP")
 
-# 1. Connexion (Récupère tes secrets Streamlit)
+# 1. Connexion
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
-# 2. Récupérer le prix et les ordres pour la sécurité
+# 2. Récupérer le prix et les ordres
 try:
     res_ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})
-    prix_actuel = float(res_ticker['result']['XRPUSDC']['c'])
+    # CORRECTION ICI : On prend le premier élément de la liste 'c' (le prix de clôture)
+    prix_raw = res_ticker['result']['XRPUSDC']['c']
+    prix_actuel = float(prix_raw[0]) # <--- On prend l'élément 0 de la liste
     st.metric("Prix XRP actuel", f"{prix_actuel} USDC")
     
     res_open = k.query_private('OpenOrders')['result']['open']
     prix_deja_poses = [float(det['descr']['price']) for det in res_open.values()]
 except Exception as e:
-    st.error(f"Connexion Kraken impossible : {e}")
+    st.error(f"Erreur technique : {e}")
+    prix_actuel = 1.40 # Valeur de secours
     res_open = {}
     prix_deja_poses = []
 
-# 3. FORMULAIRE (Le bouton DOIT être à l'intérieur du 'with')
+# 3. FORMULAIRE
 with st.form("bot_individuel"):
     st.write("### ➕ Ajouter un Bot Individuel")
     c1, c2, c3 = st.columns(3)
@@ -29,10 +32,9 @@ with st.form("bot_individuel"):
     p_vente = c2.number_input("Prix de VENTE", value=round(prix_actuel*1.02, 4), format="%.4f")
     vol = c3.number_input("Volume (XRP)", value=12.0)
     
-    # LE BOUTON EST ICI (À l'intérieur du bloc with)
     submit = st.form_submit_button("🚀 LANCER CE BOT")
 
-# 4. LOGIQUE APRÈS LE CLIC
+# 4. LOGIQUE
 if submit:
     if any(abs(p - p_achat) < 0.0001 for p in prix_deja_poses):
         st.warning(f"⚠️ Déjà un bot à {p_achat} USDC !")
@@ -46,9 +48,9 @@ if submit:
             st.success(f"✅ Bot ajouté à {p_achat}")
             st.rerun()
         except Exception as e:
-            st.error(f"Erreur : {e}")
+            st.error(f"Erreur Kraken : {e}")
 
-# 5. LISTE DES BOTS
+# 5. LISTE
 st.write("---")
 st.subheader(f"📋 Bots actifs ({len(res_open)})")
 if res_open:
