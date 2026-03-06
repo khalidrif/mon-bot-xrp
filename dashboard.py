@@ -2,134 +2,142 @@ import streamlit as st
 import krakenex
 import time
 
-# --- CONFIGURATION ---
-st.set_page_config(page_title="XRP Cockpit Pro", layout="wide")
+# 1. STYLE PREMIUM (CSS CUSTOM)
+st.set_page_config(page_title="XRP NEON COCKPIT", layout="wide", initial_sidebar_state="collapsed")
 
-# Injection de style CSS
 st.markdown("""
     <style>
-    [data-testid="stMetricValue"] { font-size: 1.8rem; color: #00ffcc; }
-    .stButton>button { border-radius: 8px; height: 3em; font-weight: bold; }
-    .bot-card { border: 1px solid #444; padding: 15px; border-radius: 10px; background: #1e1e1e; }
+    /* Global Background */
+    .stApp { background-color: #0E1117; }
+    
+    /* Cartes des Bots */
+    .bot-card {
+        border-radius: 15px;
+        padding: 20px;
+        background: linear-gradient(145deg, #1e2130, #161922);
+        border: 1px solid #30363d;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        margin-bottom: 20px;
+    }
+    
+    /* Metrics Style */
+    [data-testid="stMetricValue"] {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #00f2ff !important;
+    }
+    
+    /* Boutons custom */
+    .stButton>button {
+        border-radius: 8px;
+        transition: all 0.3s;
+        border: 1px solid #30363d;
+    }
+    .stButton>button:hover {
+        border-color: #00f2ff;
+        box-shadow: 0 0 10px rgba(0,242,255,0.2);
+    }
+    
+    /* Header Neon */
+    .neon-text {
+        text-shadow: 0 0 10px #00f2ff, 0 0 20px #00f2ff;
+        color: #00f2ff;
+        font-weight: bold;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONNEXION API ---
-# Note : Assure-toi que tes secrets sont bien configurés dans .streamlit/secrets.toml
+# --- CONNEXION ---
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
 # --- FONCTION MÉMOIRE (USERREF) ---
-# Kraken limite userref à un entier 32-bit (max 2.1 milliards)
-# On stocke : (PrixAchat * 1000) et l'écart en % (multiplié par 100)
 def encode_ref(p_in, p_out):
-    return int((p_in * 1000) * 1000 + ((p_out/p_in - 1) * 10000))
+    return int((p_in * 1000) * 1000 + (min(p_out/p_in, 2.0) * 1000))
 
 def decode_ref(ref):
     p_in = (ref // 1000) / 1000
-    profit_pct = (ref % 1000) / 10000
-    p_out = p_in * (1 + profit_pct)
-    return p_in, p_out
+    ratio = (ref % 1000) / 1000
+    return p_in, p_in * ratio
 
-# --- SIDEBAR & ACTIONS GLOBALES ---
-with st.sidebar:
-    st.title("⚙️ Contrôle")
-    if st.button("🗑️ ANNULER TOUS LES ORDRES", type="primary"):
-        k.query_private('CancelAll')
-        st.success("Signal d'annulation envoyé")
-        time.sleep(1)
-        st.rerun()
-    
-    st.write("---")
-    st.caption("Auto-refresh : 30s")
-
-# --- RÉCUPÉRATION DONNÉES ---
+# --- DATA ---
 try:
     ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})
     prix_actuel = float(ticker['result']['XRPUSDC']['c'][0])
-    
     res_open = k.query_private('OpenOrders')
     ordres = res_open.get('result', {}).get('open', {})
-except Exception as e:
-    st.error(f"Erreur API : {e}")
-    prix_actuel = 0.0
-    ordres = {}
+except:
+    prix_actuel, ordres = 0.0, {}
 
-# --- HEADER ---
-c_head1, c_head2 = st.columns([2, 1])
-with c_head1:
-    st.title("🕹️ Cockpit Multi-Bots XRP")
-with c_head2:
-    st.metric("PRIX ACTUEL XRP", f"{prix_actuel:.4f} USDC", delta_color="normal")
+# --- LAYOUT TOP ---
+st.markdown("<h1 class='neon-text'>🛸 XRP NEON COCKPIT v2</h1>", unsafe_allow_html=True)
 
-# --- FORMULAIRE DE LANCEMENT ---
-with st.expander("🚀 CONFIGURER UN NOUVEAU BOT", expanded=True):
-    c1, c2, c3, c4 = st.columns(4)
-    p_in = c1.number_input("PRIX ACHAT (Limite)", value=round(prix_actuel*0.99, 4), format="%.4f")
-    p_out = c2.number_input("PRIX VENTE (Take Profit)", value=round(p_in*1.05, 4), format="%.4f")
-    vol = c3.number_input("QUANTITÉ (XRP)", value=15.0, step=1.0)
+c1, c2, c3 = st.columns([2, 1, 1])
+with c1:
+    st.metric("XRP / USDC", f"{prix_actuel:.4f} $", delta=f"{0.02:.2f}%")
+with c2:
+    st.metric("BOTS ACTIFS", len(ordres))
+with c3:
+    if st.button("🚨 EMERGENCY STOP", type="primary", use_container_width=True):
+        k.query_private('CancelAll')
+        st.rerun()
+
+st.write("")
+
+# --- FORMULAIRE DESIGN ---
+with st.container():
+    st.markdown("<div style='background:#161922; padding:20px; border-radius:15px; border:1px solid #00f2ff33'>", unsafe_allow_html=True)
+    col_a, col_b, col_c, col_d = st.columns(4)
+    p_in = col_a.number_input("PRIX ACHAT", value=round(prix_actuel*0.995, 4), format="%.4f")
+    p_out = col_b.number_input("PRIX VENTE", value=round(p_in*1.02, 4), format="%.4f")
+    vol = col_c.number_input("VOLUME XRP", value=20.0)
     
-    if c4.button("⚡ ACTIVER LE BOT", use_container_width=True):
+    if col_d.button("🚀 LANCER LE BOT", use_container_width=True):
         memo = encode_ref(p_in, p_out)
-        order_params = {
-            'pair': 'XRPUSDC',
-            'type': 'buy',
-            'ordertype': 'limit',
-            'price': str(round(p_in, 4)),
-            'volume': str(vol),
-            'userref': str(memo),
-            'close[ordertype]': 'limit',
-            'close[price]': str(round(p_out, 4)),
-            'close[type]': 'sell'
-        }
-        res = k.query_private('AddOrder', order_params)
-        if res.get('error'):
-            st.error(f"Refus Kraken : {res['error']}")
-        else:
-            st.balloons()
-            time.sleep(1)
-            st.rerun()
+        k.query_private('AddOrder', {
+            'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(round(p_in, 4)), 
+            'volume': str(vol), 'userref': str(memo),
+            'close[ordertype]': 'limit', 'close[price]': str(round(p_out, 4)), 'close[type]': 'sell'
+        })
+        st.balloons()
+        time.sleep(1)
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.write("---")
+st.write("")
 
-# --- AFFICHAGE DES BOTS ACTIFS ---
+# --- GRID DES BOTS ---
 if ordres:
-    st.subheader(f"🤖 Bots en cours ({len(ordres)})")
     cols = st.columns(3)
-    
     for i, (oid, det) in enumerate(ordres.items()):
         with cols[i % 3]:
-            # Parsing des infos
             type_o = det['descr']['type'].upper()
             prix_o = float(det['descr']['price'])
-            vol_o = float(det['vol'])
+            p_in_m, p_out_m = decode_ref(int(det.get('userref', 0)))
             
-            # Décodage mémoire
-            try:
-                p_in_m, p_out_m = decode_ref(int(det.get('userref', 0)))
-            except:
-                p_in_m, p_out_m = 0.0, 0.0
-
-            # Card UI
-            with st.container():
-                if type_o == "BUY":
-                    st.markdown(f"### 🟢 BOT #{i+1}")
-                    st.write(f"**Statut :** Attente Achat")
-                    st.write(f"**Cible :** `{prix_o:.4f}`")
-                    st.progress(min(max(1 - (prix_o/prix_actuel - 1), 0.0), 1.0) if prix_actuel > 0 else 0)
-                else:
-                    st.markdown(f"### 🔴 BOT #{i+1}")
-                    st.write(f"**Statut :** En vente (Profit!)")
-                    st.write(f"**Cible :** `{prix_o:.4f}`")
-                    if p_in_m > 0:
-                        profit = (prix_o / p_in_m - 1) * 100
-                        st.info(f"Profit visé : +{profit:.2f}%")
-
-                if st.button(f"STOP & ANNULER", key=oid):
-                    k.query_private('CancelOrder', {'txid': oid})
-                    st.rerun()
+            # Couleur dynamique
+            color = "#00ff88" if type_o == "BUY" else "#ff4b4b"
+            label = "ACHAT" if type_o == "BUY" else "VENTE"
+            
+            st.markdown(f"""
+                <div class="bot-card">
+                    <h3 style="color:{color}; margin-top:0;">🤖 BOT {i+1} <span style="font-size:12px; color:#666;">ID: {oid[:5]}</span></h3>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>Cible {label} :</span>
+                        <b style="color:{color}">{prix_o:.4f}</b>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+                        <span>Volume :</span>
+                        <b>{det['vol']} XRP</b>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button(f"ARRÊTER BOT {i+1}", key=oid, use_container_width=True):
+                k.query_private('CancelOrder', {'txid': oid})
+                st.rerun()
 else:
-    st.info("Aucun bot actif. Configurez un prix d'achat ci-dessus.")
+    st.markdown("<div style='text-align:center; padding:50px; color:#666;'>Aucune mission en cours...</div>", unsafe_allow_html=True)
 
-# Auto-refresh simple (toutes les 30 sec)
-time.sleep(30)
+# Auto-refresh
+time.sleep(15)
 st.rerun()
