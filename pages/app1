@@ -1,40 +1,41 @@
-
 import streamlit as st
 import krakenex
 
-# 1. STYLE JAUNE & NOIR
-st.set_page_config(page_title="Bot 1 - Agressif", layout="centered")
+# 1. STYLE JAUNE & NOIR (Look Pro)
+st.set_page_config(page_title="Bot 1 - 1500$", layout="centered")
 st.markdown("<style>.stApp { background-color: #000; color: #F3BA2F; }</style>", unsafe_allow_html=True)
 
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
 st.title("🚜 BOT 1 : RÉCOLTE RAPIDE (1500 $)")
 
-# 2. CONFIGURATION
-p_in = st.number_input("ACHAT (Prix serré)", value=1.3600, format="%.4f")
-p_out = st.number_input("VENTE (Profit rapide)", value=1.3850, format="%.4f")
-# 1500$ / 1.36 = environ 1100 XRP
-vol = st.number_input("Volume XRP", value=1100.0)
+# 2. CONFIGURATION DE LA MISSION
+col1, col2 = st.columns(2)
+p_in = col1.number_input("ACHAT (Prix Bas)", value=1.3600, format="%.4f")
+p_out = col2.number_input("VENTE (Prix Haut)", value=1.3850, format="%.4f")
 
-# 3. ACTION
-if st.button("▶️ LANCER LE BOT 1", type="primary", use_container_width=True):
+# Volume pour environ 1500$ (1500 / 1.36 = ~1100 XRP)
+vol = st.number_input("QUANTITÉ XRP (Volume)", value=1100.0)
+
+st.write(f"💰 Investissement : **{p_in * vol:.2f} USDC**")
+st.write(f"📈 Profit visé : **+{( (p_out/p_in) - 1 ) * 100:.2f}%**")
+
+# 3. LANCEMENT
+if st.button("▶️ ACTIVER BOT 1", type="primary", use_container_width=True):
     try:
         params = {
-            'pair': 'XRPUSDC',
-            'type': 'buy',
-            'ordertype': 'limit',
-            'price': str(p_in),
-            'volume': str(vol),
-            'close[ordertype]': 'limit',
-            'close[price]': str(p_out),
-            'close[type]': 'sell'
+            'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit',
+            'price': str(round(p_in, 4)), 'volume': str(round(vol, 1)),
+            'close[ordertype]': 'limit', 'close[price]': str(round(p_out, 4)), 'close[type]': 'sell'
         }
         res = k.query_private('AddOrder', params)
+        
         if res.get('error'):
-            st.error(f"Erreur Kraken : {res['error']}")
+            st.error(f"Refus Kraken : {res['error']}")
         else:
-            st.success(f"✅ Bot 1 activé ! ID: {res['result']['txid']}")
+            st.balloons()
+            st.success(f"✅ Mission lancée ! ID: {res['result']['txid']}")
     except Exception as e:
-        st.error(f"Erreur : {e}")
+        st.error(f"Erreur de connexion : {e}")
 
-st.info("💡 Ce bot est conçu pour faire des profits rapides sur de petites variations.")
+st.info("💡 Ce bot utilise la fonction 'Close' de Kraken : la vente est automatique dès que l'achat réussit.")
