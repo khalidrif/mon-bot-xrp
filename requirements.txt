@@ -1,7 +1,7 @@
-ccxt==4.4.45
-streamlit
-streamlit-autorefresh
+krakenex
 pandas
+
+
 
 
 
