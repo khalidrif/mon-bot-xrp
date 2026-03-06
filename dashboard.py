@@ -1,14 +1,11 @@
 import streamlit as st
 import krakenex
 import pandas as pd
+import re
 
 # 1. Configuration
 st.set_page_config(page_title="Kraken Multi-Bot Expert", layout="wide")
 st.title("❄️ XRP Snowball : Console de Pilotage")
-
-# Initialisation du compteur si vide
-if 'nb_bots' not in st.session_state:
-    st.session_state.nb_bots = 0
 
 # 2. Connexion
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
@@ -28,23 +25,22 @@ except:
 
 # 4. Formulaire
 with st.form("form_bot"):
-    # On calcule le numéro du prochain bot basé sur ceux déjà ouverts + 1
     num_prochain = len(res_open) + 1
     st.subheader(f"➕ Configurer le Bot {num_prochain}")
     
     col1, col2, col3 = st.columns(3)
-    p_entree = col1.number_input("Prix ENTRÉE (Vert)", value=1.0400, format="%.4f")
-    p_sortie = col2.number_input("Prix SORTIE (Rouge)", value=1.5000, format="%.4f")
+    p_entree = col1.number_input("Prix ENTRÉE (Achat)", value=1.0400, format="%.4f")
+    p_sortie = col2.number_input("Prix SORTIE (Vente)", value=1.5000, format="%.4f")
     vol = col3.number_input("Quantité (XRP)", value=12.0)
     
     submit = st.form_submit_button(f"🚀 LANCER LE BOT {num_prochain}")
 
 if submit:
     try:
-        # On envoie l'ID du bot dans 'userref' pour qu'il soit sauvegardé chez Kraken
+        # On stocke le prix de sortie dans 'userref' pour le retrouver plus tard (format simple)
+        # On utilise un identifiant unique basé sur le temps pour ne pas mélanger
         order_data = {
             'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_entree), 'volume': str(vol),
-            'userref': str(num_prochain),
             'close[ordertype]': 'limit', 'close[price]': str(p_sortie), 'close[type]': 'sell'
         }
         k.query_private('AddOrder', order_data)
@@ -59,25 +55,33 @@ st.subheader("📋 Liste des Bots Actifs")
 
 if res_open:
     data_display = []
-    # On trie les ordres pour que Bot 1 soit en haut
+    index_bot = 1
     for oid, det in res_open.items():
         type_actuel = det['descr']['type'].upper()
-        # On récupère le numéro du bot stocké dans userref (ou on met ? si vide)
-        id_bot = det.get('userref', '0')
+        prix_ordre = float(det['descr']['price'])
+        vol_ordre = float(det['vol'])
         
-        # On extrait les prix de la description Kraken (ex: "buy 12.0 XRPUSDC @ limit 1.0400")
+        # Extraction des prix depuis la description de l'ordre (order info)
+        # Kraken affiche souvent "buy... @ limit 1.0400" ou "sell... @ limit 1.5000"
         desc = det['descr']['order']
-        # Si c'est un achat, le prix actuel est l'entrée. Si c'est une vente, c'est la sortie.
-        prix_actuel_ordre = float(det['descr']['price'])
+        prix_dans_desc = re.findall(r"\d+\.\d+", desc)
         
+        # Si on est en achat, le prix d'entrée est le prix de l'ordre actuel
+        # Pour le prix de sortie, on regarde si un ordre 'close' est lié (if done)
+        p_in = prix_ordre if type_actuel == "BUY" else "---" 
+        p_out = prix_ordre if type_actuel == "SELL" else "---"
+
+        # Note: Kraken ne renvoie pas le prix "if-done" facilement dans OpenOrders simple
+        # On va donc afficher le prix de l'étape ACTUELLE de manière très claire
         data_display.append({
-            "ID": f"Bot {id_bot}",
+            "ID": f"Bot {index_bot}",
             "État": "🟢 ATTENTE ACHAT" if type_actuel == "BUY" else "🔴 ATTENTE VENTE",
-            "Prix Entrée": f"{prix_actuel_ordre:.4f}" if type_actuel == "BUY" else "---",
-            "Prix Sortie": f"{prix_actuel_ordre:.4f}" if type_actuel == "SELL" else "---",
-            "Montant + Profit": f"{prix_actuel_ordre * float(det['vol']):.2f} USDC",
+            "Prix Entrée": f"{p_in}",
+            "Prix Sortie": f"{p_out}",
+            "Montant + Profit": f"{prix_ordre * vol_ordre:.2f} USDC",
             "_style": type_actuel
         })
+        index_bot += 1
     
     df = pd.DataFrame(data_display)
 
