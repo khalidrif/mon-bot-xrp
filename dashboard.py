@@ -1,10 +1,9 @@
 import streamlit as st
 import krakenex
-import pandas as pd
 
 # 1. Configuration
 st.set_page_config(page_title="XRP Line Tracker", layout="wide")
-st.title("🛡️ Console de Trading XRP (Vue par Lignes)")
+st.title("🛡️ Console de Trading XRP")
 
 # Sécurité anti-doublon
 if 'dernier_ordre' not in st.session_state:
@@ -26,71 +25,80 @@ except:
     ordres_ouverts = {}
 
 # 4. Zone de Lancement
-with st.expander("➕ LANCER UN NOUVEAU BOT", expanded=True):
-    c1, c2, c3, c4 = st.columns(4)
-    p_in = c1.number_input("ACHAT (Bas)", value=1.0400, format="%.4f")
-    p_out = c2.number_input("VENTE (Haut)", value=1.5000, format="%.4f")
+with st.form("form_lancement"):
+    st.write("### ➕ LANCER UN NOUVEAU BOT")
+    c1, c2, c3 = st.columns(3)
+    p_in = c1.number_input("ACHAT (Entrée)", value=1.0400, format="%.4f")
+    p_out = c2.number_input("VENTE (Sortie)", value=1.4000, format="%.4f")
     vol = c3.number_input("Quantité XRP", value=12.0)
-    
-    if c4.button("🚀 ACTIVER", use_container_width=True):
-        id_tentative = f"{p_in}-{p_out}-{vol}"
-        if st.session_state.dernier_ordre == id_tentative:
-            st.warning("⚠️ Déjà envoyé !")
-        else:
-            try:
-                memo = int(p_in * 10000) # Mémoire du prix d'entrée
-                k.query_private('AddOrder', {
-                    'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_in), 'volume': str(vol),
-                    'userref': str(memo),
-                    'close[ordertype]': 'limit', 'close[price]': str(p_out), 'close[type]': 'sell'
-                })
-                st.session_state.dernier_ordre = id_tentative
-                st.rerun()
-            except: st.error("Erreur Kraken")
+    submit = st.form_submit_button("🚀 ACTIVER LE BOT")
+
+if submit:
+    id_tentative = f"{p_in}-{p_out}-{vol}"
+    if st.session_state.dernier_ordre == id_tentative:
+        st.warning("⚠️ Déjà envoyé !")
+    else:
+        try:
+            # Mémoire : on stocke le prix d'entrée (p_in) et de sortie (p_out) dans userref
+            # Format : [ENTREE en entiers][SORTIE en entiers] -> ex: 1040014000
+            memo = int(p_in * 10000) * 1000000 + int(p_out * 10000)
+            k.query_private('AddOrder', {
+                'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_in), 'volume': str(vol),
+                'userref': str(memo),
+                'close[ordertype]': 'limit', 'close[price]': str(p_out), 'close[type]': 'sell'
+            })
+            st.session_state.dernier_ordre = id_tentative
+            st.rerun()
+        except: st.error("Erreur Kraken")
 
 st.write("---")
 
-# 5. AFFICHAGE PAR LIGNES (Une ligne par Bot)
+# 5. AFFICHAGE PAR LIGNES
 st.subheader(f"🤖 Mes Bots Actifs ({len(ordres_ouverts)})")
 
 if ordres_ouverts:
-    # En-tête des colonnes
-    h1, h2, h3, h4, h5 = st.columns([1, 2, 2, 2, 1])
+    # En-tête
+    h1, h2, h3, h4, h5, h6 = st.columns([1, 2, 2, 2, 2, 1])
     h1.write("**Bot**")
-    h2.write("**Prix ENTRÉE**")
-    h3.write("**Prix SORTIE**")
+    h2.write("**PRIX ENTRÉE**")
+    h3.write("**PRIX SORTIE**")
     h4.write("**ÉTAT**")
-    h5.write("**ACTION**")
+    h5.write("**VALEUR + PROFIT**")
+    h6.write("**STOP**")
 
     for i, (oid, det) in enumerate(ordres_ouverts.items(), start=1):
         type_o = det['descr']['type'].upper()
         prix_o = float(det['descr']['price'])
+        vol_o = float(det['vol'])
         
-        # Récupération du prix d'entrée mémorisé
+        # Décryptage du prix mémorisé (userref)
         try:
-            p_in_memo = int(det.get('userref', 0)) / 10000
-        except: p_in_memo = 0.0
+            val_ref = int(det.get('userref', 0))
+            p_in_memo = (val_ref // 1000000) / 10000
+            p_out_memo = (val_ref % 1000000) / 10000
+        except: 
+            p_in_memo, p_out_memo = 0.0, 0.0
 
-        # Organisation d'une ligne
-        l1, l2, l3, l4, l5 = st.columns([1, 2, 2, 2, 1])
+        l1, l2, l3, l4, l5, l6 = st.columns([1, 2, 2, 2, 2, 1])
         
         l1.write(f"#{i}")
         
-        # Colonne ENTRÉE
+        # Logique d'affichage par ligne
         if type_o == "BUY":
-            l2.write(f"⏳ {prix_o:.4f}")
-            l3.write("---")
-            l4.info("📦 Attente Achat")
+            l2.write(f"🟢 {prix_o:.4f}")
+            l3.write(f"{p_out_memo:.4f}" if p_out_memo > 0 else "---")
+            l4.info("⏳ Attente ACHAT")
+            l5.write(f"{(p_out_memo if p_out_memo > 0 else prix_o) * vol_o:.2f} USDC")
         else:
             l2.write(f"✅ {p_in_memo:.4f}" if p_in_memo > 0 else "✅ FAIT")
-            l3.write(f"🎯 {prix_o:.4f}")
-            l4.success("💰 Attente Vente")
+            l3.write(f"🔴 {prix_o:.4f}")
+            l4.success("💰 Attente VENTE")
+            l5.write(f"**{prix_o * vol_o:.2f} USDC**")
             
-        # Bouton STOP
-        if l5.button("❌", key=oid):
+        if l6.button("❌", key=oid):
             k.query_private('CancelOrder', {'txid': oid})
             st.rerun()
-        st.write("---") # Séparateur entre les bots
+        st.divider()
 else:
     st.info("Aucun bot actif.")
 
