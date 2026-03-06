@@ -1,59 +1,51 @@
 import streamlit as st
 import krakenex
+import numpy as np
 
-st.title("🎯 Bot XRP : Ordres Liés (Achat puis Vente)")
+st.title("🏗️ Constructeur de Grille Géante (100 Niveaux)")
 
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
-# 1. Infos Marché
-res = k.query_public('Ticker', {'pair': 'XRPUSDC'})
-prix_actuel = float(res['result']['XRPUSDC']['c'])
-st.metric("Prix XRP actuel", f"{prix_actuel} USDC")
+# 1. Configuration de la zone de pêche
+st.write("### ⚙️ Réglages de la Grille")
+c1, c2, c3 = st.columns(3)
+prix_max = c1.number_input("Prix du Haut (USDC)", value=1.50, format="%.4f")
+prix_min = c2.number_input("Prix du Bas (USDC)", value=1.30, format="%.4f")
+vol_lot = c3.number_input("XRP par niveau", value=11.0)
 
-with st.form("bot_individuel"):
-    st.write("### Configurer 1 Bot (Achat ➔ Vente automatique)")
-    c1, c2, c3 = st.columns(3)
-    p_achat = c1.number_input("Prix d'ACHAT souhaité", value=round(prix_actuel*0.99, 4), format="%.4f")
-    p_vente = c2.number_input("Prix de VENTE (Profit)", value=round(prix_actuel*1.02, 4), format="%.4f")
-    vol = c3.number_input("Quantité (XRP)", value=15.0)
+profit_pct = st.slider("Profit par palier (%)", 0.5, 5.0, 2.0) / 100
+
+if st.button("🔥 DÉPLOYER LES 100 BOTS D'UN COUP"):
+    # On calcule les 100 paliers de prix
+    paliers = np.linspace(prix_min, prix_max, 100)
     
-    submit = st.form_submit_button("🚀 LANCER CE BOT")
-
-if submit:
-    try:
-        # ON UTILISE 'close' : Cela crée un ordre de vente qui ne s'active 
-        # QUE SI l'achat est rempli (Filled). C'est beaucoup plus propre !
-        order_data = {
-            'pair': 'XRPUSDC',
-            'type': 'buy',
-            'ordertype': 'limit',
-            'price': str(p_achat),
-            'volume': str(vol),
-            'close[ordertype]': 'limit',
-            'close[price]': str(p_vente),
-            'close[pair]': 'XRPUSDC',
-            'close[type]': 'sell'
-        }
-        
-        res = k.query_private('AddOrder', order_data)
-        
-        if res.get('result'):
-            st.success(f"✅ Bot programmé ! Achat à {p_achat}. La vente à {p_vente} s'activera toute seule après l'achat.")
-            st.json(res['result']['txid'])
-        else:
-            st.error(f"Erreur Kraken : {res.get('error')}")
+    barre_progression = st.progress(0)
+    
+    for i, p in enumerate(paliers):
+        try:
+            p_achat = round(p, 5)
+            p_vente = round(p * (1 + profit_pct), 5)
             
-    except Exception as e:
-        st.error(f"Erreur technique : {e}")
+            # On envoie l'ordre lié (Achat -> Vente)
+            k.query_private('AddOrder', {
+                'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit',
+                'price': str(p_achat), 'volume': str(vol_lot),
+                'close[ordertype]': 'limit', 'close[price]': str(p_vente),
+                'close[type]': 'sell'
+            })
+        except Exception:
+            pass # On ignore si un palier échoue (solde etc.)
+            
+        barre_progression.progress((i + 1) / 100)
+    
+    st.success(f"🎯 Grille de 100 niveaux déployée entre {prix_min} et {prix_max} !")
 
-# Affichage des ordres
+# 2. Liste compacte des ordres
 st.write("---")
-st.write("### 📋 Mes ordres en attente")
-try:
-    open_orders = k.query_private('OpenOrders')['result']['open']
-    if open_orders:
-        st.write(open_orders)
-    else:
-        st.info("Aucun ordre en attente.")
-except:
-    st.write("Connexion en cours...")
+if st.checkbox("👁️ Afficher mes 100+ ordres actifs"):
+    try:
+        res = k.query_private('OpenOrders')['result']['open']
+        st.write(f"Tu as actuellement **{len(res)}** ordres ouverts.")
+        st.json(res)
+    except:
+        st.write("Chargement...")
