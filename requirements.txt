@@ -1,6 +1,7 @@
 krakenex
 pandas
-
+plotly
+streamlit
 
 
 
