@@ -32,7 +32,7 @@ with st.form("form_bot"):
     p_sortie = col2.number_input("Prix SORTIE (Vente)", value=1.5000, format="%.4f")
     vol = col3.number_input("Quantité (XRP)", value=12.0)
     
-    submit = st.form_submit_button(f"🚀 LANCER LE BOT {num_prochain}")
+    submit = st.form_submit_button("🚀 LANCER CE BOT")
 
 if submit:
     try:
@@ -56,36 +56,40 @@ if res_open:
         type_actuel = det['descr']['type'].upper()
         prix_ordre = float(det['descr']['price'])
         vol_ordre = float(det['vol'])
+        montant_usdc = prix_ordre * vol_ordre
         
         # Logique d'affichage demandée : "Prix + État"
         if type_actuel == "BUY":
-            p_in = f"{prix_ordre:.4f} (En attente)"
-            p_out = "En attente..."
+            etat_visuel = "🟢 EN ATTENTE ACHAT"
+            p_in = f"{prix_ordre:.4f}"
+            p_out = "---"
+            m_effectue = "0.00 USDC" # Rien n'est encore dépensé
         else:
-            # Si c'est une vente, l'achat a été fait à un prix inférieur. 
-            # On estime le prix d'entrée par rapport au prix actuel ou on laisse la place.
-            p_in = "✅ Effectué"
-            p_out = f"{prix_ordre:.4f} (Cible)"
+            etat_visuel = "🔴 EN ATTENTE VENTE"
+            p_in = "✅ ACHAT EFFECTUÉ"
+            p_out = f"{prix_ordre:.4f}"
+            # Ici on affiche le montant qui a été utilisé pour l'achat (on peut l'estimer par le volume)
+            m_effectue = f"{montant_usdc:.2f} USDC" 
 
         data_display.append({
             "ID": f"Bot {i}",
-            "État": "🟢 ACHAT" if type_actuel == "BUY" else "🔴 VENTE",
+            "État": etat_visuel,
             "Prix Entrée": p_in,
             "Prix Sortie": p_out,
-            "Valeur Totale": f"{prix_ordre * vol_ordre:.2f} USDC",
+            "Montant Effectué": m_effectue,
             "_style": type_actuel
         })
     
     df = pd.DataFrame(data_display)
 
     def style_rows(row):
-        color = 'background-color: rgba(46, 204, 113, 0.15)' if row['_style'] == 'BUY' else 'background-color: rgba(231, 76, 60, 0.15)'
+        color = 'background-color: rgba(46, 204, 113, 0.1)' if row['_style'] == 'BUY' else 'background-color: rgba(231, 76, 60, 0.1)'
         return [color] * len(row)
 
     st.dataframe(
         df.style.apply(style_rows, axis=1),
         use_container_width=True,
-        column_order=("ID", "État", "Prix Entrée", "Prix Sortie", "Valeur Totale")
+        column_order=("ID", "État", "Prix Entrée", "Prix Sortie", "Montant Effectué")
     )
 else:
     st.info("Aucun bot actif.")
