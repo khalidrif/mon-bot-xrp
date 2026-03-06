@@ -4,7 +4,7 @@ import time
 import streamlit.components.v1 as components
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="XRP BOT SONORE", layout="centered")
+st.set_page_config(page_title="XRP BOT FLEXIBLE", layout="centered")
 
 @st.cache_resource
 def init_k():
@@ -20,20 +20,12 @@ def init_k():
 
 k = init_k()
 
-# --- FONCTION SONORE (HTML/JS) ---
+# --- SONORE ---
 def play_notification_sound():
-    # Un son court et propre pour la validation de transaction
     sound_url = "https://www.soundjay.com"
-    components.html(
-        f"""
-        <audio autoplay>
-            <source src="{sound_url}" type="audio/mpeg">
-        </audio>
-        """,
-        height=0,
-    )
+    components.html(f'<audio autoplay><source src="{sound_url}" type="audio/mpeg"></audio>', height=0)
 
-# --- 2. MÉMOIRE DU BOT ---
+# --- 2. MÉMOIRE ---
 if 'bot' not in st.session_state:
     st.session_state.bot = {"status": "OFF", "pa": 1.40, "pv": 1.45, "cycles": 0, "profit": 0.0}
 
@@ -51,7 +43,7 @@ def get_kraken_status():
 orders, px, bal = get_kraken_status()
 
 # --- 4. DASHBOARD ---
-st.title("🏓 XRP Ping-Pong Audio")
+st.title("🏓 XRP Ping-Pong Flexible")
 
 if bal:
     u_free = bal['free'].get('USDC', 0.0)
@@ -73,48 +65,70 @@ if bal:
     else:
         st.error("⚪ AUCUN ORDRE ACTIF")
     
-    st.divider()
     st.write(f"💰 Dispo: **{u_free:.2f} USDC** | 🪙 Dispo: **{x_free:.2f} XRP**")
 
-# --- 5. RÉGLAGES ---
-col_in, col_out = st.columns(2)
-pa = col_in.number_input("ACHAT (IN)", value=bot["pa"], format="%.4f")
-pv = col_out.number_input("VENTE (OUT)", value=bot["pv"], format="%.4f")
+st.divider()
 
-# --- 6. BOUTONS ---
+# --- 5. RÉGLAGES (MODIFIABLES EN DIRECT) ---
+st.subheader("⚙️ Ajuster les prix")
+col_in, col_out = st.columns(2)
+new_pa = col_in.number_input("ACHAT (IN)", value=bot["pa"], format="%.4f")
+new_pv = col_out.number_input("VENTE (OUT)", value=bot["pv"], format="%.4f")
+
+# --- 6. LOGIQUE DE MODIFICATION EN DIRECT ---
+if orders and (new_pa != bot["pa"] or new_pv != bot["pv"]):
+    if st.button("🔄 APPLIQUER LES NOUVEAUX PRIX", use_container_width=True, type="primary"):
+        try:
+            # On annule tout sur Kraken
+            k.cancel_all_orders('XRP/USDC')
+            time.sleep(1) # Petit temps de pause pour Kraken
+            
+            # On met à jour la mémoire locale
+            bot.update({"pa": new_pa, "pv": new_pv})
+            
+            # On relance l'ordre selon ce qu'on a en main (USDC ou XRP)
+            new_bal = k.fetch_balance()
+            if new_bal['free'].get('USDC', 0) > 7:
+                vol = float(k.amount_to_precision('XRP/USDC', new_bal['free']['USDC'] / new_pa))
+                k.create_limit_buy_order('XRP/USDC', vol, new_pa, {'post-only': True})
+            elif new_bal['free'].get('XRP', 0) > 5:
+                k.create_limit_sell_order('XRP/USDC', new_bal['free']['XRP'], new_pv)
+            
+            st.success("✅ Prix mis à jour sur Kraken !")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erreur lors de la mise à jour : {e}")
+
+# --- 7. BOUTONS START / STOP ---
 if not orders:
     if st.button("🚀 LANCER LA BOUCLE", use_container_width=True, type="primary"):
         try:
-            bot.update({"status": "ON", "pa": pa, "pv": pv})
+            bot.update({"status": "ON", "pa": new_pa, "pv": new_pv})
             if u_free > 7:
-                vol = float(k.amount_to_precision('XRP/USDC', u_free / pa))
-                k.create_limit_buy_order('XRP/USDC', vol, pa, {'post-only': True})
+                vol = float(k.amount_to_precision('XRP/USDC', u_free / new_pa))
+                k.create_limit_buy_order('XRP/USDC', vol, new_pa, {'post-only': True})
             elif x_free > 5:
-                k.create_limit_sell_order('XRP/USDC', x_free, pv)
+                k.create_limit_sell_order('XRP/USDC', x_free, new_pv)
             st.rerun()
         except Exception as e: st.error(e)
 else:
-    if st.button("🛑 ARRÊTER ET ANNULER", use_container_width=True):
+    if st.button("🛑 ARRÊTER ET TOUT ANNULER", use_container_width=True):
         try: k.cancel_all_orders('XRP/USDC')
         except: pass
         bot["status"] = "OFF"
         st.rerun()
 
-# --- 7. MOTEUR ---
+# --- 8. MOTEUR (15S) ---
 if bot["status"] == "ON":
     @st.fragment(run_every=15)
     def engine():
         try:
             orders_live = k.fetch_open_orders('XRP/USDC')
             if not orders_live:
-                # UN ORDRE VIENT D'ÊTRE REMPLI !
-                play_notification_sound() # <--- JOUE LE SON ICI
-                st.balloons() # <--- EFFET VISUEL
-                
+                play_notification_sound()
+                st.balloons()
                 bal_now = k.fetch_balance()
-                u = bal_now['free'].get('USDC', 0.0)
-                x = bal_now['free'].get('XRP', 0.0)
-                
+                u, x = bal_now['free'].get('USDC', 0.0), bal_now['free'].get('XRP', 0.0)
                 if x > 5.0:
                     k.create_limit_sell_order('XRP/USDC', x, bot["pv"])
                 elif u > 7.0:
