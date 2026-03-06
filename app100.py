@@ -2,56 +2,55 @@ import streamlit as st
 import krakenex
 import time
 
-# 1. CONFIGURATION MOBILE & STYLE
+# 1. STYLE IPHONE (Gros boutons, Noir & Jaune)
 st.set_page_config(page_title="XRP Pocket Bot", layout="centered")
-
-# CSS spécial pour iPhone (Gros boutons, texte clair, fond noir)
 st.markdown("""
     <style>
-    .stApp { background-color: #000000; }
-    [data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #F3BA2F !important; }
+    .stApp { background-color: #000000; color: #F3BA2F; }
+    [data-testid="stMetricValue"] { color: #F3BA2F !important; font-size: 2rem !important; }
     .stButton>button { 
-        width: 100%; 
-        height: 60px; 
-        font-size: 20px !important; 
-        border-radius: 15px !important;
-        background-color: #F3BA2F !important;
-        color: black !important;
-        border: none !important;
+        width: 100%; height: 60px; font-size: 20px !important; 
+        border-radius: 15px !important; background-color: #F3BA2F !important;
+        color: black !important; border: none !important; font-weight: bold;
     }
-    input { font-size: 18px !important; height: 50px !important; }
+    input { background-color: #121212 !important; color: white !important; border: 1px solid #F3BA2F !important; }
     .stAlert { border-radius: 15px; }
     </style>
     """, unsafe_allow_html=True)
 
+# 2. INITIALISATION API & VARIABLES
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
-usdc = 0.0
+usdc = 0.0  # Défini ici pour éviter l'erreur "not defined"
 
-# 2. HEADER SIMPLE
-st.markdown("<h2 style='text-align: center; color: #F3BA2F;'>🟡 XRP POCKET BOT</h2>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #F3BA2F;'>🟡 XRP COMMAND</h1>", unsafe_allow_html=True)
 
+# 3. VÉRIFICATION RÉELLE DE LA CONNEXION
 try:
-    ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})['result']['XRPUSDC']
-    prix_actuel = float(ticker['c'])
     res = k.query_private('Balance')
-    if res and 'result' in res:
+    if res.get('error'):
+        st.error(f"❌ KRAKEN DIT : {res['error']}")
+    elif res.get('result'):
         usdc = float(res['result'].get('USDC', 0))
-        st.metric("MON SOLDE", f"{usdc:.2f} USDC")
-        st.metric("PRIX XRP", f"{prix_actuel:.4f} $")
+        st.success(f"✅ CONNECTÉ : {usdc:.2f} USDC")
     else:
-        st.warning("⏳ Connexion Kraken... (Maintenance)")
-except:
-    st.error("📡 Erreur réseau")
+        st.warning("⏳ CONNEXION KRAKEN... (Vérifie tes clés API)")
+except Exception as e:
+    st.error(f"📡 ERREUR RÉSEAU : {e}")
 
 st.divider()
 
-# 3. RÉGLAGES TACTILES
-p_in = st.number_input("ACHAT (Prix Bas)", value=1.3600, format="%.4f", step=0.0001)
-p_out = st.number_input("VENTE (Prix Haut)", value=1.4000, format="%.4f", step=0.0001)
-vol = st.number_input("VOLUME XRP", value=73.0, step=1.0) # Défaut pour 100$
+# 4. RÉGLAGES DU BOT (100$ ou 29$)
+col1, col2 = st.columns(2)
+p_in = col1.number_input("ACHAT (Prix Bas)", value=1.3500, format="%.4f", step=0.0001)
+p_out = col2.number_input("VENTE (Prix Haut)", value=1.4000, format="%.4f", step=0.0001)
 
-# 4. GROS BOUTONS D'ACTION
-if st.button("🚀 LANCER LE BOT"):
+# Calcul automatique du volume (100$ par défaut ou ton solde max)
+budget_test = usdc if usdc > 10 else 100.0
+vol_auto = (budget_test * 0.98) / p_in
+vol = st.number_input("VOLUME XRP", value=float(round(vol_auto, 1)))
+
+# 5. BOUTONS D'ACTION IPHONE
+if st.button("🚀 LANCER LE BOT (UN PAR UN)"):
     params = {
         'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit',
         'price': str(p_in), 'volume': str(vol),
@@ -59,22 +58,29 @@ if st.button("🚀 LANCER LE BOT"):
     }
     reponse = k.query_private('AddOrder', params)
     if reponse.get('error'):
-        st.error(f"Erreur : {reponse['error']}")
+        st.error(f"Refusé : {reponse['error']}")
     else:
-        st.success("✅ ORDRE ENVOYÉ !")
+        st.balloons()
+        st.success("✅ MISSION LANCÉE SUR KRAKEN !")
 
 st.write("") # Espace pour le pouce
-if st.button("🚨 STOP / ANNULER"):
+if st.button("🚨 STOP / ANNULER TOUT"):
     k.query_private('CancelAll')
     st.rerun()
 
-# 5. ÉTAT SIMPLIFIÉ
+# 6. ÉTAT DES ORDRES EN COURS
+st.divider()
 try:
     ordres = k.query_private('OpenOrders').get('result', {}).get('open', {})
     if ordres:
+        st.subheader("📦 Missions en cours :")
         for oid, det in ordres.items():
             st.info(f"🎯 {det['descr']['order']}")
-except: pass
+    else:
+        st.write("Aucun ordre actif.")
+except:
+    pass
 
-time.sleep(15)
+# Auto-refresh toutes les 20 secondes
+time.sleep(20)
 st.rerun()
