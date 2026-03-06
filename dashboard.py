@@ -1,11 +1,10 @@
 import streamlit as st
 import krakenex
 import pandas as pd
-import re
 
 # 1. Configuration
 st.set_page_config(page_title="Kraken Multi-Bot Expert", layout="wide")
-st.title("❄️ XRP Snowball : Console de Pilotage")
+st.title("❄️ XRP Snowball : Pilotage en Direct")
 
 # 2. Connexion
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
@@ -37,8 +36,6 @@ with st.form("form_bot"):
 
 if submit:
     try:
-        # On stocke le prix de sortie dans 'userref' pour le retrouver plus tard (format simple)
-        # On utilise un identifiant unique basé sur le temps pour ne pas mélanger
         order_data = {
             'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_entree), 'volume': str(vol),
             'close[ordertype]': 'limit', 'close[price]': str(p_sortie), 'close[type]': 'sell'
@@ -55,33 +52,26 @@ st.subheader("📋 Liste des Bots Actifs")
 
 if res_open:
     data_display = []
-    index_bot = 1
-    for oid, det in res_open.items():
+    # Compteur pour l'ID visuel
+    for i, (oid, det) in enumerate(res_open.items(), start=1):
         type_actuel = det['descr']['type'].upper()
         prix_ordre = float(det['descr']['price'])
         vol_ordre = float(det['vol'])
         
-        # Extraction des prix depuis la description de l'ordre (order info)
-        # Kraken affiche souvent "buy... @ limit 1.0400" ou "sell... @ limit 1.5000"
-        desc = det['descr']['order']
-        prix_dans_desc = re.findall(r"\d+\.\d+", desc)
-        
-        # Si on est en achat, le prix d'entrée est le prix de l'ordre actuel
-        # Pour le prix de sortie, on regarde si un ordre 'close' est lié (if done)
-        p_in = prix_ordre if type_actuel == "BUY" else "---" 
-        p_out = prix_ordre if type_actuel == "SELL" else "---"
+        # Affichage propre sans pointillés
+        # Si c'est un achat (Vert), on remplit la colonne Entrée
+        # Si c'est une vente (Rouge), on remplit la colonne Sortie
+        p_in = f"{prix_ordre:.4f}" if type_actuel == "BUY" else "Effectué ✅"
+        p_out = f"{prix_ordre:.4f}" if type_actuel == "SELL" else "En attente..."
 
-        # Note: Kraken ne renvoie pas le prix "if-done" facilement dans OpenOrders simple
-        # On va donc afficher le prix de l'étape ACTUELLE de manière très claire
         data_display.append({
-            "ID": f"Bot {index_bot}",
+            "ID": f"Bot {i}",
             "État": "🟢 ATTENTE ACHAT" if type_actuel == "BUY" else "🔴 ATTENTE VENTE",
-            "Prix Entrée": f"{p_in}",
-            "Prix Sortie": f"{p_out}",
+            "Prix Entrée": p_in,
+            "Prix Sortie": p_out,
             "Montant + Profit": f"{prix_ordre * vol_ordre:.2f} USDC",
             "_style": type_actuel
         })
-        index_bot += 1
     
     df = pd.DataFrame(data_display)
 
