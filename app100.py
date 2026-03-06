@@ -1,78 +1,70 @@
+
 import streamlit as st
 import krakenex
 import time
 
-# 1. STYLE NOIR & OR
-st.set_page_config(page_title="XRP 50-GRID COMMAND", layout="wide")
+# 1. STYLE JAUNE & NOIR
+st.set_page_config(page_title="XRP Test Bot", layout="centered")
 st.markdown("<style>.stApp { background-color: #000; color: #F3BA2F; }</style>", unsafe_allow_html=True)
 
 k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
 
-st.title("🎖️ XRP MEGA-GRID : 50 BOTS")
+# --- INITIALISATION DE SÉCURITÉ ---
+usdc = 0.0  # La variable existe maintenant quoi qu'il arrive
 
-# 2. DASHBOARD LIVE
+st.title("🟡 TEST BOT XRP : 1 SEUL CYCLE")
+
+# 2. ESSAI DE CONNEXION
 try:
-    ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})['result']['XRPUSDC']
-    prix_actuel = float(ticker['c'])
-    bal = k.query_private('Balance')['result']
-    usdc = float(bal.get('USDC', 0))
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("PRIX XRP", f"{prix_actuel:.4f} $")
-    c2.metric("SOLDE USDC", f"{usdc:.2f} $")
-    c3.metric("BOTS POSSIBLES (60$)", int(usdc / 60))
+    res = k.query_private('Balance')
+    if res and 'result' in res:
+        usdc = float(res['result'].get('USDC', 0))
+        st.success(f"✅ Connecté ! Solde : {usdc:.2f} USDC")
+    else:
+        st.warning("⏳ Kraken en attente (Maintenance du 6 mars...)")
 except:
-    st.warning("⏳ Connexion Kraken... (Maintenance en cours)")
+    st.error("❌ Erreur de liaison API")
 
 st.divider()
 
-# 3. CONFIGURATION DE LA GRILLE
-with st.container():
-    col_a, col_b, col_c = st.columns(3)
-    p_min = col_a.number_input("PRIX BAS", value=1.2500, format="%.4f")
-    p_max = col_b.number_input("PRIX HAUT", value=1.4500, format="%.4f")
-    vol_xrp = col_c.number_input("XRP PAR PALIER (Budget ~60$)", value=44.0)
+# 3. RÉGLAGES (C'est toi qui programmes)
+col1, col2 = st.columns(2)
+p_in = col1.number_input("PRIX ACHAT", value=1.3600, format="%.4f")
+p_out = col2.number_input("PRIX VENTE", value=1.4000, format="%.4f")
 
-# 4. ACTION : DÉPLOIEMENT DES 50 BOTS
-if st.button("🚀 DÉPLOYER LES 50 BOTS (3000$)", use_container_width=True, type="primary"):
-    # On calcule l'écart entre 50 niveaux
-    intervalle = (p_max - p_min) / 49 
-    barre = st.progress(0)
-    info_envoi = st.empty()
+# On calcule le volume pour utiliser TOUT ton solde (avec 1.5% de marge)
+if usdc > 10:
+    vol_auto = (usdc * 0.985) / p_in
+else:
+    vol_auto = 22.0 # Valeur de secours pour test
+
+vol = st.number_input("VOLUME XRP", value=float(round(vol_auto, 1)))
+
+# 4. LANCEMENT
+if st.button("🚀 LANCER LE TEST", type="primary", use_container_width=True):
+    params = {
+        'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit',
+        'price': str(p_in), 'volume': str(vol),
+        'close[ordertype]': 'limit', 'close[price]': str(p_out), 'close[type]': 'sell'
+    }
+    reponse = k.query_private('AddOrder', params)
     
-    for i in range(50):
-        p_achat = round(p_min + (i * intervalle), 4)
-        p_vente = round(p_achat + (intervalle * 2), 4) # Vente 2 paliers au dessus
-        
-        params = {
-            'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit',
-            'price': str(p_achat), 'volume': str(vol_xrp),
-            'close[ordertype]': 'limit', 'close[price]': str(p_vente), 'close[type]': 'sell'
-        }
-        
-        # ENVOI AVEC PAUSE (Crucial pour 50 ordres !)
-        k.query_private('AddOrder', params)
-        time.sleep(0.7) # Pause de sécurité pour l'API
-        
-        barre.progress((i + 1) / 50)
-        info_envoi.write(f"📡 Envoi du Bot {i+1}/50 au prix {p_achat} $")
-        
-    st.success("✅ Armée de 50 bots opérationnelle !")
+    if reponse.get('error'):
+        st.error(f"Refus : {reponse['error']}")
+    else:
+        st.balloons()
+        st.success("✅ ORDRE PLACÉ SUR KRAKEN !")
 
-if st.button("🚨 STOP & ANNULER TOUT", use_container_width=True):
-    k.query_private('CancelAll')
-    st.rerun()
-
-# 5. LISTE DES ORDRES ACTIFS
+# 5. MONITORING
 st.divider()
 try:
-    ordres = k.query_private('OpenOrders')['result']['open']
+    ordres = k.query_private('OpenOrders').get('result', {}).get('open', {})
     if ordres:
-        st.subheader(f"📦 {len(ordres)} Paliers en attente sur Kraken")
-        with st.expander("Voir le détail des ordres"):
-            for oid, det in ordres.items():
-                st.caption(f"📍 {det['descr']['order']}")
+        for oid, det in ordres.items():
+            st.info(f"⏳ EN COURS : {det['descr']['order']}")
+    else:
+        st.write("Aucun ordre actif.")
 except: pass
 
-time.sleep(20)
+time.sleep(15)
 st.rerun()
