@@ -1,16 +1,19 @@
-# --- RÉCUPÉRATION DU SOLDE SÉCURISÉE ---
+# --- INITIALISATION CRITIQUE ---
+usdc = 0.0  # On force la création de la variable ici, quoi qu'il arrive
+
 try:
-    bal = k.query_private('Balance')['result']
-    usdc = float(bal.get('USDC', 0))
-except:
-    usdc = 0.0  # Si Kraken ne répond pas, on met 0 au lieu de faire planter le script
+    res_bal = k.query_private('Balance')
+    # On vérifie si Kraken a bien répondu avec des données
+    if res_bal and 'result' in res_bal:
+        bal = res_bal['result']
+        usdc = float(bal.get('USDC', 0))
+    else:
+        st.warning("⚠️ Kraken répond mais ne donne pas le solde. Mode attente...")
+except Exception as e:
+    st.error(f"❌ Connexion API impossible : {e}")
 
-# --- CALCUL DU VOLUME ---
-if usdc > 0:
-    # On calcule le volume max pour tes 1500$ (ou ce qu'il reste)
-    vol_calcule = (usdc * 0.985) / p_in 
-else:
-    vol_calcule = 0.0
-
-# Remplace ton champ 'vol' par celui-ci pour éviter l'erreur
-vol = st.number_input("Volume XRP", value=max(vol_calcule, 10.0), format="%.1f")
+# --- UTILISATION SÉCURISÉE ---
+# Maintenant 'usdc' est défini (soit 0.0, soit ton vrai solde)
+# Le calcul suivant ne plantera plus jamais
+p_in = st.number_input("Achat", value=1.3600, format="%.4f")
+vol_calcul = (usdc * 0.98) / p_in if usdc > 0 else 22.0 # Valeur de secours pour tes 30$
