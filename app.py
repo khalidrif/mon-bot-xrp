@@ -8,28 +8,17 @@ running = False
 profit_net = 0.0
 
 # -------------------------------------------------------
-# CONFIG KRAKEN API (Secrets Streamlit)
+# CONFIG KRAKEN API
 # -------------------------------------------------------
 api = krakenex.API()
 api.key = st.secrets["KRAKEN_API_KEY"]
 api.secret = st.secrets["KRAKEN_API_SECRET"]
 
 # -------------------------------------------------------
-#  AUTO-DETECTION DE LA PAIRE XRP/USDC SUR TON COMPTE
+# PAIRE DÉTECTÉE (fixée : XRPRLUSD)
 # -------------------------------------------------------
-def detect_pair():
-    data = api.query_public("AssetPairs")
-    if "result" not in data:
-        return "XXRPZUSD"
-
-    for p in data["result"]:
-        if "XRP" in p and ("USD" in p or "USDC" in p):
-            return p
-
-    return "XXRPZUSD"  # fallback
-
-PAIR = detect_pair()
-st.warning("Paire Kraken détectée : " + PAIR)
+PAIR = "XRPRLUSD"
+st.warning("Paire Kraken utilisée : " + PAIR)
 
 # -------------------------------------------------------
 # KRAKEN HELPERS
@@ -47,7 +36,7 @@ def get_usdc_balance():
 def place_order(order_type, volume):
     if volume < 5:
         st.error(f"Volume insuffisant : {volume:.4f} XRP (minimum 5 XRP)")
-        return {"error": ["volume too small"], "result": {}}
+        return {"error": ["volume too_small"], "result": {}}
 
     res = api.query_private("AddOrder", {
         "pair": PAIR,
@@ -56,7 +45,6 @@ def place_order(order_type, volume):
         "volume": volume
     })
 
-    # afficher erreurs
     if "error" in res and len(res["error"]) > 0:
         st.error("Erreur Kraken : " + str(res["error"]))
 
@@ -67,10 +55,8 @@ def get_order_history():
     if "result" not in res:
         return pd.DataFrame()
 
-    trades = res["result"]["trades"]
-
     rows = []
-    for tid, t in trades.items():
+    for tid, t in res["result"]["trades"].items():
         if t["pair"] != PAIR:
             continue
 
@@ -87,7 +73,7 @@ def get_order_history():
     return df.head(25)
 
 # -------------------------------------------------------
-# THREAD DU BOT
+# THREAD BOT
 # -------------------------------------------------------
 def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, history_box, snowball):
     global running, profit_net
@@ -103,12 +89,13 @@ def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, hi
 
         profit_box.info(f"Profit net : {profit_net:.4f} USDC")
 
-        texte = f"Prix XRP : {prix}\n"
-        texte += f"Montant : {montant_usdc:.4f} USDC → {montant_xrp:.4f} XRP\n"
-        texte += f"Profit net : {profit_net:.4f} USDC\n"
+        texte = (
+            f"Prix XRP : {prix}\n"
+            f"Trade : {montant_usdc:.4f} USDC → {montant_xrp:.4f} XRP\n"
+            f"Profit net : {profit_net:.4f} USDC\n"
+        )
 
         solde = get_usdc_balance()
-
         if position == 0 and solde < montant_usdc:
             st.warning(f"Solde insuffisant : {solde} USDC")
             time.sleep(3)
@@ -129,13 +116,13 @@ def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, hi
             place_order("sell", montant_xrp)
 
             texte += f"Profit trade : {gain:.4f} USDC\n"
-            texte += f"Profit net total : {profit_net:.4f} USDC\n"
+            texte += f"Profit total : {profit_net:.4f} USDC\n"
 
             position = 0
 
             if snowball:
                 montant_usdc += gain
-                texte += f"BOULE DE NEIGE ➜ Nouveau montant : {montant_usdc:.4f} USDC\n"
+                texte += f"BOULE DE NEIGE : {montant_usdc:.4f} USDC\n"
 
         log.text(texte)
 
@@ -148,12 +135,12 @@ def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, hi
         time.sleep(3)
 
 # -------------------------------------------------------
-# INTERFACE STREAMLIT
+# INTERFACE
 # -------------------------------------------------------
-st.title("BOT XRP – USDC | Auto-Paire | Profit | Boule de Neige | Historique")
+st.title("BOT XRP/USDC – XRPRLUSD | Profit | Boule de Neige | Historique")
 
 solde = get_usdc_balance()
-st.info(f"Solde USDC : {solde} USDC")
+st.info(f"Solde USDC actuel : {solde} USDC")
 
 profit_box = st.info("Profit net : 0 USDC")
 history_box = st.empty()
@@ -161,7 +148,7 @@ log = st.empty()
 
 prix_achat = st.number_input("Prix d'achat (USDC)", min_value=0.0)
 prix_vente = st.number_input("Prix de vente (USDC)", min_value=0.0)
-montant_usdc = st.number_input("Montant USDC par trade", min_value=1.0)
+montant_usdc = st.number_input("Montant USDC par trade", min_value=5.0)
 
 snowball = st.checkbox("Activer Boule de Neige (réinvestit automatiquement)")
 
@@ -172,7 +159,9 @@ with col2:
     stop = st.button("STOP BOT")
 
 if start and not running:
-    t = threading.Thread(target=bot_thread, args=(prix_achat, prix_vente, montant_usdc, log, profit_box, history_box, snowball))
+    t = threading.Thread(target=bot_thread, args=(
+        prix_achat, prix_vente, montant_usdc, log, profit_box, history_box, snowball
+    ))
     t.start()
     st.success("Bot lancé !")
 
