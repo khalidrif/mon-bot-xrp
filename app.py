@@ -122,7 +122,7 @@ for i, p in enumerate(st.session_state.paliers):
 
     components.html(f"""
     <div style='
-    background:#0b0b0b;
+    background:#101010;
     width:640px;
     height:38px;
     padding:4px 8px;
