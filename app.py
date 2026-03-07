@@ -12,7 +12,7 @@ api.secret = st.secrets["KRAKEN_API_SECRET"]
 PAIR = "XRPUSDC"
 
 # ---------------------------------------
-# FONCTIONS UTILITAIRES
+# FONCTIONS
 # ---------------------------------------
 def round_price(p):
     return float(f"{p:.5f}")
@@ -38,7 +38,7 @@ def cancel_order(order_id):
 
 
 # ---------------------------------------
-# SESSION STATE
+# STATE STREAMLIT
 # ---------------------------------------
 if "paliers" not in st.session_state:
     st.session_state.paliers = []
@@ -48,16 +48,15 @@ if "profit" not in st.session_state:
 
 
 # ---------------------------------------
-# UI PRINCIPALE
+# UI : PRIX ACTUEL
 # ---------------------------------------
 st.title("BOT LIMIT XRP/USDC – MULTI-PALIERS (PRO)")
-
 prix_actuel = get_price()
 st.info(f"💰 Prix actuel XRP/USDC : {prix_actuel}")
 
 
 # ---------------------------------------
-# AJOUT D’UN PALIER
+# AJOUT PALIER
 # ---------------------------------------
 st.subheader("➕ Ajouter un palier")
 
@@ -84,16 +83,16 @@ if st.button("Ajouter ce palier"):
 
 
 # ---------------------------------------
-# AFFICHAGE DES PALIERS (PRO)
+# AFFICHAGE PALIERS PRO
 # ---------------------------------------
 st.subheader("📋 Tableau des paliers (mode PRO)")
 
 if len(st.session_state.paliers) == 0:
-    st.warning("Aucun palier ajouté.")
+    st.warning("Aucun palier.")
 else:
     for i, p in enumerate(st.session_state.paliers):
 
-        # --- état ---
+        # ----- DÉTERMINATION DE L'ÉTAT -----
         if not p["active"]:
             etat = "🔴 Palier désactivé"
             couleur = "#880000"
@@ -110,15 +109,15 @@ else:
             etat = "🟠 SELL placé → attente exécution"
             couleur = "#FF8800"
 
-        # --- Bande d’information ---
+        # ----- BANDE PRO -----
         st.markdown(f"""
-        <div style="
+        <div style='
             background-color:#1A1A1A;
             border-left:6px solid {couleur};
             padding:15px;
             margin-top:15px;
             border-radius:10px;
-            color:white;">
+            color:white;'>
             
             <h3 style="margin:0;">Palier P{i+1}</h3>
 
@@ -133,67 +132,65 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- Boutons ---
+        # ----- BOUTONS -----
         colA, colB, colC, colD, colE = st.columns(5)
 
-        # ACTIVER / DESACTIVER
+        # ACTIVER
         with colA:
             if not p["active"]:
-                if st.button("🟢 Activer", key=f"act_{i}"):
+                if st.button(f"🟢 Activer", key=f"activer_{i}"):
                     p["active"] = True
                     st.experimental_rerun()
 
+        # DÉSACTIVER
         with colB:
             if p["active"]:
-                if st.button("🔴 Désactiver", key=f"desact_{i}"):
+                if st.button(f"🔴 Désactiver", key=f"desactiver_{i}"):
                     p["active"] = False
                     st.experimental_rerun()
 
         # ANNULER BUY
         with colC:
             if p["buy_id"]:
-                if st.button("❌ Annuler BUY", key=f"cancel_buy_{i}"):
+                if st.button(f"❌ Annuler BUY", key=f"cancel_buy_{i}"):
                     cancel_order(p["buy_id"])
                     p["buy_id"] = None
-                    st.warning(f"BUY annulé pour P{i+1}")
                     st.experimental_rerun()
 
         # ANNULER SELL
         with colD:
             if p["sell_id"]:
-                if st.button("❌ Annuler SELL", key=f"cancel_sell_{i}"):
+                if st.button(f"❌ Annuler SELL", key=f"cancel_sell_{i}"):
                     cancel_order(p["sell_id"])
                     p["sell_id"] = None
-                    st.warning(f"SELL annulé pour P{i+1}")
                     st.experimental_rerun()
 
-        # SUPPRIMER PALIER
+        # SUPPRIMER PALET
         with colE:
-            if st.button("🗑️ Supprimer", key=f"del_{i}"):
+            if st.button(f"🗑️ Supprimer", key=f"delete_{i}"):
                 st.session_state.paliers.pop(i)
                 st.experimental_rerun()
 
 
 # ---------------------------------------
-# BOUTON ANNULER TOUS LES ORDRES KRAKEN
+# ANNULER TOUS LES ORDRES
 # ---------------------------------------
 st.subheader("🛑 Annuler TOUS les ordres Kraken")
 
-if st.button("Annuler tous les ordres Kraken"):
+if st.button("Annuler tous les ordres"):
     res = api.query_private("CancelAll")
     st.warning(res)
-
     for p in st.session_state.paliers:
         p["buy_id"] = None
         p["sell_id"] = None
-    st.success("Tous les BUY/SELL ont été annulés localement.")
+    st.success("Tous les BUY/SELL ont été annulés.")
 
 
 # ---------------------------------------
-# DEMARRER LES BUY
+# LANCER LES BUY
 # ---------------------------------------
 st.markdown("---")
-st.subheader("🚀 Placer tous les BUY actifs")
+st.subheader("🚀 Placer tous les LIMIT BUY actifs")
 
 if st.button("Placer LIMIT BUY"):
     for p in st.session_state.paliers:
@@ -210,10 +207,10 @@ if st.button("Placer LIMIT BUY"):
 
 
 # ---------------------------------------
-# SUIVI DES ORDRES
+# SUIVI
 # ---------------------------------------
 st.markdown("---")
-st.subheader("📡 Actualiser le suivi")
+st.subheader("📡 Actualiser")
 
 if st.button("Actualiser"):
     for p in st.session_state.paliers:
@@ -221,7 +218,7 @@ if st.button("Actualiser"):
         if not p["active"]:
             continue
 
-        # --- BUY exécuté ---
+        # BUY EXEC
         if p["buy_id"]:
             q = api.query_private("QueryOrders", {"txid": p["buy_id"]})
             info = q["result"][p["buy_id"]]
@@ -229,11 +226,12 @@ if st.button("Actualiser"):
             if info["status"] == "closed" and p["sell_id"] is None:
                 vol = p["usdc"] / p["buy"]
                 r = place_limit("sell", p["sell"], vol)
+
                 if not r["error"]:
                     p["sell_id"] = r["result"]["txid"][0]
-                    st.success(f"SELL placé pour BUY={p['buy']}")
+                    st.success(f"SELL placé (palier {p['buy']})")
 
-        # --- SELL exécuté ---
+        # SELL EXEC
         if p["sell_id"]:
             q = api.query_private("QueryOrders", {"txid": p["sell_id"]})
             info = q["result"][p["sell_id"]]
@@ -243,7 +241,7 @@ if st.button("Actualiser"):
                 p["gain"] = gain
                 st.session_state.profit += gain
                 p["done"] = True
-                st.success(f"Cycle terminé (gain = {gain:.4f} USDC)")
+                st.success(f"Cycle terminé ! Gain = {gain:.4f} USDC")
 
 
 # ---------------------------------------
