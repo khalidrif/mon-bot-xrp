@@ -49,8 +49,9 @@ try:
         p_bot = st.session_state.bot_profits[p_idx]
         cyc = st.session_state.cycles[p_idx]
         
-        # TITRE AVEC PROFIT EN GROS (Majuscules et Gras)
-        titre = f"{status} {montant_reel:.2f}$ | 🔄 {cyc} | 💰 +{p_bot:.4f} $ | B{p_idx}"
+        # --- TITRE AVEC PROFIT EN GROS (STYLE GRAS MATHÉMATIQUE) ---
+        profit_gras = f"{p_bot:.4f}".replace('0','𝟬').replace('1','𝟭').replace('2','𝟮').replace('3','𝟯').replace('4','𝟰').replace('5','𝟱').replace('6','𝟲').replace('7','𝟳').replace('8','𝟴').replace('9','𝟵')
+        titre = f"{status} {montant_reel:.2f}$ | 🔄 {cyc} | 💰 +{profit_gras} $ | B{p_idx}"
 
         with st.expander(titre, expanded=(p_idx==1)):
             # --- SAISIE LIBRE ---
