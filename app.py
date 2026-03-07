@@ -2,67 +2,88 @@ import streamlit as st
 import ccxt
 import time
 
-st.title("双 XRP Grid Bot : Deux Étages Automatiques")
+st.set_page_config(page_title="Kraken Multi-Grid", layout="wide")
+st.title("🤖 Gestionnaire de Bots XRP Indépendants")
 
-# Connexion Kraken sécurisée
-exchange = ccxt.kraken({
-    'apiKey': st.secrets["KRAKEN_API_KEY"],
-    'secret': st.secrets["KRAKEN_SECRET"],
-    'enableRateLimit': True,
-})
+# Connexion Kraken
+try:
+    exchange = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_API_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
+        'enableRateLimit': True,
+    })
+    st.sidebar.success("✅ Connecté à Kraken")
+except Exception as e:
+    st.sidebar.error(f"❌ Erreur : {e}")
+    st.stop()
 
-def gerer_cycle(nom, p_achat, p_vente, montant, placeholder):
-    """Fonction qui gère un cycle Achat -> Vente complet"""
+def monitor_cycle(label, p_buy, p_sell, qty, ui_element):
+    """Gère la logique d'un bot sur une seule ligne d'affichage"""
     symbol = 'XRP/USDC'
     
-    # 1. ACHAT
-    placeholder.warning(f"[{nom}] Attente ACHAT à {p_achat}...")
-    ordre_buy = exchange.create_limit_buy_order(symbol, montant, p_achat)
-    
-    while True:
-        check = exchange.fetch_order(ordre_buy['id'], symbol)
-        if check['status'] == 'closed':
-            placeholder.success(f"[{nom}] ✅ ACHAT Terminé !")
+    while st.session_state.running:
+        # Étape 1 : ACHAT
+        ui_element.info(f"**[{label}]** 📥 Placement Achat à **{p_buy}**...")
+        try:
+            order = exchange.create_limit_buy_order(symbol, qty, p_buy)
+            while st.session_state.running:
+                check = exchange.fetch_order(order['id'], symbol)
+                if check['status'] == 'closed':
+                    ui_element.success(f"**[{label}]** ✅ Acheté ! Préparation Vente...")
+                    break
+                time.sleep(10)
+        except Exception as e:
+            ui_element.error(f"Erreur {label}: {e}")
             break
-        time.sleep(10)
 
-    # 2. VENTE
-    placeholder.warning(f"[{nom}] Attente VENTE à {p_vente}...")
-    ordre_sell = exchange.create_limit_sell_order(symbol, montant, p_vente)
-    
-    while True:
-        check = exchange.fetch_order(ordre_sell['id'], symbol)
-        if check['status'] == 'closed':
-            placeholder.success(f"[{nom}] 💰 VENTE Terminée ! Cycle bouclé.")
+        # Étape 2 : VENTE
+        ui_element.warning(f"**[{label}]** 📤 Placement Vente à **{p_sell}**...")
+        try:
+            order = exchange.create_limit_sell_order(symbol, qty, p_sell)
+            while st.session_state.running:
+                check = exchange.fetch_order(order['id'], symbol)
+                if check['status'] == 'closed':
+                    ui_element.success(f"**[{label}]** 💰 Cycle terminé ! Redémarrage...")
+                    break
+                time.sleep(10)
+        except Exception as e:
+            ui_element.error(f"Erreur {label}: {e}")
             break
-        time.sleep(10)
 
-# --- INTERFACE ---
-col1, col2 = st.columns(2)
+# --- INTERFACE DE CONFIGURATION ---
+if 'running' not in st.session_state:
+    st.session_state.running = False
 
-with col1:
-    st.subheader("📦 Bot Étage HAUT")
-    h_achat = st.number_input("Achat Haut", value=2.50, format="%.3f")
-    h_vente = st.number_input("Vente Haut", value=2.60, format="%.3f")
+st.write("### ⚙️ Configurer vos lignes (Bots)")
 
-with col2:
-    st.subheader("📦 Bot Étage BAS")
-    b_achat = st.number_input("Achat Bas", value=2.30, format="%.3f")
-    b_vente = st.number_input("Vente Bas", value=2.40, format="%.3f")
+# Ligne 1 (Bot Haut)
+c1, c2, c3 = st.columns(3)
+with c1: p1_buy = st.number_input("Bot 1 : Achat", value=2.50, format="%.3f")
+with c2: p1_sell = st.number_input("Bot 1 : Vente", value=2.60, format="%.3f")
+with c3: qty1 = st.number_input("Bot 1 : Quantité", value=20.0, key="q1")
 
-montant = st.number_input("Montant XRP par étage", value=20.0)
+# Ligne 2 (Bot Bas)
+c4, c5, c6 = st.columns(3)
+with c4: p2_buy = st.number_input("Bot 2 : Achat", value=2.30, format="%.3f", key="b2")
+with c5: p2_sell = st.number_input("Bot 2 : Vente", value=2.40, format="%.3f", key="s2")
+with c6: qty2 = st.number_input("Bot 2 : Quantité", value=20.0, key="q2")
 
-if st.button("🚀 LANCER LES DEUX BOTS EN BOUCLE"):
-    st.info("Les bots tournent... Ne fermez pas cette page.")
-    
-    p1 = st.empty()
-    p2 = st.empty()
-    
-    # Pour Streamlit, on simule le parallélisme avec une vérification alternée
-    while True:
-        # Note : Pour un vrai multitâche H24, un script simple .py est mieux que Streamlit
-        st.write("Vérification des paliers en cours...")
-        # Ici on lance la logique simplifiée (un cycle après l'autre ou en simultané via threading)
-        # Pour rester simple, ce script gérera le premier palier puis le second
-        gerer_cycle("HAUT", h_achat, h_vente, montant, p1)
-        gerer_cycle("BAS", b_achat, b_vente, montant, p2)
+st.divider()
+
+# --- ZONE DE SURVEILLANCE ---
+st.write("### 📊 État des Bots en Temps Réel")
+line1 = st.empty() # Emplacement réservé pour le Bot 1
+line2 = st.empty() # Emplacement réservé pour le Bot 2
+
+if not st.session_state.running:
+    if st.button("▶️ DÉMARRER TOUS LES BOTS"):
+        st.session_state.running = True
+        # Note: Pour un vrai parallélisme H24, il faudrait utiliser du threading.
+        # Ici, Streamlit exécutera les vérifications séquentiellement.
+        while st.session_state.running:
+            monitor_cycle("BOT HAUT", p1_buy, p1_sell, qty1, line1)
+            monitor_cycle("BOT BAS", p2_buy, p2_sell, qty2, line2)
+else:
+    if st.button("⏹️ ARRÊTER TOUS LES BOTS"):
+        st.session_state.running = False
+        st.rerun()
