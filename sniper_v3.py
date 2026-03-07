@@ -2,11 +2,18 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. CONFIGURATION INTERFACE PRO
+# 1. CONFIGURATION INTERFACE IPHONE
 st.set_page_config(page_title="XRP Sniper Master V3", layout="centered")
 
+st.markdown("""
+    <style>
+    .stApp { background-color: #F8F9FA; }
+    .main-box { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; margin-bottom: 20px; }
+    </style>
+    """, unsafe_allow_html=True)
+
 try:
-    # 2. CONNEXION KRAKEN
+    # 2. CONNEXION KRAKEN (TES SECRETS API)
     kraken = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_API_KEY"],
         'secret': st.secrets["KRAKEN_SECRET"],
@@ -20,62 +27,68 @@ try:
     usdc_dispo = balance['free'].get('USDC', 0.0)
     orders = kraken.fetch_open_orders('XRP/USDC')
 
-    st.write(f"### 🔵 SOLDE LIBRE : {usdc_dispo:.2f} $")
-    st.divider()
+    # HEADER : SOLDE LIBRE
+    st.markdown(f"""
+        <div class="main-box">
+            <p style="color: grey; margin-bottom: 5px;">SOLDE LIBRE (USDC)</p>
+            <h1 style="color: #1E1E1E; margin-top: 0;">{usdc_dispo:.2f} $</h1>
+            <p style="color: #007BFF; font-weight: bold;">📈 PRIX XRP : {prix_actuel:.4f} $</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    # PRIX FIXES POUR LA SÉPARATION DES BOTS
-    # B1: 1.365 | B2: 1.34 | B3: 1.32 | B4: 1.30
-    zones = [1.3650, 1.3400, 1.3200, 1.3000]
+    # 3. LES 4 SNIPERS INDÉPENDANTS (DÉTECTION CHIRURGICALE)
+    default_prices = [1.3650, 1.3400, 1.3200, 1.3000]
 
-    # 3. BOUCLE DES 4 BOTS SÉPARÉS
     for i in range(4):
         p_idx = i + 1
-        p_base = zones[i]
+        p_base = default_prices[i]
         
-        # --- DÉTECTION CHIRURGICALE (SÉPARE B1, B2, B3, B4) ---
-        mission_active = False
-        montant_engage = 0.0
-        for o in orders:
-            p_o = float(o['price'])
-            # Le bot ne s'allume QUE s'il voit un ordre dans SA zone précise (marge 0.01)
-            if abs(p_o - p_base) <= 0.01 or abs(p_o - (p_base + 0.02)) <= 0.01:
-                mission_active = True
-                montant_engage = float(o['amount']) * p_o
-                break
-
-        # TITRE DYNAMIQUE UNIQUE
-        if mission_active:
-            titre = f"🟢 EN MISSION | {montant_engage:.2f} $ | BOT {p_idx}"
-        else:
-            titre = f"⚪ À L'ARRÊT | BOT {p_idx}"
-
-        with st.expander(titre, expanded=(i==0)):
+        # RÉGLAGES DU BOT
+        with st.expander(f"BOT {p_idx}", expanded=(i==0)):
             m_invest = st.number_input(f"MONTANT $ B{p_idx}", value=14.5, min_value=14.0, key=f"m{i}")
             p_in = st.number_input(f"ACHAT B{p_idx}", value=p_base, format="%.4f", key=f"in{i}")
             p_out = st.number_input(f"VENTE B{p_idx}", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{i}")
 
-            col_l, col_s = st.columns(2)
-            if col_l.button(f"🚀 LANCER B{p_idx}", key=f"run{i}"):
+            # --- DÉTECTION ULTRA-PRÉCISE (ANTI-MÉLANGE) ---
+            mission_active = False
+            montant_engage = 0.0
+            for o in orders:
+                p_o = float(o['price'])
+                # Le bot s'allume UNIQUEMENT s'il voit son propre prix (marge 0.0005)
+                if abs(p_o - p_in) < 0.0005 or abs(p_o - p_out) < 0.0005:
+                    mission_active = True
+                    montant_engage = float(o['amount']) * p_o
+                    break
+
+            # TITRE DYNAMIQUE DANS LA BARRE
+            status_txt = "🟢 EN MISSION" if mission_active else "⚪ À L'ARRÊT"
+            montant_txt = f" | {montant_engage:.2f} $" if mission_active else ""
+            st.markdown(f"**{status_txt}{montant_txt} | BOT {p_idx}**")
+
+            c1, c2 = st.columns(2)
+            if c1.button(f"🚀 LANCER B{p_idx}", key=f"run{i}"):
                 if usdc_dispo >= m_invest:
                     vol = round(m_invest / p_in, 1)
                     params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
                     kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
                     st.rerun()
 
-            if col_s.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
+            if c2.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
                 for o in orders:
                     p_o = float(o['price'])
-                    # On annule seulement l'ordre qui appartient à la zone de ce bot
-                    if abs(p_o - p_base) <= 0.01 or abs(p_o - (p_base + 0.02)) <= 0.01:
+                    if abs(p_o - p_in) < 0.001 or abs(p_o - p_out) < 0.001:
                         kraken.cancel_order(o['id'])
                 st.rerun()
 
     # MISSIONS RÉELLES
     st.divider()
-    st.write("### 📦 MISSIONS ACTIVES")
-    for o in orders:
-        ico = "🎯 ACHAT" if o['side'] == 'buy' else "💰 VENTE"
-        st.info(f"{ico} {o['amount']} XRP @ {o['price']} $")
+    st.write("### 📦 MISSIONS ACTIVES SUR KRAKEN")
+    if orders:
+        for o in orders:
+            side = "🎯 ACHAT" if o['side'] == 'buy' else "💰 VENTE"
+            st.info(f"{side} {o['amount']} XRP @ {o['price']} $")
+    else:
+        st.write("Aucune mission active.")
 
 except Exception as e:
     st.error(f"Erreur : {e}")
