@@ -1,11 +1,9 @@
 import streamlit as st
 import ccxt
 
-# Configuration de la page
-st.set_page_config(page_title="Kraken XRP Bot", page_icon="🐙")
-st.title("🐙 Kraken Simple Bot (XRP/USDC)")
+st.title("🤖 Bot XRP Achat & Vente Rapide")
 
-# Connexion sécurisée
+# Connexion Kraken
 try:
     exchange = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_API_KEY"],
@@ -14,52 +12,46 @@ try:
     })
     st.sidebar.success("Connecté à Kraken")
 except Exception as e:
-    st.sidebar.error(f"Erreur de connexion : {e}")
+    st.sidebar.error(f"Erreur : {e}")
     st.stop()
 
-# 1. Configuration du bot individuel
-st.subheader("➕ Configurer un nouveau Bot")
+# Formulaire de configuration
+st.subheader("⚙️ Paramètres du Bot")
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    action = st.selectbox("Action", ["ACHAT", "VENTE"])
+    prix_achat = st.number_input("Prix d'ACHAT (USDC)", value=2.4000, format="%.4f")
 with col2:
-    prix = st.number_input("Prix (USDC)", value=2.4000, format="%.4f")
+    prix_vente = st.number_input("Prix de VENTE (USDC)", value=2.6000, format="%.4f")
 with col3:
-    quantite = st.number_input("Quantité (XRP)", value=20.0, step=1.0)
+    montant_xrp = st.number_input("Montant (XRP)", value=20.0, step=1.0)
 
-# Calcul rapide pour info
-total = prix * quantite
-st.caption(f"Total estimé : {total:.2f} USDC")
-
-if st.button(f"Lancer ce Bot {action}"):
+# Bouton de lancement
+if st.button("🚀 Lancer le Bot (Placer les 2 ordres)"):
     try:
-        if action == "ACHAT":
-            ordre = exchange.create_limit_buy_order('XRP/USDC', quantite, prix)
-        else:
-            ordre = exchange.create_limit_sell_order('XRP/USDC', quantite, prix)
+        # 1. Placer l'achat
+        achat = exchange.create_limit_buy_order('XRP/USDC', montant_xrp, prix_achat)
+        st.success(f"✅ Ordre d'ACHAT placé à {prix_achat}")
         
-        st.success(f"✅ Bot {action} activé ! ID : {ordre['id']}")
+        # 2. Placer la vente
+        vente = exchange.create_limit_sell_order('XRP/USDC', montant_xrp, prix_vente)
+        st.success(f"✅ Ordre de VENTE placé à {prix_vente}")
+        
+        st.balloons()
     except Exception as e:
         st.error(f"Erreur Kraken : {e}")
 
-# 2. Surveillance des bots actifs
+# Affichage des ordres en cours
 st.divider()
-st.subheader("📋 Mes Bots en attente")
-
+st.subheader("📋 Ordres actifs sur Kraken")
 if st.button("Actualiser la liste"):
-    try:
-        open_orders = exchange.fetch_open_orders('XRP/USDC')
-        if not open_orders:
-            st.info("Aucun bot actif pour le moment.")
-        else:
-            for o in open_orders:
-                with st.container():
-                    c1, c2, c3 = st.columns([2, 2, 1])
-                    c1.write(f"**{o['side'].upper()}**")
-                    c2.write(f"{o['amount']} XRP @ {o['price']} USDC")
-                    if c3.button("❌", key=o['id']):
-                        exchange.cancel_order(o['id'], 'XRP/USDC')
-                        st.rerun()
-    except Exception as e:
-        st.error(f"Erreur lecture : {e}")
+    orders = exchange.fetch_open_orders('XRP/USDC')
+    if orders:
+        for o in orders:
+            col_a, col_b = st.columns([3, 1])
+            col_a.write(f"**{o['side'].upper()}** : {o['amount']} XRP @ {o['price']} USDC")
+            if col_b.button("Annuler", key=o['id']):
+                exchange.cancel_order(o['id'], 'XRP/USDC')
+                st.rerun()
+    else:
+        st.info("Aucun ordre actif.")
