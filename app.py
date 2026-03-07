@@ -3,80 +3,89 @@ import ccxt
 import time
 from datetime import datetime
 
-st.set_page_config(page_title="XRP Net Bot", layout="centered")
-st.title("💰 XRP Net : Boule de Neige")
+st.set_page_config(page_title="XRP USDC Profit Bot", layout="centered")
+st.title("🤖 XRP Boule de Neige (USDC)")
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION (Interface) ---
 with st.container():
     col_p1, col_p2 = st.columns(2)
-    buy_p = col_p1.number_input("Prix d'Achat (USD)", value=2.50, format="%.4f")
-    sell_p = col_p2.number_input("Prix de Vente (USD)", value=2.60, format="%.4f")
-    amount_init = st.number_input("Montant de départ (XRP)", value=20.00)
+    buy_p = col_p1.number_input("Prix d'Achat XRP (USD)", value=2.50, format="%.4f")
+    sell_p = col_p2.number_input("Prix de Vente XRP (USD)", value=2.60, format="%.4f")
+    usdc_init = st.number_input("Montant de départ (USDC)", value=50.00, step=10.0)
 
-# Connexion API (via Secrets Streamlit)
-exchange = ccxt.kraken({
-    'apiKey': st.secrets["KRAKEN_API_KEY"],
-    'secret': st.secrets["KRAKEN_SECRET"],
-    'enableRateLimit': True,
-})
+# Connexion API Kraken
+try:
+    exchange = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_API_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
+        'enableRateLimit': True,
+    })
+except:
+    st.error("⚠️ Clés API manquantes dans les Secrets Streamlit.")
+    st.stop()
 
 # Initialisation des variables de session
-if 'current_qty' not in st.session_state:
-    st.session_state.current_qty = amount_init
-if 'total_gain_usd' not in st.session_state:
-    st.session_state.total_gain_usd = 0.0
+if 'current_usdc' not in st.session_state:
+    st.session_state.current_usdc = usdc_init
+if 'total_gain_usdc' not in st.session_state:
+    st.session_state.total_gain_usdc = 0.0
 
-# --- AFFICHAGE DES GAINS NETS ---
+# --- AFFICHAGE DES SCORES ---
 st.write("---")
 c1, c2 = st.columns(2)
+c1.metric("Capital USDC Net", f"{st.session_state.current_usdc:.2f} USDC")
+c2.metric("Gain Net Accumulé", f"+{st.session_state.total_gain_usdc:.2f} USDC")
 
-# Affiche le stock de XRP qui grossit (Boule de neige)
-c1.metric("Stock XRP Net", f"{st.session_state.current_qty:.2f} XRP")
+# --- SÉCURITÉ : CALCUL DE RENTABILITÉ ---
+frais_taux = 0.0026 # 0.26% chez Kraken
+seuil_rentabilite = (buy_p * (1 + frais_taux)) / (1 - frais_taux)
 
-# Affiche le profit net accumulé en USD
-c2.metric("Gain Net Accumulé", f"+{st.session_state.total_gain_usd:.2f} USD")
+if sell_p <= seuil_rentabilite:
+    st.error(f"❌ Stratégie perdante ! Pour un achat à {buy_p}, vendez au minimum à {seuil_rentabilite:.4f} pour couvrir les frais.")
+    bouton_actif = False
+else:
+    st.success(f"✅ Stratégie rentable. Gain estimé par cycle : {((sell_p/buy_p - 1) - (frais_taux*2))*100:.2f}%")
+    bouton_actif = True
 
 status = st.empty()
-log_area = st.container()
 
-# --- LOGIQUE DU BOT ---
-if st.button("Lancer le Bot (Gain Net)"):
-    st.info("Surveillance du marché activée...")
+# --- LANCEMENT DU BOT ---
+if bouton_actif and st.button("🚀 LANCER LE BOT"):
+    st.info("Bot en cours d'exécution... Ne fermez pas cette page.")
     
     while True:
         try:
             ticker = exchange.fetch_ticker('XRP/USD')
             prix_actuel = ticker['last']
-            status.markdown(f"**Prix actuel :** `{prix_actuel}$` | **Cible :** `{buy_p}$`")
+            status.markdown(f"**Prix actuel :** `{prix_actuel}$` | **Cible Achat :** `{buy_p}$`")
 
             # 1. PHASE ATTENTE ACHAT
             if prix_actuel <= buy_p:
-                status.warning("🛒 Prix d'achat atteint. Exécution de l'achat...")
-                # exchange.create_limit_buy_order('XRP/USD', st.session_state.current_qty, buy_p)
+                status.warning("🛒 Prix d'achat atteint. Calcul du montant...")
                 
+                # Combien de XRP on achète avec notre capital USDC actuel
+                qty_to_buy = (st.session_state.current_usdc * (1 - frais_taux)) / buy_p
+                
+                # exchange.create_limit_buy_order('XRP/USD', qty_to_buy, buy_p)
+                status.warning(f"✅ Achat de {qty_to_buy:.2f} XRP effectué. Attente vente à {sell_p}$...")
+
                 # 2. PHASE ATTENTE VENTE
-                status.warning("⏳ Achat fait. Attente du prix de vente...")
                 while True:
                     p = exchange.fetch_ticker('XRP/USD')['last']
                     if p >= sell_p:
-                        # exchange.create_limit_sell_order('XRP/USD', st.session_state.current_qty, sell_p)
+                        # exchange.create_limit_sell_order('XRP/USD', qty_to_buy, sell_p)
                         
-                        # --- CALCULS NETS (Frais Kraken 0.26% x 2) ---
-                        frais = 0.0026
-                        valeur_vente_brute = st.session_state.current_qty * sell_p
-                        valeur_achat_brute = st.session_state.current_qty * buy_p
+                        # Calcul du retour final en USDC
+                        nouveau_total_usdc = (qty_to_buy * sell_p) * (1 - frais_taux)
+                        gain_du_cycle = nouveau_total_usdc - st.session_state.current_usdc
                         
-                        # Calcul du profit net en USD sur ce cycle
-                        gain_cycle_usd = (valeur_vente_brute * (1-frais)) - (valeur_achat_brute * (1+frais))
-                        st.session_state.total_gain_usd += gain_cycle_usd
+                        # Mise à jour Boule de Neige
+                        st.session_state.total_gain_usdc += gain_du_cycle
+                        st.session_state.current_usdc = nouveau_total_usdc
                         
-                        # Effet Boule de Neige : calcul du nouveau stock XRP réinvesti
-                        nouveau_net_xrp = ((valeur_vente_brute * (1-frais)) / buy_p) * (1-frais)
-                        st.session_state.current_qty = nouveau_net_xrp
-                        
-                        st.success(f"✅ Cycle terminé ! Gain : +{gain_cycle_usd:.2f} USD")
-                        time.sleep(2)
-                        st.rerun() # Met à jour les compteurs en haut
+                        st.success(f"💰 Vente réussie ! Gain : +{gain_du_cycle:.2f} USDC")
+                        time.sleep(5)
+                        st.rerun() # Relance la boucle avec le nouveau capital
                         break
                     time.sleep(20)
             
@@ -85,8 +94,3 @@ if st.button("Lancer le Bot (Gain Net)"):
         except Exception as e:
             st.error(f"Erreur API : {e}")
             time.sleep(60)
-
-# Historique simple en bas
-with log_area:
-    st.write("---")
-    st.write("🕒 **Dernière mise à jour :**", datetime.now().strftime("%H:%M:%S"))
