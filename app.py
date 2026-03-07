@@ -4,20 +4,18 @@ import krakenex
 
 st.set_page_config(layout="wide")
 
-# ---------------------------
+# -----------------------------
 # CONFIG KRAKEN
-# ---------------------------
-
+# -----------------------------
 api = krakenex.API()
 api.key = st.secrets["KRAKEN_API_KEY"]
 api.secret = st.secrets["KRAKEN_API_SECRET"]
 
 PAIR = "XRPUSDC"
 
-# ---------------------------
+# -----------------------------
 # FUNCTIONS
-# ---------------------------
-
+# -----------------------------
 def round_price(p):
     return float(f"{p:.5f}")
 
@@ -36,29 +34,26 @@ def place_limit(order_type, price, volume):
         "oflags": "post"
     })
 
-# ---------------------------
+# -----------------------------
 # STATE
-# ---------------------------
-
+# -----------------------------
 if "paliers" not in st.session_state:
     st.session_state.paliers = []
 
 if "profit" not in st.session_state:
     st.session_state.profit = 0.0
 
-# ---------------------------
+# -----------------------------
 # HEADER
-# ---------------------------
-
+# -----------------------------
 st.title("BOT XRP / USDC")
 
 prix = get_price()
 st.info(f"Prix actuel : {prix}")
 
-# ---------------------------
+# -----------------------------
 # AJOUT PALIER
-# ---------------------------
-
+# -----------------------------
 st.subheader("Ajouter un palier")
 
 col1, col2 = st.columns(2)
@@ -83,7 +78,7 @@ montant = st.number_input(
     value=10.0
 )
 
-if st.button("Ajouter"):
+if st.button("Ajouter palier"):
 
     st.session_state.paliers.append({
         "buy": p_buy,
@@ -98,73 +93,81 @@ if st.button("Ajouter"):
 
     st.success("Palier ajouté")
 
-# ---------------------------
-# AFFICHAGE PALIERS (BARRE IPHONE)
-# ---------------------------
-
-st.subheader("Paliers")
+# -----------------------------
+# AFFICHAGE PRO DES PALIERS
+# -----------------------------
+st.subheader("Paliers actifs")
 
 for i, p in enumerate(st.session_state.paliers):
 
     if not p["active"]:
         etat = "OFF"
+        etat_color = "#ff4444"
         couleur = "#880000"
 
     elif p["done"]:
         etat = "FINI"
+        etat_color = "#cc66ff"
         couleur = "#660066"
 
     elif p["buy_id"] is None:
         etat = "WAIT BUY"
+        etat_color = "#00ff88"
         couleur = "#00AA00"
 
     elif p["sell_id"] is None:
         etat = "WAIT SELL"
+        etat_color = "#00aaff"
         couleur = "#0044AA"
 
     else:
         etat = "EXEC SELL"
+        etat_color = "#ffaa00"
         couleur = "#AA6600"
 
     components.html(f"""
     <div style="
-        background:#101010;
+        background:#0f0f0f;
         width:100%;
-        padding:6px 8px;
-        margin-top:6px;
-        border-radius:6px;
-        border-left:4px solid {couleur};
+        padding:8px 10px;
+        margin-top:8px;
+        border-radius:8px;
+        border-left:5px solid {couleur};
         font-family:Consolas, monospace;
-        font-size:12px;
-        color:white;
-        display:flex;
-        justify-content:space-between;
+        font-size:13px;
+        color:#e6e6e6;
+        display:grid;
+        grid-template-columns:50px 130px 130px 100px 140px 120px;
         align-items:center;
+        gap:10px;
     ">
 
-    <span>P{i+1}</span>
+        <div style="color:#999;">P{i+1}</div>
 
-    <span style="color:#00ff88">
-    B:{p['buy']}
-    </span>
+        <div>
+        BUY <span style="color:#00ff88;font-weight:bold">{p['buy']}</span>
+        </div>
 
-    <span style="color:#ff4d4d">
-    S:{p['sell']}
-    </span>
+        <div>
+        SELL <span style="color:#ff4d4d;font-weight:bold">{p['sell']}</span>
+        </div>
 
-    <span>{p['usdc']}$</span>
+        <div>{p['usdc']} USDC</div>
 
-    <span>{etat}</span>
+        <div style="color:{etat_color};font-weight:bold">
+        {etat}
+        </div>
 
-    <span>+{p['gain']:.4f}</span>
+        <div>
+        Gain <span style="color:#00ffaa">{p['gain']:.4f}</span>
+        </div>
 
     </div>
-    """, height=36)
+    """, height=55)
 
-# ---------------------------
+# -----------------------------
 # PLACER BUY
-# ---------------------------
-
+# -----------------------------
 st.subheader("Trading")
 
 if st.button("Placer BUY"):
@@ -180,12 +183,10 @@ if st.button("Placer BUY"):
             if not r["error"]:
                 p["buy_id"] = r["result"]["txid"][0]
                 st.success(f"BUY placé {p['buy']}")
-
             else:
                 st.error(r["error"])
 
-# ---------------------------
+# -----------------------------
 # PROFIT TOTAL
-# ---------------------------
-
+# -----------------------------
 st.write("Profit total :", round(st.session_state.profit, 4))
