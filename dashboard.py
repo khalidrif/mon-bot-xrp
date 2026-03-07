@@ -61,7 +61,7 @@ try:
             kraken.create_limit_buy_order('XRP/USDC', vol_clic, p2_in, params)
             st.balloons()
         st.markdown("</div>", unsafe_allow_html=True)
-            with c3:
+    with c3:
         st.markdown("<div class='bot-card'>", unsafe_allow_html=True)
         st.subheader("🚜 BOT 3")
         # On utilise des 'key' uniques (p3i, p3o)
