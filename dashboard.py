@@ -2,17 +2,16 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. MÉMOIRE ET SÉCURITÉ (ANTI-DOUBLON)
+# 1. MÉMOIRE ET SÉCURITÉ
 if 'profit_reel' not in st.session_state: st.session_state.profit_reel = 0.0
 if 'last_click' not in st.session_state: st.session_state.last_click = 0
 if 'active_bots' not in st.session_state: st.session_state.active_bots = {}
 
-# STYLE PREMIUM IPHONE
 st.set_page_config(page_title="XRP Sniper Pro", layout="centered")
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(180deg, #F8F9FA 0%, #E9ECEF 100%); color: #212529; }
-    .profit-box { background: #28a745; color: white; padding: 15px; border-radius: 20px; text-align: center; margin-bottom: 10px; box-shadow: 0px 8px 16px rgba(40,167,69,0.2); }
+    .profit-box { background: #28a745; color: white; padding: 15px; border-radius: 20px; text-align: center; margin-bottom: 10px; }
     .status-box { background: white; padding: 15px; border-radius: 20px; border: 1px solid #DEE2E6; text-align: center; margin-bottom: 15px; }
     .bot-card { background: white; padding: 15px; border-radius: 20px; border: 1px solid #DEE2E6; margin-bottom: 10px; }
     .stButton>button { width: 100%; border-radius: 12px !important; font-weight: bold; height: 48px; background-color: #F3BA2F !important; color: black !important; }
@@ -22,11 +21,14 @@ st.markdown("""
 try:
     # 2. CONNEXION KRAKEN
     kraken = ccxt.kraken({'apiKey': st.secrets["KRAKEN_API_KEY"], 'secret': st.secrets["KRAKEN_SECRET"], 'enableRateLimit': True})
+    
+    # ON RÉCUPÈRE LE PRIX D'ABORD (Correction de l'erreur 'ticker')
+    ticker = kraken.fetch_ticker('XRP/USDC')
+    prix_actuel = float(ticker['last'])
+    
     balance = kraken.fetch_balance()
     usdc_total = balance['total'].get('USDC', 0.0)
     usdc_dispo = balance['free'].get('USDC', 0.0)
-    ticker = kraken.fetch_ticker('XRP/XBT' if 'XRP/USDC' not in ticker else 'XRP/USDC') # Sécurité ticker
-    prix_actuel = float(ticker['last'] if 'last' in ticker else 1.36)
 
     # HEADER
     st.markdown(f'<div class="profit-box">PROFIT RÉEL : + {st.session_state.profit_reel:.2f} $</div>', unsafe_allow_html=True)
@@ -66,7 +68,7 @@ try:
             p_in = st.number_input("ACHAT", value=p_base, format="%.4f", key=f"in{i}")
             p_out = st.number_input("VENTE", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{i}")
 
-            # BOULE DE NEIGE : Relance automatique si activé
+            # BOULE DE NEIGE AUTOMATIQUE
             if p_idx in st.session_state.active_bots and not mission_active and usdc_dispo >= m_invest:
                 vol = round(m_invest / p_in, 1)
                 params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
@@ -101,13 +103,14 @@ try:
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-    # MISSIONS ACTIVES
+    # 4. MISSIONS RÉELLES
     st.divider()
     st.markdown("### 📦 MISSIONS RÉELLES")
     if orders:
         for o in orders:
             ico = "🎯" if o['side'] == 'buy' else "💰"
             st.info(f"{ico} {o['side'].upper()} {o['amount']} XRP @ {o['price']} $")
+    else: st.write("Aucune mission active.")
 
 except Exception as e:
     st.error(f"Erreur : {e}")
