@@ -5,13 +5,6 @@ import time
 # 1. CONFIGURATION INTERFACE IPHONE
 st.set_page_config(page_title="XRP Sniper Master V3", layout="centered")
 
-st.markdown("""
-    <style>
-    .stApp { background-color: #F8F9FA; }
-    .main-box { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; margin-bottom: 20px; }
-    </style>
-    """, unsafe_allow_html=True)
-
 try:
     # 2. CONNEXION KRAKEN (TES SECRETS API)
     kraken = ccxt.kraken({
@@ -27,43 +20,38 @@ try:
     usdc_dispo = balance['free'].get('USDC', 0.0)
     orders = kraken.fetch_open_orders('XRP/USDC')
 
-    # HEADER : SOLDE LIBRE
-    st.markdown(f"""
-        <div class="main-box">
-            <p style="color: grey; margin-bottom: 5px;">SOLDE LIBRE (USDC)</p>
-            <h1 style="color: #1E1E1E; margin-top: 0;">{usdc_dispo:.2f} $</h1>
-            <p style="color: #007BFF; font-weight: bold;">📈 PRIX XRP : {prix_actuel:.4f} $</p>
-        </div>
-    """, unsafe_allow_html=True)
+    # HEADER : SOLDE LIBRE (TON CAPITAL REEL)
+    st.write(f"### 🔵 SOLDE LIBRE : {usdc_dispo:.2f} $ | 📈 PRIX : {prix_actuel:.4f} $")
+    st.divider()
 
-    # 3. LES 4 SNIPERS INDÉPENDANTS (DÉTECTION CHIRURGICALE)
+    # 3. LES 4 SNIPERS (DÉTECTION DANS LE TITRE)
     default_prices = [1.3650, 1.3400, 1.3200, 1.3000]
 
     for i in range(4):
         p_idx = i + 1
         p_base = default_prices[i]
         
-        # RÉGLAGES DU BOT
-        with st.expander(f"BOT {p_idx}", expanded=(i==0)):
+        # --- PRÉ-DÉTECTION POUR LE TITRE ---
+        mission_active = False
+        montant_engage = 0.0
+        for o in orders:
+            p_o = float(o['price'])
+            # Le bot s'allume UNIQUEMENT s'il voit son propre prix (marge 0.005)
+            if abs(p_o - p_base) < 0.01 or abs(p_o - (p_base + 0.02)) < 0.01:
+                mission_active = True
+                montant_engage = float(o['amount']) * p_o
+                break
+
+        # --- TITRE DYNAMIQUE EN HAUT DE LA BARRE ---
+        if mission_active:
+            titre_barre = f"🟢 EN MISSION | {montant_engage:.2f} $ | BOT {p_idx}"
+        else:
+            titre_barre = f"⚪ À L'ARRÊT | BOT {p_idx}"
+
+        with st.expander(titre_barre, expanded=(i==0)):
             m_invest = st.number_input(f"MONTANT $ B{p_idx}", value=14.5, min_value=14.0, key=f"m{i}")
             p_in = st.number_input(f"ACHAT B{p_idx}", value=p_base, format="%.4f", key=f"in{i}")
             p_out = st.number_input(f"VENTE B{p_idx}", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{i}")
-
-            # --- DÉTECTION ULTRA-PRÉCISE (ANTI-MÉLANGE) ---
-            mission_active = False
-            montant_engage = 0.0
-            for o in orders:
-                p_o = float(o['price'])
-                # Le bot s'allume UNIQUEMENT s'il voit son propre prix (marge 0.0005)
-                if abs(p_o - p_in) < 0.0005 or abs(p_o - p_out) < 0.0005:
-                    mission_active = True
-                    montant_engage = float(o['amount']) * p_o
-                    break
-
-            # TITRE DYNAMIQUE DANS LA BARRE
-            status_txt = "🟢 EN MISSION" if mission_active else "⚪ À L'ARRÊT"
-            montant_txt = f" | {montant_engage:.2f} $" if mission_active else ""
-            st.markdown(f"**{status_txt}{montant_txt} | BOT {p_idx}**")
 
             c1, c2 = st.columns(2)
             if c1.button(f"🚀 LANCER B{p_idx}", key=f"run{i}"):
@@ -76,19 +64,16 @@ try:
             if c2.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
                 for o in orders:
                     p_o = float(o['price'])
-                    if abs(p_o - p_in) < 0.001 or abs(p_o - p_out) < 0.001:
+                    if abs(p_o - p_in) < 0.01 or abs(p_o - p_out) < 0.01:
                         kraken.cancel_order(o['id'])
                 st.rerun()
 
-    # MISSIONS RÉELLES
+    # MISSIONS RÉELLES EN BAS
     st.divider()
     st.write("### 📦 MISSIONS ACTIVES SUR KRAKEN")
-    if orders:
-        for o in orders:
-            side = "🎯 ACHAT" if o['side'] == 'buy' else "💰 VENTE"
-            st.info(f"{side} {o['amount']} XRP @ {o['price']} $")
-    else:
-        st.write("Aucune mission active.")
+    for o in orders:
+        side = "🎯 ACHAT" if o['side'] == 'buy' else "💰 VENTE"
+        st.info(f"{side} {o['amount']} XRP @ {o['price']} $")
 
 except Exception as e:
     st.error(f"Erreur : {e}")
