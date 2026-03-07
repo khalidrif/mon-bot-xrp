@@ -8,7 +8,7 @@ if 'bot_profits' not in st.session_state: st.session_state.bot_profits = {1:0.0,
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
 if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
 
-st.set_page_config(page_title="XRP SNIPER PRO", layout="centered")
+st.set_page_config(page_title="XRP SNIPER MASTER", layout="centered")
 
 try:
     # 2. CONNEXION KRAKEN
@@ -35,6 +35,8 @@ try:
     for i in range(4):
         p_idx = i + 1
         vol_bot = bot_vols[p_idx]
+        p_in_default = base_prices[i]
+        p_out_default = round(p_in_default + 0.02, 4)
         
         # --- DÉTECTION POUR LA BARRE ---
         mission_active = False
@@ -49,13 +51,14 @@ try:
         p_bot = st.session_state.bot_profits[p_idx]
         cyc = st.session_state.cycles[p_idx]
         
-        # --- TITRE AVEC PROFIT EN GROS (STYLE GRAS MATHÉMATIQUE) ---
+        # CHIFFRES GRAS POUR LE PROFIT
         profit_gras = f"{p_bot:.4f}".replace('0','𝟬').replace('1','𝟭').replace('2','𝟮').replace('3','𝟯').replace('4','𝟰').replace('5','𝟱').replace('6','𝟲').replace('7','𝟳').replace('8','𝟴').replace('9','𝟵')
-        titre = f"{status} {montant_reel:.2f}$ | 🔄 {cyc} | 💰 +{profit_gras} $ | B{p_idx}"
+        
+        # --- TITRE AVEC FOURCHETTE : 🟢 14.47$ | 1.36->1.38 | 🔄 0 | 💰 +𝟬.𝟬𝟬𝟬𝟬 ---
+        titre = f"{status} {montant_reel:.2f}$ | {p_in_default}➔{p_out_default} | 🔄 {cyc} | 💰 +{profit_gras} | B{p_idx}"
 
         with st.expander(titre, expanded=(p_idx==1)):
-            # --- SAISIE LIBRE ---
-            p_in = st.number_input(f"ACHAT B{p_idx}", value=base_prices[i], format="%.4f", key=f"in{p_idx}")
+            p_in = st.number_input(f"ACHAT B{p_idx}", value=p_in_default, format="%.4f", key=f"in{p_idx}")
             p_out = st.number_input(f"VENTE B{p_idx}", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{p_idx}")
 
             # BOULE DE NEIGE AUTO
@@ -86,8 +89,7 @@ try:
     # MISSIONS RÉELLES
     st.divider()
     for o in orders:
-        ico = "🎯 BUY" if o['side'] == 'buy' else "💰 SELL"
-        st.info(f"**{ico} {o['amount']} XRP @ {o['price']} $**")
+        st.info(f"**{o['side'].upper()} {o['amount']} XRP @ {o['price']} $**")
 
 except Exception as e:
     st.error(f"Erreur : {e}")
