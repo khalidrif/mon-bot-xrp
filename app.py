@@ -2,9 +2,9 @@ import streamlit as st
 import krakenex
 import streamlit.components.v1 as components
 
-# -------------------------------
+# -----------------------------
 # CONFIG
-# -------------------------------
+# -----------------------------
 
 st.set_page_config(layout="centered")
 
@@ -14,9 +14,9 @@ api.secret = st.secrets["KRAKEN_API_SECRET"]
 
 PAIR = "XRP/USD"
 
-# -------------------------------
+# -----------------------------
 # FUNCTIONS
-# -------------------------------
+# -----------------------------
 
 def round_price(p):
     return float(f"{p:.5f}")
@@ -40,9 +40,9 @@ def place_limit(order_type, price, volume):
         "oflags": "post"
     })
 
-# -------------------------------
-# STATE
-# -------------------------------
+# -----------------------------
+# SESSION STATE
+# -----------------------------
 
 if "paliers" not in st.session_state:
     st.session_state.paliers = []
@@ -50,20 +50,21 @@ if "paliers" not in st.session_state:
 if "profit" not in st.session_state:
     st.session_state.profit = 0.0
 
-# -------------------------------
+# -----------------------------
 # HEADER
-# -------------------------------
+# -----------------------------
 
-st.title("BOT XRP GRID")
+st.title("XRP GRID BOT")
 
 prix = get_price()
-st.info(f"Prix actuel XRP : {prix}")
 
-# -------------------------------
-# AJOUT PALIER
-# -------------------------------
+st.info(f"Prix XRP : {prix}")
 
-col1, col2 = st.columns(2)
+# -----------------------------
+# INPUTS
+# -----------------------------
+
+col1, col2, col3 = st.columns([1,1,1])
 
 with col1:
     p_buy = st.number_input("BUY", value=round_price(prix - 0.02), format="%.5f")
@@ -71,9 +72,10 @@ with col1:
 with col2:
     p_sell = st.number_input("SELL", value=round_price(prix + 0.02), format="%.5f")
 
-montant = st.number_input("Montant USD", min_value=7.0, value=10.0)
+with col3:
+    montant = st.number_input("USD", min_value=7.0, value=10.0)
 
-if st.button("Ajouter palier"):
+if st.button("Ajouter Palier"):
 
     st.session_state.paliers.append({
         "buy": p_buy,
@@ -86,9 +88,15 @@ if st.button("Ajouter palier"):
         "gain": 0.0
     })
 
-# -------------------------------
+# -----------------------------
+# HEADER TABLE
+# -----------------------------
+
+st.markdown("`P | BUY | SELL | USD | STATE | PROFIT`")
+
+# -----------------------------
 # AFFICHAGE PALIERS
-# -------------------------------
+# -----------------------------
 
 for i, p in enumerate(st.session_state.paliers):
 
@@ -114,53 +122,62 @@ for i, p in enumerate(st.session_state.paliers):
 
     components.html(f"""
     <div style='
-    background:#101010;
-    width:100%;
-    max-width:390px;
-    padding:5px;
+    background:#0b0b0b;
+    width:640px;
+    height:38px;
+    padding:4px 8px;
     margin:auto;
-    margin-top:6px;
-    border-radius:6px;
+    margin-top:4px;
+    border-radius:5px;
     border-left:4px solid {couleur};
     font-family:Consolas;
     font-size:12px;
-    color:white;
-    display:flex;
+    color:#e0e0e0;
+    display:grid;
+    grid-template-columns:40px 110px 110px 70px 100px 80px 60px 60px;
     align-items:center;
-    justify-content:space-between;
-    gap:6px;
     '>
 
     <div>P{i+1}</div>
 
-    <div style="color:#00ff88;">BUY {p['buy']}</div>
+    <div style="color:#00ff88;">B:{p['buy']}</div>
 
-    <div style="color:#ff4d4d;">SELL {p['sell']}</div>
+    <div style="color:#ff4d4d;">S:{p['sell']}</div>
 
-    <div>{p['usdc']}$</div>
+    <div>${p['usdc']}</div>
 
     <div>{etat}</div>
 
-    <div>G:{p['gain']:.4f}</div>
-
-    <div style="display:flex;gap:4px">
+    <div style="color:#00ffaa;">+{p['gain']:.4f}</div>
 
     <a href='/?off={i}'>
-    <button style="padding:2px 6px;background:#bb0000;color:white;border:none;border-radius:4px;font-size:11px">OFF</button>
+    <button style="
+    width:50px;
+    height:22px;
+    background:#bb0000;
+    color:white;
+    border:none;
+    border-radius:3px;
+    font-size:11px;">OFF</button>
     </a>
 
     <a href='/?del={i}'>
-    <button style="padding:2px 6px;background:#660000;color:white;border:none;border-radius:4px;font-size:11px">DEL</button>
+    <button style="
+    width:50px;
+    height:22px;
+    background:#660000;
+    color:white;
+    border:none;
+    border-radius:3px;
+    font-size:11px;">DEL</button>
     </a>
-
-    </div>
 
     </div>
     """, height=40)
 
-# -------------------------------
-# URL ACTIONS
-# -------------------------------
+# -----------------------------
+# ACTIONS URL
+# -----------------------------
 
 query = dict(st.query_params)
 
@@ -178,9 +195,9 @@ for key in list(query):
         st.query_params.clear()
         st.rerun()
 
-# -------------------------------
+# -----------------------------
 # PLACER BUY
-# -------------------------------
+# -----------------------------
 
 if st.button("Placer BUY"):
 
@@ -195,9 +212,9 @@ if st.button("Placer BUY"):
             if not r["error"]:
                 p["buy_id"] = r["result"]["txid"][0]
 
-# -------------------------------
+# -----------------------------
 # SUIVI ORDRES
-# -------------------------------
+# -----------------------------
 
 if st.button("Actualiser"):
 
@@ -242,9 +259,9 @@ if st.button("Actualiser"):
 
                     p["done"] = True
 
-# -------------------------------
+# -----------------------------
 # PROFIT
-# -------------------------------
+# -----------------------------
 
 st.markdown("---")
-st.info(f"Profit total : {st.session_state.profit:.4f} USD")
+st.success(f"Profit total : {st.session_state.profit:.4f} USD")
