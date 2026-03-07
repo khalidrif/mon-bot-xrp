@@ -52,7 +52,7 @@ try:
         with st.expander(f"🚜 BOT {p_idx} | {status_label}", expanded=(i==0)):
             st.markdown("<div class='bot-card'>", unsafe_allow_html=True)
             
-            m_invest = st.number_input("MONTANT $", value=15.0, min_value=14.0, key=f"m{i}")
+            m_invest = st.number_input("MONTANT $", value=15.0, min_value=5.0, step=1.0, key=f"m{i}")
             p_in = st.number_input("ACHAT", value=p_cible, format="%.4f", key=f"in{i}")
             p_out = st.number_input("VENTE", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{i}")
 
