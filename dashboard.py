@@ -2,16 +2,16 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. MÉMOIRE DES PROFITS, CYCLES ET ÉTATS (VERROUILLAGE UNIQUE)
+# 1. MÉMOIRE DES PROFITS, CYCLES ET ÉTATS (VÉRIFIÉE)
 if 'profit_total' not in st.session_state: st.session_state.profit_total = 0.0
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
 if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
 if 'last_click' not in st.session_state: st.session_state.last_click = 0
 
-st.set_page_config(page_title="XRP Sniper Final 58$", layout="centered")
+st.set_page_config(page_title="XRP Sniper 58$ Security", layout="centered")
 
 try:
-    # 2. CONNEXION KRAKEN (FIX NONCE ANTI-ERREUR)
+    # 2. CONNEXION KRAKEN (FIX NONCE)
     kraken = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_API_KEY"],
         'secret': st.secrets["KRAKEN_SECRET"],
@@ -35,7 +35,7 @@ try:
         p_idx = i + 1
         p_base = prices_in[i]
         
-        # DÉTECTION RÉELLE (RADAR)
+        # DÉTECTION RÉELLE (ZONE RADAR)
         mission_active = False
         for o in orders:
             p_o = float(o['price'])
@@ -44,7 +44,7 @@ try:
                 mission_active = True
                 break
 
-        # ÉTAT DU BOUTON DANS LA MÉMOIRE
+        # VERROU DE SÉCURITÉ : On vérifie l'état du bouton (is_running)
         is_running = st.session_state.bot_active[p_idx]
         status_ui = "🟢 ACTIF" if mission_active else "⚪ INACTIF"
         
@@ -53,33 +53,35 @@ try:
             p_in = st.number_input(f"ACHAT B{p_idx}", value=p_base, format="%.4f", key=f"in{i}")
             p_out = round(p_in + 0.02, 4)
 
-            # --- BOULE DE NEIGE DISCIPLINÉE (ANTI-RELANCE APRÈS STOP) ---
-            # Le bot relance SEULEMENT si l'interrupteur est sur ON (is_running)
-            if is_running and not mission_active and usdc_dispo >= m_invest:
-                # 1. On valide le profit
-                gain = (p_out - p_in) * (m_invest / p_in)
-                st.session_state.profit_total += gain
-                st.session_state.cycles[p_idx] += 1
-                # 2. Relance automatique isolée
-                vol = round(m_invest / p_in, 1)
-                params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
-                kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
-                st.rerun()
-
-            col_l, col_s = st.columns(2)
-            
-            # BOUTON LANCER
-            if col_l.button(f"🚀 LANCER", key=f"run{i}"):
-                if usdc_dispo >= m_invest:
-                    st.session_state.bot_active[p_idx] = True # ON ALLUME
+            # --- LA BARRIÈRE ANTI-BUG (CORRECTION DU CERCLE VICIEUX) ---
+            # Condition PRIORITAIRE : On ne relance QUE si is_running == True
+            if is_running == True:
+                if not mission_active and usdc_dispo >= m_invest:
+                    # 1. Calcul du profit et cycle fini
+                    gain = (p_out - p_in) * (m_invest / p_in)
+                    st.session_state.profit_total += gain
+                    st.session_state.cycles[p_idx] += 1
+                    # 2. Relance automatique isolée (Boule de Neige)
                     vol = round(m_invest / p_in, 1)
                     params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
                     kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
                     st.rerun()
 
-            # BOUTON STOP (Définitif)
-            if col_s.button(f"🗑️ STOP", key=f"stop{i}"):
-                st.session_state.bot_active[p_idx] = False # ON ÉTEINT (PRIORITAIRE)
+            col_l, col_s = st.columns(2)
+            
+            # BOUTON LANCER (Active le verrou + envoie l'ordre)
+            if col_l.button(f"🚀 LANCER B{p_idx}", key=f"run{i}"):
+                if time.time() - st.session_state.last_click > 5 and usdc_dispo >= m_invest:
+                    st.session_state.last_click = time.time()
+                    st.session_state.bot_active[p_idx] = True # VERROU SUR ON
+                    vol = round(m_invest / p_in, 1)
+                    params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
+                    kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
+                    st.rerun()
+
+            # BOUTON STOP (Désactive le verrou AVANT d'annuler)
+            if col_s.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
+                st.session_state.bot_active[p_idx] = False # VERROU SUR OFF
                 for o in orders:
                     p_o = float(o['price'])
                     if (i == 0 and p_o > 1.35) or (i == 1 and 1.33 <= p_o <= 1.35) or \
