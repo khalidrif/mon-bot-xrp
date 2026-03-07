@@ -2,60 +2,68 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. Connexion Kraken
+st.set_page_config(page_title="Kraken XRP Manager", layout="wide")
+
+# 1. Connexion Kraken via Secrets
 exchange = ccxt.kraken({
     'apiKey': st.secrets["KRAKEN_API_KEY"],
     'secret': st.secrets["KRAKEN_SECRET"],
     'enableRateLimit': True,
 })
 
-st.title("XRP Bot Dashboard 🐙")
+st.title("🐙 Kraken XRP : Gestionnaire de Bots")
 
-# 2. Affichage des Soldes
-balance = exchange.fetch_balance()
-col_bal1, col_bal2 = st.columns(2)
-col_bal1.metric("Solde XRP", f"{balance['total'].get('XRP', 0):.2f}")
-col_bal2.metric("Solde USDC", f"{balance['total'].get('USDC', 0):.2f}")
+# 2. Affichage Rapide du Solde
+bal = exchange.fetch_balance()
+st.sidebar.metric("Solde USDC", f"{bal['total'].get('USDC', 0):.2f}")
+st.sidebar.metric("Solde XRP", f"{bal['total'].get('XRP', 0):.2f}")
 
-st.divider()
-
-# 3. Configuration des deux bots
-st.subheader("⚙️ Configuration")
-c1, c2, c3 = st.columns(3)
-with c1:
-    h_buy = st.number_input("Bot 1 : Achat", value=2.450, format="%.3f")
-    b_buy = st.number_input("Bot 2 : Achat", value=2.350, format="%.3f")
-with c2:
-    h_sell = st.number_input("Bot 1 : Vente", value=2.550, format="%.3f")
-    b_sell = st.number_input("Bot 2 : Vente", value=2.450, format="%.3f")
-with c3:
-    h_qty = st.number_input("Bot 1 : Qté", value=20.0, key="q1")
-    b_qty = st.number_input("Bot 2 : Qté", value=20.0, key="q2")
-
-# 4. Boutons et Suivi
-st.divider()
-col_btn1, col_btn2 = st.columns([1, 4])
-start = col_btn1.button("▶️ DÉMARRER")
-stop = col_btn2.button("⏹️ ARRÊTER")
-
-log1 = st.empty()
-log2 = st.empty()
-
-if start:
-    st.session_state.active = True
-if stop:
-    st.session_state.active = False
-
-# 5. Boucle de fonctionnement
-if st.session_state.get('active'):
-    st.success("Bots en cours d'exécution...")
-    while st.session_state.active:
-        # Affichage simple de l'état
-        log1.info(f"🤖 **Bot 1** : Surveille Achat à {h_buy} / Vente à {h_sell}")
-        log2.info(f"🤖 **Bot 2** : Surveille Achat à {b_buy} / Vente à {b_sell}")
+def lancer_bot(id_bot, p_achat, p_vente, qte):
+    """Fonction qui gère la logique d'un bot sur une ligne"""
+    status = st.empty()
+    symbol = 'XRP/USDC'
+    
+    while True:
+        # ÉTAPE A : ACHAT
+        status.info(f"🤖 **Bot {id_bot}** : Placement ACHAT à {p_achat}...")
+        order_buy = exchange.create_limit_buy_order(symbol, qte, p_achat)
         
-        # Ici le bot vérifie les ordres sur Kraken (fetch_open_orders)
-        # Puis il attend 10 secondes avant de recommencer
-        time.sleep(10)
-else:
-    st.write("Bots à l'arrêt.")
+        while True:
+            check = exchange.fetch_order(order_buy['id'], symbol)
+            if check['status'] == 'closed':
+                status.success(f"✅ **Bot {id_bot}** : Acheté ! Passage à la Vente...")
+                break
+            time.sleep(10)
+        
+        # ÉTAPE B : VENTE
+        status.warning(f"🤖 **Bot {id_bot}** : Placement VENTE à {p_vente}...")
+        order_sell = exchange.create_limit_sell_order(symbol, qte, p_vente)
+        
+        while True:
+            check = exchange.fetch_order(order_sell['id'], symbol)
+            if check['status'] == 'closed':
+                status.success(f"💰 **Bot {id_bot}** : Vendu ! Cycle terminé, on repart...")
+                break
+            time.sleep(10)
+
+# 3. INTERFACE PAR LIGNE
+st.write("---")
+# --- LIGNE BOT 1 ---
+col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+p1_a = col1.number_input("Achat Bot 1", value=2.40, format="%.3f")
+p1_v = col2.number_input("Vente Bot 1", value=2.50, format="%.3f")
+q1 = col3.number_input("Qté Bot 1", value=20.0, key="q1")
+if col4.button("▶️ Démarrer Bot 1", key="b1"):
+    lancer_bot(1, p1_a, p1_v, q1)
+
+st.write("---")
+# --- LIGNE BOT 2 ---
+col5, col6, col7, col8 = st.columns([2, 2, 2, 2])
+p2_a = col5.number_input("Achat Bot 2", value=2.30, format="%.3f")
+p2_v = col6.number_input("Vente Bot 2", value=2.40, format="%.3f")
+q2 = col7.number_input("Qté Bot 2", value=20.0, key="q2")
+if col8.button("▶️ Démarrer Bot 2", key="b2"):
+    lancer_bot(2, p2_a, p2_v, q2)
+
+st.write("---")
+st.caption("Note : Pour arrêter un bot, rafraîchissez la page (F5).")
