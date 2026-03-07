@@ -1,92 +1,55 @@
-import streamlit as st
 import ccxt
 import time
-from datetime import datetime
+import os
 
-st.set_page_config(page_title="XRP/USDC Real Bot", layout="centered")
-st.title("🚀 Bot XRP Kraken : Ordres Réels (USDC)")
+# Connexion à Kraken (pense à définir tes variables d'environnement)
+exchange = ccxt.kraken({
+    'apiKey': os.getenv('KRAKEN_KEY'),
+    'secret': os.getenv('KRAKEN_SECRET'),
+    'enableRateLimit': True,
+})
 
-# --- CONNEXION KRAKEN (Secrets) ---
-try:
-    exchange = ccxt.kraken({
-        'apiKey': st.secrets["KRAKEN_API_KEY"],
-        'secret': st.secrets["KRAKEN_SECRET"],
-        'enableRateLimit': True,
-    })
-except Exception as e:
-    st.error("🔑 Erreur API : Vérifiez vos Secrets Streamlit (API Key et Secret).")
-    st.stop()
+# --- PARAMÈTRES DU BOT ---
+SYMBOL = 'XRP/USDC'
+QUANTITE = 30       # Nombre de XRP à trader par opération
+PROFIT_CIBLE = 0.02 # On veut 0.02 USDC de profit par XRP (ex: achat 1.30 -> vente 1.32)
+# -------------------------
 
-# --- CONFIGURATION ---
-with st.sidebar:
-    st.header("⚙️ Paramètres")
-    buy_p = st.number_input("Prix d'Achat (USD)", value=1.3500, format="%.4f")
-    sell_p = st.number_input("Prix de Vente (USD)", value=1.3700, format="%.4f")
-    usdc_init = st.number_input("Montant Départ (USDC)", value=30.00, step=5.0)
-    st.info("💡 Kraken impose un minimum d'environ 15 XRP par ordre.")
-
-# Initialisation des variables de session
-if 'current_usdc' not in st.session_state:
-    st.session_state.current_usdc = usdc_init
-if 'total_gain_usdc' not in st.session_state:
-    st.session_state.total_gain_usdc = 0.0
-
-# --- AFFICHAGE DES GAINS NETS ---
-st.write("---")
-c1, c2 = st.columns(2)
-c1.metric("Capital USDC Net", f"{st.session_state.current_usdc:.2f} USDC")
-c2.metric("Gain Net Accumulé", f"+{st.session_state.total_gain_usdc:.2f} USDC")
-
-status = st.empty()
-
-# --- LOGIQUE DU BOT ---
-if st.button("🚀 LANCER LE BOT (ORDRES RÉELS)"):
-    st.session_state.current_usdc = usdc_init
-    st.warning("⚡ Bot en ligne sur Kraken. Ne fermez pas cette page.")
-
+def bot_logic():
+    print(f"=== Bot XRP lancé sur {SYMBOL} ===")
+    
     while True:
         try:
-            # 1. Vérification du prix actuel
-            ticker = exchange.fetch_ticker('XRP/USDC')
-            prix_actuel = ticker['last']
-            status.info(f"🔍 Prix : {prix_actuel}$ | Cible Achat : {buy_p}$")
+            # 1. RÉCUPÉRER LE PRIX ACTUEL
+            ticker = exchange.fetch_ticker(SYMBOL)
+            prix_achat = ticker['last']
+            prix_vente_cible = prix_achat + PROFIT_CIBLE
 
-            # 2. PHASE ACHAT RÉEL
-            if prix_actuel <= buy_p:
-                frais = 0.0026
-                qty = (st.session_state.current_usdc * (1 - frais)) / buy_p
+            # 2. ÉTAPE D'ACHAT (Market)
+            print(f"Achat de {QUANTITE} XRP au prix de {prix_achat}...")
+            # Commande réelle : 
+            # order_buy = exchange.create_market_buy_order(SYMBOL, QUANTITE)
+            print(f"Achat effectué ! Objectif de vente : {prix_vente_cible} USDC")
+
+            # 3. BOUCLE D'ATTENTE DE REVENTE
+            vendu = False
+            while not vendu:
+                ticker = exchange.fetch_ticker(SYMBOL)
+                prix_actuel = ticker['last']
+                print(f"Attente... Prix actuel : {prix_actuel} | Cible : {prix_vente_cible}")
+
+                if prix_actuel >= prix_vente_cible:
+                    print("Cible atteinte ! Vente en cours...")
+                    # Commande réelle :
+                    # order_sell = exchange.create_market_sell_order(SYMBOL, QUANTITE)
+                    print("Vente terminée avec profit. Redémarrage du cycle.")
+                    vendu = True
                 
-                status.warning(f"🛒 Envoi ORDRE ACHAT : {qty:.2f} XRP à {buy_p}$")
-                
-                # EXECUTION RÉELLE
-                order_buy = exchange.create_limit_buy_order('XRP/USDC', qty, buy_p)
-                st.success(f"✅ Achat envoyé ! ID: {order_buy['id']}")
-
-                # 3. PHASE ATTENTE VENTE RÉELLE
-                while True:
-                    p_ticker = exchange.fetch_ticker('XRP/USDC')
-                    if p_ticker['last'] >= sell_p:
-                        status.warning(f"💰 Envoi ORDRE VENTE : {qty:.2f} XRP à {sell_p}$")
-                        
-                        # EXECUTION RÉELLE
-                        order_sell = exchange.create_limit_sell_order('XRP/USDC', qty, sell_p)
-                        
-                        # Calcul Boule de Neige
-                        nouveau_total = (qty * sell_p) * (1 - frais)
-                        gain_cycle = nouveau_total - st.session_state.current_usdc
-                        
-                        st.session_state.total_gain_usdc += gain_cycle
-                        st.session_state.current_usdc = nouveau_total
-                        
-                        st.balloons()
-                        st.success(f"✨ Cycle Terminé ! Profit : +{gain_cycle:.2f} USDC")
-                        time.sleep(10)
-                        st.rerun() 
-                        break
-                    time.sleep(20) # Check vente toutes les 20s
-
-            time.sleep(20) # Check achat toutes les 20s
+                time.sleep(20) # Vérifie le prix toutes les 20 secondes
 
         except Exception as e:
-            st.error(f"❌ Erreur Kraken : {e}")
-            time.sleep(60)
+            print(f"Erreur rencontrée : {e}")
+            time.sleep(60) # Attend 1 min avant de relancer en cas de bug
+
+if __name__ == "__main__":
+    bot_logic()
