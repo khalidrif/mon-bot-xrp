@@ -2,7 +2,7 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. MÉMOIRE DES PROFITS ET ÉTATS (SÉCURITÉ MAX)
+# 1. MÉMOIRE DES PROFITS ET ÉTATS
 if 'profit_total' not in st.session_state: st.session_state.profit_total = 0.0
 if 'bot_profits' not in st.session_state: st.session_state.bot_profits = {1:0.0, 2:0.0, 3:0.0, 4:0.0}
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
@@ -11,7 +11,7 @@ if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False,
 st.set_page_config(page_title="XRP SNIPER PRO 58$", layout="centered")
 
 try:
-    # 2. CONNEXION KRAKEN (TES SECRETS)
+    # 2. CONNEXION KRAKEN
     kraken = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_API_KEY"],
         'secret': st.secrets["KRAKEN_SECRET"],
@@ -36,12 +36,12 @@ try:
         p_in_def = base_prices[i]
         p_out_def = round(p_in_def + 0.02, 4)
         
-        # --- DÉTECTION CHIRURGICALE (ANTI-LIAISON B1/B2) ---
+        # --- DÉTECTION CHIRURGICALE (SÉPARE B1, B2, B3, B4) ---
         mission_active = False
-        montant_reel = 0.0
+        montant_engage = 0.0
         for o in orders:
             p_o = float(o['price'])
-            # Le bot ne voit QUE son prix exact (marge 0.0001)
+            # Le bot ne voit QUE son prix exact (marge ultra-fine 0.0001)
             if abs(p_o - p_in_def) < 0.0001 or abs(p_o - p_out_def) < 0.0001:
                 mission_active = True
                 montant_engage = float(o['amount']) * p_o
@@ -52,8 +52,6 @@ try:
         status = "🟢" if mission_active else "⚪"
         p_bot = st.session_state.bot_profits[p_idx]
         cyc = st.session_state.cycles[p_idx]
-        
-        # CHIFFRES GRAS POUR LE GAIN
         g_gras = f"{p_bot:.4f}".replace('0','𝟬').replace('1','𝟭').replace('2','𝟮').replace('3','𝟯').replace('4','𝟰').replace('5','𝟱').replace('6','𝟲').replace('7','𝟳').replace('8','𝟴').replace('9','𝟵')
         
         # TITRE DYNAMIQUE DANS LA BARRE DU HAUT
@@ -66,7 +64,7 @@ try:
             
             vol_calc = round(m_invest / p_in, 1)
 
-            # --- BOULE DE NEIGE AVEC VERROU (ANTI-RACHAT AUTO SI STOP) ---
+            # --- BOULE DE NEIGE AVEC VERROU ---
             if is_running and not mission_active and usdc_dispo >= m_invest:
                 st.session_state.profit_total += (p_out - p_in) * vol_calc
                 st.session_state.bot_profits[p_idx] += (p_out - p_in) * vol_calc
@@ -87,7 +85,8 @@ try:
                 st.session_state.bot_active[p_idx] = False
                 for o in orders:
                     p_o = float(o['price'])
-                    if abs(p_o - p_in) < 0.0001 or abs(p_o - p_out) < 0.0001:
+                    # On annule SEULEMENT l'ordre de ce bot précis
+                    if abs(p_o - p_in_def) < 0.0001 or abs(p_o - p_out_def) < 0.0001:
                         kraken.cancel_order(o['id'])
                 st.rerun()
 
