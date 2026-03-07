@@ -1,7 +1,8 @@
 import streamlit as st
 import ccxt
+import time
 
-st.title("🤖 Bot XRP Achat & Vente Rapide")
+st.title("🔄 Bot XRP Automatique : Achat ➡️ Vente")
 
 # Connexion Kraken
 try:
@@ -15,43 +16,64 @@ except Exception as e:
     st.sidebar.error(f"Erreur : {e}")
     st.stop()
 
-# Formulaire de configuration
-st.subheader("⚙️ Paramètres du Bot")
+# Configuration
+symbol = 'XRP/USDC'
+st.subheader("⚙️ Paramètres du Cycle")
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    prix_achat = st.number_input("Prix d'ACHAT (USDC)", value=2.4000, format="%.4f")
+    p_achat = st.number_input("Prix d'ACHAT (USDC)", value=2.4000, format="%.4f")
 with col2:
-    prix_vente = st.number_input("Prix de VENTE (USDC)", value=2.6000, format="%.4f")
+    p_vente = st.number_input("Prix de VENTE (USDC)", value=2.5000, format="%.4f")
 with col3:
-    montant_xrp = st.number_input("Montant (XRP)", value=20.0, step=1.0)
+    montant = st.number_input("Montant (XRP)", value=20.0, step=1.0)
 
-# Bouton de lancement
-if st.button("🚀 Lancer le Bot (Placer les 2 ordres)"):
-    try:
-        # 1. Placer l'achat
-        achat = exchange.create_limit_buy_order('XRP/USDC', montant_xrp, prix_achat)
-        st.success(f"✅ Ordre d'ACHAT placé à {prix_achat}")
-        
-        # 2. Placer la vente
-        vente = exchange.create_limit_sell_order('XRP/USDC', montant_xrp, prix_vente)
-        st.success(f"✅ Ordre de VENTE placé à {prix_vente}")
-        
-        st.balloons()
-    except Exception as e:
-        st.error(f"Erreur Kraken : {e}")
+# État du bot
+if 'running' not in st.session_state:
+    st.session_state.running = False
 
-# Affichage des ordres en cours
-st.divider()
-st.subheader("📋 Ordres actifs sur Kraken")
-if st.button("Actualiser la liste"):
-    orders = exchange.fetch_open_orders('XRP/USDC')
-    if orders:
-        for o in orders:
-            col_a, col_b = st.columns([3, 1])
-            col_a.write(f"**{o['side'].upper()}** : {o['amount']} XRP @ {o['price']} USDC")
-            if col_b.button("Annuler", key=o['id']):
-                exchange.cancel_order(o['id'], 'XRP/USDC')
-                st.rerun()
-    else:
-        st.info("Aucun ordre actif.")
+def run_bot():
+    status = st.empty()
+    logs = st.empty()
+    
+    while st.session_state.running:
+        # ÉTAPE 1 : PLACER L'ACHAT
+        status.warning(f"⏳ Placement de l'ordre d'ACHAT à {p_achat}...")
+        order_buy = exchange.create_limit_buy_order(symbol, montant, p_achat)
+        order_id = order_buy['id']
+        
+        # Attendre que l'achat soit rempli
+        while True:
+            check = exchange.fetch_order(order_id, symbol)
+            if check['status'] == 'closed':
+                status.success(f"✅ ACHAT terminé à {p_achat} !")
+                break
+            time.sleep(10) # Vérification toutes les 10 secondes
+            if not st.session_state.running: return
+
+        # ÉTAPE 2 : PLACER LA VENTE
+        status.warning(f"⏳ Placement de l'ordre de VENTE à {p_vente}...")
+        order_sell = exchange.create_limit_sell_order(symbol, montant, p_vente)
+        order_id = order_sell['id']
+        
+        # Attendre que la vente soit remplie
+        while True:
+            check = exchange.fetch_order(order_id, symbol)
+            if check['status'] == 'closed':
+                status.success(f"💰 VENTE terminée à {p_vente} ! Profit réalisé.")
+                break
+            time.sleep(10)
+            if not st.session_state.running: return
+        
+        st.toast("Cycle terminé, on recommence !")
+        time.sleep(2)
+
+# Boutons de contrôle
+if not st.session_state.running:
+    if st.button("▶️ DÉMARRER LE BOT"):
+        st.session_state.running = True
+        run_bot()
+else:
+    if st.button("⏹️ ARRÊTER LE BOT"):
+        st.session_state.running = False
+        st.experimental_rerun()
