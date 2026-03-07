@@ -2,9 +2,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 import krakenex
 
-# -------------------------------------
+st.set_page_config(layout="wide")
+
+# ---------------------------
 # CONFIG KRAKEN
-# -------------------------------------
+# ---------------------------
 
 api = krakenex.API()
 api.key = st.secrets["KRAKEN_API_KEY"]
@@ -12,9 +14,9 @@ api.secret = st.secrets["KRAKEN_API_SECRET"]
 
 PAIR = "XRPUSDC"
 
-# -------------------------------------
+# ---------------------------
 # FUNCTIONS
-# -------------------------------------
+# ---------------------------
 
 def round_price(p):
     return float(f"{p:.5f}")
@@ -25,7 +27,6 @@ def get_price():
 
 def place_limit(order_type, price, volume):
     price = round_price(price)
-
     return api.query_private("AddOrder", {
         "pair": PAIR,
         "type": order_type,
@@ -35,9 +36,9 @@ def place_limit(order_type, price, volume):
         "oflags": "post"
     })
 
-# -------------------------------------
+# ---------------------------
 # STATE
-# -------------------------------------
+# ---------------------------
 
 if "paliers" not in st.session_state:
     st.session_state.paliers = []
@@ -45,19 +46,18 @@ if "paliers" not in st.session_state:
 if "profit" not in st.session_state:
     st.session_state.profit = 0.0
 
-# -------------------------------------
+# ---------------------------
 # HEADER
-# -------------------------------------
+# ---------------------------
 
-st.title("BOT XRP/USDC – MULTI PALIERS")
+st.title("BOT XRP / USDC")
 
 prix = get_price()
+st.info(f"Prix actuel : {prix}")
 
-st.info(f"Prix XRP/USDC : {prix}")
-
-# -------------------------------------
+# ---------------------------
 # AJOUT PALIER
-# -------------------------------------
+# ---------------------------
 
 st.subheader("Ajouter un palier")
 
@@ -83,7 +83,7 @@ montant = st.number_input(
     value=10.0
 )
 
-if st.button("Ajouter palier"):
+if st.button("Ajouter"):
 
     st.session_state.paliers.append({
         "buy": p_buy,
@@ -98,9 +98,9 @@ if st.button("Ajouter palier"):
 
     st.success("Palier ajouté")
 
-# -------------------------------------
-# AFFICHAGE PALIERS
-# -------------------------------------
+# ---------------------------
+# AFFICHAGE PALIERS (BARRE IPHONE)
+# ---------------------------
 
 st.subheader("Paliers")
 
@@ -127,34 +127,43 @@ for i, p in enumerate(st.session_state.paliers):
         couleur = "#AA6600"
 
     components.html(f"""
-    <div style='
+    <div style="
         background:#101010;
-        padding:6px;
+        width:100%;
+        padding:6px 8px;
         margin-top:6px;
         border-radius:6px;
-        border-left:6px solid {couleur};
-        font-family:Consolas;
+        border-left:4px solid {couleur};
+        font-family:Consolas, monospace;
+        font-size:12px;
         color:white;
         display:flex;
         justify-content:space-between;
         align-items:center;
-    '>
+    ">
 
-        <div>
-        P{i+1} | 
-        BUY <span style="color:#00ff88">{p['buy']}</span> |
-        SELL <span style="color:#ff4d4d">{p['sell']}</span> |
-        {p['usdc']} USDC |
-        {etat} |
-        Gain {p['gain']:.4f}
-        </div>
+    <span>P{i+1}</span>
+
+    <span style="color:#00ff88">
+    B:{p['buy']}
+    </span>
+
+    <span style="color:#ff4d4d">
+    S:{p['sell']}
+    </span>
+
+    <span>{p['usdc']}$</span>
+
+    <span>{etat}</span>
+
+    <span>+{p['gain']:.4f}</span>
 
     </div>
-    """, height=40)
+    """, height=36)
 
-# -------------------------------------
+# ---------------------------
 # PLACER BUY
-# -------------------------------------
+# ---------------------------
 
 st.subheader("Trading")
 
@@ -171,11 +180,12 @@ if st.button("Placer BUY"):
             if not r["error"]:
                 p["buy_id"] = r["result"]["txid"][0]
                 st.success(f"BUY placé {p['buy']}")
+
             else:
                 st.error(r["error"])
 
-# -------------------------------------
-# PROFIT
-# -------------------------------------
+# ---------------------------
+# PROFIT TOTAL
+# ---------------------------
 
-st.write("Profit total :", st.session_state.profit)
+st.write("Profit total :", round(st.session_state.profit, 4))
