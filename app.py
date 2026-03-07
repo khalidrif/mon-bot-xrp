@@ -2,43 +2,65 @@ import streamlit as st
 import ccxt
 import time
 
-st.title("🤖 XRP Boule de Neige (USDC)")
+st.title("🚀 Bot XRP Kraken : ORDRES RÉELS")
+
+# --- CONNEXION ---
+exchange = ccxt.kraken({
+    'apiKey': st.secrets["KRAKEN_API_KEY"],
+    'secret': st.secrets["KRAKEN_SECRET"],
+    'enableRateLimit': True,
+})
 
 # --- CONFIGURATION ---
-col1, col2 = st.columns(2)
-buy_p = col1.number_input("Prix d'Achat (USD)", value=1.3640, format="%.4f")
-sell_p = col2.number_input("Prix de Vente (USD)", value=1.3850, format="%.4f")
+buy_p = st.number_input("Prix d'Achat (USD)", value=1.3640, format="%.4f")
+sell_p = st.number_input("Prix de Vente (USD)", value=1.3850, format="%.4f")
+usdc_saisi = st.number_input("Montant (USDC)", value=25.0)
 
-# Utilisation d'une "key" pour que Streamlit détecte le changement immédiatement
-usdc_saisi = st.number_input("Montant de départ (USDC)", value=100.0, step=10.0, key="input_usdc")
-
-# Initialisation/Mise à jour du capital de session
-if 'current_usdc' not in st.session_state or st.sidebar.button("Réinitialiser avec le nouveau montant"):
+# Initialisation session
+if 'current_usdc' not in st.session_state:
     st.session_state.current_usdc = usdc_saisi
-    st.session_state.total_gain_usdc = 0.0
 
-# --- AFFICHAGE ---
-st.write("---")
-c1, c2 = st.columns(2)
-c1.metric("Capital Actuel", f"{st.session_state.current_usdc:.2f} USDC")
-c2.metric("Gain Net Accumulé", f"+{st.session_state.total_gain_usdc:.2f} USDC")
+# --- LOGIQUE DE TRADING ---
+if st.button("🚀 LANCER LES ORDRES RÉELS"):
+    st.session_state.current_usdc = usdc_saisi
+    st.warning("⚠️ Bot en ligne : Surveillance du marché...")
 
-# --- SÉCURITÉ FRAIS ---
-frais = 0.0026
-seuil = (buy_p * (1 + frais)) / (1 - frais)
+    while True:
+        try:
+            ticker = exchange.fetch_ticker('XRP/USD')
+            prix_actuel = ticker['last']
+            
+            # 1. ACHAT RÉEL
+            if prix_actuel <= buy_p:
+                frais = 0.0026
+                qty = (st.session_state.current_usdc * (1 - frais)) / buy_p
+                
+                st.write(f"🛒 Envoi ordre ACHAT : {qty:.2f} XRP à {buy_p}...")
+                
+                # --- LIGNE ACTIVE : PASSE L'ORDRE SUR KRAKEN ---
+                ordre_achat = exchange.create_limit_buy_order('XRP/USD', qty, buy_p)
+                st.success(f"Ordre Achat ID: {ordre_achat['id']}")
 
-if sell_p <= seuil:
-    st.error(f"❌ Vente trop basse ! Minimum requis : {seuil:.4f}")
-    lancer = False
-else:
-    st.success("✅ Stratégie rentable")
-    lancer = True
+                # 2. ATTENTE VENTE
+                while True:
+                    p = exchange.fetch_ticker('XRP/USD')['last']
+                    if p >= sell_p:
+                        st.write(f"💰 Envoi ordre VENTE : {qty:.2f} XRP à {sell_p}...")
+                        
+                        # --- LIGNE ACTIVE : PASSE L'ORDRE SUR KRAKEN ---
+                        ordre_vente = exchange.create_limit_sell_order('XRP/USD', qty, sell_p)
+                        
+                        # Mise à jour capital (Boule de neige)
+                        nouveau_total = (qty * sell_p) * (1 - frais)
+                        st.session_state.current_usdc = nouveau_total
+                        st.success(f"Vente validée ID: {ordre_vente['id']}")
+                        time.sleep(5)
+                        st.rerun()
+                        break
+                    time.sleep(20)
 
-# --- BOUTON DE LANCEMENT ---
-if lancer and st.button("🚀 LANCER LE BOT"):
-    # On s'assure que le capital est bien celui saisi juste avant de lancer
-    st.session_state.current_usdc = usdc_saisi 
-    
-    st.info(f"Démarrage avec {st.session_state.current_usdc} USDC...")
-    
-    # ... (Reste de la boucle while True identique au script précédent)
+            time.sleep(20)
+
+        except Exception as e:
+            st.error(f"Erreur Kraken : {e}")
+            break
