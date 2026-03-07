@@ -2,16 +2,16 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. MÉMOIRE DES PROFITS, CYCLES ET ÉTATS (VÉRIFIÉE)
+# 1. FORCER LA MÉMOIRE (DOUBLE SERRURE)
+if 'bot_active' not in st.session_state:
+    st.session_state.bot_active = {1: False, 2: False, 3: False, 4: False}
 if 'profit_total' not in st.session_state: st.session_state.profit_total = 0.0
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
-if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
-if 'last_click' not in st.session_state: st.session_state.last_click = 0
 
-st.set_page_config(page_title="XRP Sniper 58$ Security", layout="centered")
+st.set_page_config(page_title="XRP Sniper STOP Force", layout="centered")
 
 try:
-    # 2. CONNEXION KRAKEN (FIX NONCE)
+    # 2. CONNEXION KRAKEN
     kraken = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_API_KEY"],
         'secret': st.secrets["KRAKEN_SECRET"],
@@ -25,7 +25,6 @@ try:
     usdc_dispo = balance['free'].get('USDC', 0.0)
     orders = kraken.fetch_open_orders('XRP/USDC')
 
-    # HEADER DASHBOARD
     st.write(f"### 💰 PROFIT : {st.session_state.profit_total:.2f} $ | 🔵 LIBRE : {usdc_dispo:.2f} $")
     st.divider()
 
@@ -35,70 +34,58 @@ try:
         p_idx = i + 1
         p_base = prices_in[i]
         
-        # DÉTECTION RÉELLE (ZONE RADAR)
+        # ON VÉRIFIE SI UN ORDRE EXISTE RÉELLEMENT
         mission_active = False
         for o in orders:
             p_o = float(o['price'])
-            if (i == 0 and p_o > 1.35) or (i == 1 and 1.33 <= p_o <= 1.35) or \
-               (i == 2 and 1.31 <= p_o < 1.33) or (i == 3 and p_o < 1.31):
+            if abs(p_o - p_base) < 0.05 or abs(p_o - (p_base + 0.02)) < 0.05:
                 mission_active = True
                 break
 
-        # VERROU DE SÉCURITÉ : On vérifie l'état du bouton (is_running)
+        # --- LA SERRURE ---
+        # Si l'utilisateur a dit STOP, on ignore TOUT le reste.
         is_running = st.session_state.bot_active[p_idx]
-        status_ui = "🟢 ACTIF" if mission_active else "⚪ INACTIF"
+        status = "🟢 ACTIF" if mission_active else "⚪ INACTIF"
         
-        with st.expander(f"🚜 BOT {p_idx} | {status_ui} | 🔄 {st.session_state.cycles[p_idx]} Cycles"):
+        with st.expander(f"🚜 BOT {p_idx} | {status} | 🔄 {st.session_state.cycles[p_idx]} Cycles"):
             m_invest = st.number_input(f"MONTANT $ B{p_idx}", value=14.5, min_value=14.0, key=f"m{i}")
             p_in = st.number_input(f"ACHAT B{p_idx}", value=p_base, format="%.4f", key=f"in{i}")
             p_out = round(p_in + 0.02, 4)
 
-            # --- LA BARRIÈRE ANTI-BUG (CORRECTION DU CERCLE VICIEUX) ---
-            # Condition PRIORITAIRE : On ne relance QUE si is_running == True
-            if is_running == True:
-                if not mission_active and usdc_dispo >= m_invest:
-                    # 1. Calcul du profit et cycle fini
-                    gain = (p_out - p_in) * (m_invest / p_in)
-                    st.session_state.profit_total += gain
-                    st.session_state.cycles[p_idx] += 1
-                    # 2. Relance automatique isolée (Boule de Neige)
-                    vol = round(m_invest / p_in, 1)
-                    params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
-                    kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
-                    st.rerun()
+            # --- BOULE DE NEIGE DISCIPLINÉE ---
+            # SEULEMENT si is_running est VRAI et qu'il n'y a plus d'ordre
+            if is_running and not mission_active and usdc_dispo >= m_invest:
+                st.session_state.profit_total += (p_out - p_in) * (m_invest / p_in)
+                st.session_state.cycles[p_idx] += 1
+                vol = round(m_invest / p_in, 1)
+                params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
+                kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
+                st.rerun()
 
             col_l, col_s = st.columns(2)
             
-            # BOUTON LANCER (Active le verrou + envoie l'ordre)
             if col_l.button(f"🚀 LANCER B{p_idx}", key=f"run{i}"):
-                if time.time() - st.session_state.last_click > 5 and usdc_dispo >= m_invest:
-                    st.session_state.last_click = time.time()
-                    st.session_state.bot_active[p_idx] = True # VERROU SUR ON
+                st.session_state.bot_active[p_idx] = True # ON VERROUILLE SUR ON
+                if usdc_dispo >= m_invest:
                     vol = round(m_invest / p_in, 1)
                     params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
                     kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
                     st.rerun()
 
-            # BOUTON STOP (Désactive le verrou AVANT d'annuler)
             if col_s.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
-                st.session_state.bot_active[p_idx] = False # VERROU SUR OFF
+                st.session_state.bot_active[p_idx] = False # ON VERROUILLE SUR OFF
+                # On nettoie Kraken
                 for o in orders:
                     p_o = float(o['price'])
-                    if (i == 0 and p_o > 1.35) or (i == 1 and 1.33 <= p_o <= 1.35) or \
-                       (i == 2 and 1.31 <= p_o < 1.33) or (i == 3 and p_o < 1.31):
+                    if abs(p_o - p_base) < 0.05 or abs(p_o - (p_base + 0.02)) < 0.05:
                         kraken.cancel_order(o['id'])
+                st.write("ARRÊTÉ. Patientez...")
+                time.sleep(2)
                 st.rerun()
 
-    # MISSIONS RÉELLES
     st.divider()
-    st.write("### 📦 MISSIONS SUR KRAKEN")
-    for o in orders:
-        ico = "🎯" if o['side'] == 'buy' else "💰"
-        st.info(f"{ico} {o['side'].upper()} {o['amount']} XRP @ {o['price']} $")
-
-    if st.button("🚨 RESET TOUS LES COMPTEURS (A0)"):
-        st.session_state.profit_total = 0.0
-        st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
+    if st.button("🚨 RESET TOTAL (A0)"):
+        st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
         st.rerun()
 
 except Exception as e:
