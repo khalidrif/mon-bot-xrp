@@ -2,17 +2,20 @@ import streamlit as st
 import krakenex
 import time
 
-# -------------------------------
-# CONFIG API
-# -------------------------------
+# ------------------------------------------
+# CONFIGURATION API
+# ------------------------------------------
 api = krakenex.API()
 api.key = st.secrets["KRAKEN_API_KEY"]
 api.secret = st.secrets["KRAKEN_API_SECRET"]
+
 PAIR = "XRPUSDC"
 
-# -------------------------------
-# HELPERS
-# -------------------------------
+profit_net = 0.0   # gain cumulé
+
+# ------------------------------------------
+# HELPER FUNCTIONS
+# ------------------------------------------
 def round_price(p):
     return float(f"{p:.5f}")
 
@@ -22,32 +25,37 @@ def get_price():
 
 def place_limit(order_type, price, volume):
     price = round_price(price)
+
     order = {
         "pair": PAIR,
         "type": order_type,
         "ordertype": "limit",
         "price": price,
         "volume": volume,
-        "oflags": "post"
+        "oflags": "post"  # reste visible dans Orders
     }
+
     res = api.query_private("AddOrder", order)
     return res
 
 
 # ============================================================
-#                INTERFACE PRO – STYLE TRADING
+#                  INTERFACE PRO AVEC GAIN NET
 # ============================================================
 
 st.markdown("""
     <h1 style='text-align:center; color:#4CAF50;'>
-        BOT LIMIT TRADING – XRP/USDC
+        BOT LIMIT TRADING – XRP/USDC (PRO)
     </h1>
 """, unsafe_allow_html=True)
 
-# --- Prix actuel
+
+# ------------------------------------------
+# PRIX ACTUEL
+# ------------------------------------------
 prix_actuel = get_price()
 
-st.markdown("""
+st.markdown(f"""
 <div style="
     background-color:#1E1E1E;
     padding:20px;
@@ -56,17 +64,39 @@ st.markdown("""
     text-align:center;
     font-size:28px;
     font-weight:bold;">
-    💰 Prix actuel XRP/USDC : {} 
+    💰 Prix actuel XRP/USDC : {prix_actuel}
 </div>
-""".format(prix_actuel), unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 st.markdown("---")
 
 
-# ================================
-#        Paramètres du trade
-# ================================
-st.subheader("⚙️ Paramètres du Limit Order")
+# ------------------------------------------
+# AFFICHAGE GAIN NET
+# ------------------------------------------
+if "profit" not in st.session_state:
+    st.session_state.profit = 0.0
+
+st.markdown(f"""
+<div style="
+    background-color:#003300;
+    padding:20px;
+    border-radius:10px;
+    color:#00FF00;
+    text-align:center;
+    font-size:24px;
+    font-weight:bold;">
+    📊 Gain net total : {st.session_state.profit:.4f} USDC
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("---")
+
+
+# ------------------------------------------
+# PARAMÈTRES BUY / SELL
+# ------------------------------------------
+st.subheader("⚙️ Paramètres")
 
 col1, col2 = st.columns(2)
 
@@ -84,19 +114,15 @@ with col2:
         format="%.5f"
     )
 
-montant_usdc = st.number_input(
-    "💵 Montant USDC (min 7 USDC)",
-    min_value=7.0,
-    value=10.0
-)
+montant_usdc = st.number_input("💵 Montant USDC (min 7 USDC)", min_value=7.0, value=10.0)
 
 st.markdown("---")
 
 
-# ================================
-#       Boutons d'action
-# ================================
-st.subheader("🟦 Actions")
+# ------------------------------------------
+# ACTIONS
+# ------------------------------------------
+st.subheader("🟦 Actions trading")
 
 colA, colB = st.columns(2)
 
@@ -108,7 +134,7 @@ with colA:
         if res["error"]:
             st.error("❌ Erreur Kraken : " + str(res["error"]))
         else:
-            st.success(f"🟩 LIMIT BUY créé : {montant_xrp:.4f} XRP @ {prix_buy}")
+            st.success(f"🟩 BUY créé : {montant_xrp:.4f} XRP @ {prix_buy}")
 
 with colB:
     if st.button("🟥 Envoyer LIMIT SELL"):
@@ -118,16 +144,23 @@ with colB:
         if res["error"]:
             st.error("❌ Erreur Kraken : " + str(res["error"]))
         else:
-            st.success(f"🟥 LIMIT SELL créé : {montant_xrp:.4f} XRP @ {prix_sell}")
+            st.success(f"🟥 SELL créé : {montant_xrp:.4f} XRP @ {prix_sell}")
+
+            # Calcul du profit net
+            gain = (prix_sell - prix_buy) * (montant_usdc / prix_buy)
+            st.session_state.profit += gain
+
+            st.success(f"📊 Gain ajouté : {gain:.4f} USDC")
+            st.success(f"💰 Nouveau gain net total : {st.session_state.profit:.4f} USDC")
 
 st.markdown("---")
 
 
-# ================================
-#        Footer pro
-# ================================
+# ------------------------------------------
+# FOOTER
+# ------------------------------------------
 st.markdown("""
-<div style='text-align:center; margin-top:30px; font-size:14px; color:#7F7F7F;'>
-    ⚡ Interface trading professionnelle – Kraken API – LIMIT Orders visibles dans Spot Orders  
+<div style='text-align:center; margin-top:30px; font-size:14px; color:#888;'>
+    ⚡ Interface Trading Pro – Kraken API – LIMIT Orders visibles dans Spot Orders  
 </div>
 """, unsafe_allow_html=True)
