@@ -1,96 +1,77 @@
 import streamlit as st
-import krakenex
+import ccxt
 import time
 
-# 1. STYLE BLANC & GRIS CLAIR
-st.set_page_config(page_title="XRP White Snowball", layout="centered")
-st.markdown("""
-    <style>
-    /* Fond blanc et texte noir */
-    .stApp { background-color: #FFFFFF; color: #1E1E1E; }
-    
-    /* Metrics avec bordure grise discrète */
-    div[data-testid="stMetric"] { 
-        background-color: #F8F9FA; 
-        border: 1px solid #E0E0E0; 
-        padding: 15px; 
-        border-radius: 12px; 
-    }
-    [data-testid="stMetricValue"] { color: #007BFF !important; font-weight: bold; }
-    [data-testid="stMetricLabel"] { color: #6C757D !important; }
+# 1. STYLE JAUNE & NOIR (Look Pro iPhone/PC)
+st.set_page_config(page_title="XRP 50-GRID COMMAND", layout="wide")
+st.markdown("<style>.stApp { background-color: #000; color: #F3BA2F; }</style>", unsafe_allow_html=True)
 
-    /* Inputs et Boutons */
-    label[data-testid="stWidgetLabel"] { color: #1E1E1E !important; font-weight: bold; }
-    .stButton>button { 
-        background-color: #007BFF !important; 
-        color: white !important; 
-        border-radius: 8px !important;
-        font-weight: bold !important;
-        border: none !important;
-    }
-    .stButton>button:hover { background-color: #0056B3 !important; }
-    
-    /* Barre de statut */
-    .stAlert { border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("⚡ XRP MEGA-GRID : 50 BOTS")
 
-k = krakenex.API(key=st.secrets["KRAKEN_KEY"], secret=st.secrets["KRAKEN_SECRET"])
-
-# 2. DONNÉES EN HAUT
+# 2. CONNEXION SÉCURISÉE (CCXT)
 try:
-    ticker = k.query_public('Ticker', {'pair': 'XRPUSDC'})['result']['XRPUSDC']
-    prix_actuel = float(ticker['c'])
-    bal = k.query_private('Balance')['result']
-    usdc = float(bal.get('USDC', 0))
+    # --- VÉRIFIE BIEN CES NOMS DANS TES SECRETS STREAMLIT ---
+    kraken = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_API_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
+        'enableRateLimit': True,
+    })
+
+    # Récupération du solde réel
+    balance = kraken.fetch_balance()
+    usdc_reel = balance['total'].get('USDC', 0.0)
     
-    st.markdown("<h1 style='text-align: center; color: #1E1E1E;'>📊 XRP WHITE BOT</h1>", unsafe_allow_html=True)
-    
-    c1, c2 = st.columns(2)
-    c1.metric("PRIX XRP", f"{prix_actuel:.4f} $")
-    c2.metric("MON SOLDE", f"{usdc:.2f} USDC")
-except:
-    st.info("Connexion Kraken...")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("SOLDE DISPO", f"{usdc_reel:.2f} USDC")
 
-st.markdown("<hr style='border: 0.5px solid #E0E0E0;'>", unsafe_allow_html=True)
+    # 3. PRIX LIVE
+    ticker = kraken.fetch_ticker('XRP/USDC')
+    prix_actuel = ticker['last']
+    col2.metric("PRIX XRP", f"{prix_actuel:.4f} $")
+    col3.metric("BOTS POSSIBLES", int(usdc_reel / 60)) # ~60$ par bot
 
-# 3. RÉGLAGES
-p_in = st.number_input("ACHAT (Prix Bas)", value=1.3600, format="%.4f")
-p_out = st.number_input("VENTE (Prix Haut)", value=1.4000, format="%.4f")
+    st.divider()
 
-if 'run' not in st.session_state: st.session_state.run = False
+    # 4. CONFIGURATION DE TA FOURCHETTE (1.40 - 1.45)
+    c1, c2, c3 = st.columns(3)
+    p_min = c1.number_input("PRIX BAS", value=1.3500, format="%.4f")
+    p_max = c2.number_input("PRIX HAUT", value=1.4500, format="%.4f")
+    n_grids = c3.number_input("NBRE BOTS", value=50)
 
-col_run, col_stop = st.columns(2)
-if col_run.button("▶️ DÉMARRER LE CYCLE", use_container_width=True):
-    st.session_state.run = True
+    # Volume par bot (3000$ / 50 = 60$ soit env 44 XRP)
+    vol_per_bot = (usdc_reel * 0.98 / n_grids) / prix_actuel if usdc_reel > 10 else 44.0
 
-if col_stop.button("⏹️ ARRÊTER TOUT", use_container_width=True):
-    st.session_state.run = False
-    k.query_private('CancelAll')
+    # 5. BOUTON DE DÉPLOIEMENT RÉEL
+    if st.button("🚀 DÉPLOYER LA GRILLE SUR KRAKEN", type="primary", use_container_width=True):
+        step = (p_max - p_min) / (n_grids - 1)
+        prog = st.progress(0)
+        
+        for i in range(int(n_grids)):
+            target_price = round(p_min + (i * step), 4)
+            try:
+                if target_price < prix_actuel:
+                    # ACHAT RÉEL
+                    kraken.create_limit_buy_order('XRP/USDC', vol_per_bot, target_price)
+                else:
+                    # VENTE RÉELLE
+                    kraken.create_limit_sell_order('XRP/USDC', vol_per_bot, target_price)
+                
+                time.sleep(0.5) # Anti-blocage API
+                prog.progress((i + 1) / n_grids)
+            except Exception as e:
+                st.error(f"Erreur palier {target_price}: {e}")
+        
+        st.balloons()
+        st.success(f"✅ Grille de {n_grids} bots activée !")
+
+except Exception as e:
+    st.error(f"❌ Connexion impossible : {e}")
+    st.info("Vérifie tes Secrets Streamlit : KRAKEN_API_KEY et KRAKEN_SECRET")
+
+# Bouton de nettoyage
+if st.button("🚨 ANNULER TOUS LES ORDRES"):
+    kraken.cancel_all_orders('XRP/USDC')
     st.rerun()
 
-# 4. MOTEUR
-status = st.empty()
-if st.session_state.run:
-    try:
-        ordres = k.query_private('OpenOrders').get('result', {}).get('open', {})
-        if not ordres:
-            # Calcul du volume avec tes 29$ + profits
-            vol = (usdc * 0.98) / p_in
-            if vol >= 10:
-                params = {
-                    'pair': 'XRPUSDC', 'type': 'buy', 'ordertype': 'limit', 'price': str(p_in), 'volume': str(round(vol, 1)),
-                    'close[ordertype]': 'limit', 'close[price]': str(p_out), 'close[type]': 'sell'
-                }
-                k.query_private('AddOrder', params)
-                status.success(f"✅ Nouveau cycle : {vol:.1f} XRP envoyés")
-            else:
-                status.error("Solde trop faible pour racheter.")
-        else:
-            for oid, det in ordres.items():
-                status.info(f"⏳ EN MISSION : {det['descr']['order']}")
-    except Exception as e:
-        status.error(f"API Error: {e}")
-
-    time.sleep(15)
-    st.rerun()
+time.sleep(20)
+st.rerun()
