@@ -11,14 +11,17 @@ profit_net = 0.0
 
 
 # -------------------------------------------------------
-# FONCTIONS KRAKEN
+# CONFIGURATION API KRAKEN (via Streamlit Secrets)
 # -------------------------------------------------------
 api = krakenex.API()
-api.load_key('kraken.key')
+api.key = st.secrets["KRAKEN_API_KEY"]
+api.secret = st.secrets["KRAKEN_API_SECRET"]
+
 
 def get_price():
     data = api.query_public('Ticker', {'pair': 'XRPUSD'})
-    return float(data['result']['XXRPZUSD']['c'][0])
+    return float(data['result']['XXRPZUSD']['c"][0])
+
 
 def place_order(order_type, volume):
     return api.query_private('AddOrder', {
@@ -30,10 +33,9 @@ def place_order(order_type, volume):
 
 
 # -------------------------------------------------------
-# FONCTION PRINCIPALE DU BOT (THREAD)
+# BOT THREAD
 # -------------------------------------------------------
 def bot_thread(prix_achat, prix_vente, montant_usdc, log):
-
     global running, profit_net
     running = True
     position = 0
@@ -47,28 +49,24 @@ def bot_thread(prix_achat, prix_vente, montant_usdc, log):
         texte += f"Montant : {montant_usdc} USDC → {montant_xrp:.4f} XRP\n"
         texte += f"Profit net actuel : {profit_net:.4f} USDC\n"
 
-        # ---------------------------
         # ACHAT
-        # ---------------------------
         if position == 0 and prix <= prix_achat:
             texte += f"\n>>> ACHAT de {montant_xrp:.4f} XRP à {prix}\n"
             prix_achat_reel = prix
             place_order("buy", montant_xrp)
             position = 1
 
-        # ---------------------------
         # VENTE
-        # ---------------------------
         elif position == 1 and prix >= prix_vente:
             texte += f"\n>>> VENTE de {montant_xrp:.4f} XRP à {prix}\n"
             gain = (prix - prix_achat_reel) * (montant_usdc / prix_achat_reel)
             profit_net += gain
 
             place_order("sell", montant_xrp)
-            position = 0
 
-            texte += f"Profit sur ce trade : {gain:.4f} USDC\n"
+            texte += f"Profit trade : {gain:.4f} USDC\n"
             texte += f"Profit net total : {profit_net:.4f} USDC\n"
+            position = 0
 
         log.text(texte)
         time.sleep(3)
@@ -77,7 +75,7 @@ def bot_thread(prix_achat, prix_vente, montant_usdc, log):
 # -------------------------------------------------------
 # INTERFACE STREAMLIT
 # -------------------------------------------------------
-st.title("BOT XRP Kraken – Achat/Vente + STOP + Profit Net")
+st.title("BOT XRP Kraken – Achat/Vente Infinie + STOP + Profit Net")
 
 prix_achat = st.number_input("Prix d'achat (USD)", min_value=0.0)
 prix_vente = st.number_input("Prix de vente (USD)", min_value=0.0)
@@ -95,10 +93,9 @@ with col2:
 
 
 # -------------------------------------------------------
-# DEMARRER LE BOT
+# DEMARRAGE DU BOT
 # -------------------------------------------------------
 if start and not running:
-
     t = threading.Thread(
         target=bot_thread,
         args=(prix_achat, prix_vente, montant_usdc, log)
@@ -108,7 +105,7 @@ if start and not running:
 
 
 # -------------------------------------------------------
-# STOPPER LE BOT
+# ARRET DU BOT
 # -------------------------------------------------------
 if stop:
     running = False
