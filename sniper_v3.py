@@ -5,13 +5,6 @@ import time
 # 1. CONFIGURATION INTERFACE PRO
 st.set_page_config(page_title="XRP Sniper Master V3", layout="centered")
 
-st.markdown("""
-    <style>
-    .stApp { background-color: #F8F9FA; }
-    .main-box { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; margin-bottom: 20px; }
-    </style>
-    """, unsafe_allow_html=True)
-
 try:
     # 2. CONNEXION KRAKEN
     kraken = ccxt.kraken({
@@ -21,45 +14,39 @@ try:
         'options': {'nonce': lambda: str(int(time.time() * 1000))}
     })
     
-    ticker = kraken.fetch_ticker('XRP/USDC')
-    prix_actuel = float(ticker['last'])
     balance = kraken.fetch_balance()
     usdc_dispo = balance['free'].get('USDC', 0.0)
     orders = kraken.fetch_open_orders('XRP/USDC')
 
-    # HEADER : SOLDE LIBRE
-    st.markdown(f"""
-        <div class="main-box">
-            <p style="color: grey; margin-bottom: 5px;">SOLDE LIBRE</p>
-            <h1 style="color: #1E1E1E; margin-top: 0;">{usdc_dispo:.2f} $</h1>
-            <p style="color: #007BFF; font-weight: bold;">📈 PRIX XRP : {prix_actuel:.4f} $</p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.write(f"### 🔵 SOLDE LIBRE : {usdc_dispo:.2f} $")
+    st.divider()
 
-    # 3. LES 4 SNIPERS INDÉPENDANTS
-    prices_in = [1.3650, 1.3400, 1.3200, 1.3000]
+    # PRIX PAR DÉFAUT
+    default_prices = [1.3650, 1.3400, 1.3200, 1.3000]
 
+    # 3. BOUCLE DES 4 BOTS TOTALEMENT SÉPARÉS
     for i in range(4):
         p_idx = i + 1
-        p_base = prices_in[i]
+        p_base = default_prices[i]
         
-        # DÉTECTION PRÉCISE POUR LE TITRE
+        # --- DÉTECTION UNIQUE (ANTI-MÉLANGE) ---
         mission_active = False
         montant_engage = 0.0
         for o in orders:
             p_o = float(o['price'])
-            if abs(p_o - p_base) < 0.01 or abs(p_o - (p_base + 0.02)) < 0.01:
+            # On vérifie si l'ordre correspond EXACTEMENT au prix de CE bot (marge 0.0001)
+            if abs(p_o - p_base) < 0.0005 or abs(p_o - (p_base + 0.02)) < 0.0005:
                 mission_active = True
                 montant_engage = float(o['amount']) * p_o
                 break
 
-        # --- TITRE DEMANDÉ : 🟢 EN MISSION | 14.47 $ | BOT 1 ---
+        # TITRE DYNAMIQUE PAR BOT
         if mission_active:
-            titre_barre = f"🟢 EN MISSION | {montant_engage:.2f} $ | BOT {p_idx}"
+            titre = f"🟢 EN MISSION | {montant_engage:.2f} $ | BOT {p_idx}"
         else:
-            titre_barre = f"⚪ À L'ARRÊT | BOT {p_idx}"
+            titre = f"⚪ À L'ARRÊT | BOT {p_idx}"
 
-        with st.expander(titre_barre, expanded=(i==0)):
+        with st.expander(titre, expanded=(i==0)):
             m_invest = st.number_input(f"MONTANT $ B{p_idx}", value=14.5, min_value=14.0, key=f"m{i}")
             p_in = st.number_input(f"ACHAT B{p_idx}", value=p_base, format="%.4f", key=f"in{i}")
             p_out = st.number_input(f"VENTE B{p_idx}", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{i}")
@@ -75,16 +62,15 @@ try:
             if c2.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
                 for o in orders:
                     p_o = float(o['price'])
-                    if abs(p_o - p_in) < 0.01 or abs(p_o - p_out) < 0.01:
+                    if abs(p_o - p_in) < 0.001 or abs(p_o - p_out) < 0.001:
                         kraken.cancel_order(o['id'])
                 st.rerun()
 
-    # MISSIONS RÉELLES
+    # LISTE DES MISSIONS RÉELLES
     st.divider()
     st.write("### 📦 MISSIONS ACTIVES")
     for o in orders:
-        side = "🎯 ACHAT" if o['side'] == 'buy' else "💰 VENTE"
-        st.info(f"{side} {o['amount']} XRP @ {o['price']} $")
+        st.info(f"{o['side'].upper()} {o['amount']} XRP @ {o['price']} $")
 
 except Exception as e:
     st.error(f"Erreur : {e}")
