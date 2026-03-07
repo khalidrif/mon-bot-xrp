@@ -1,55 +1,64 @@
+import streamlit as st
 import ccxt
 import time
-import os
 
-# Connexion à Kraken (pense à définir tes variables d'environnement)
-exchange = ccxt.kraken({
-    'apiKey': os.getenv('KRAKEN_KEY'),
-    'secret': os.getenv('KRAKEN_SECRET'),
-    'enableRateLimit': True,
-})
+st.set_page_config(page_title="Kraken XRP Bot", page_icon="🪙")
+st.title("🤖 Bot XRP/USDC Kraken")
 
-# --- PARAMÈTRES DU BOT ---
+# Connexion sécurisée via Streamlit Secrets
+try:
+    exchange = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
+        'enableRateLimit': True,
+    })
+    st.success("Connecté à Kraken")
+except:
+    st.error("Erreur de connexion : Vérifie tes API Keys dans les Secrets.")
+
+# --- CONFIGURATION ---
 SYMBOL = 'XRP/USDC'
-QUANTITE = 30       # Nombre de XRP à trader par opération
-PROFIT_CIBLE = 0.02 # On veut 0.02 USDC de profit par XRP (ex: achat 1.30 -> vente 1.32)
-# -------------------------
+QUANTITE = st.number_input("Quantité de XRP à trader", value=30)
+PROFIT_CIBLE = st.number_input("Profit cible (USDC)", value=0.02, format="%.3f")
 
-def bot_logic():
-    print(f"=== Bot XRP lancé sur {SYMBOL} ===")
+# --- INTERFACE DE LOG ---
+st.subheader("Activité du Bot")
+log_window = st.empty()
+prix_display = st.empty()
+
+if st.button("Lancer le cycle de trading"):
+    st.info("Bot démarré. Ne ferme pas cet onglet.")
     
     while True:
         try:
-            # 1. RÉCUPÉRER LE PRIX ACTUEL
+            # 1. Analyse du prix
             ticker = exchange.fetch_ticker(SYMBOL)
-            prix_achat = ticker['last']
-            prix_vente_cible = prix_achat + PROFIT_CIBLE
+            prix_actuel = ticker['last']
+            prix_vente_cible = prix_actuel + PROFIT_CIBLE
+            
+            prix_display.metric("Prix Actuel", f"{prix_actuel} USDC", delta=f"Cible: {prix_vente_cible}")
 
-            # 2. ÉTAPE D'ACHAT (Market)
-            print(f"Achat de {QUANTITE} XRP au prix de {prix_achat}...")
-            # Commande réelle : 
-            # order_buy = exchange.create_market_buy_order(SYMBOL, QUANTITE)
-            print(f"Achat effectué ! Objectif de vente : {prix_vente_cible} USDC")
+            # 2. Logique d'Achat
+            log_window.write(f"🛒 Tentative d'achat à {prix_actuel}...")
+            # exchange.create_market_buy_order(SYMBOL, QUANTITE)
+            log_window.write(f"✅ Achat fait ! Attente de revente à {prix_vente_cible}...")
 
-            # 3. BOUCLE D'ATTENTE DE REVENTE
+            # 3. Boucle d'attente de revente
             vendu = False
             while not vendu:
                 ticker = exchange.fetch_ticker(SYMBOL)
                 prix_actuel = ticker['last']
-                print(f"Attente... Prix actuel : {prix_actuel} | Cible : {prix_vente_cible}")
-
-                if prix_actuel >= prix_vente_cible:
-                    print("Cible atteinte ! Vente en cours...")
-                    # Commande réelle :
-                    # order_sell = exchange.create_market_sell_order(SYMBOL, QUANTITE)
-                    print("Vente terminée avec profit. Redémarrage du cycle.")
-                    vendu = True
+                prix_display.metric("Prix Actuel", f"{prix_actuel} USDC", delta=f"{prix_actuel - prix_vente_cible:.4f}")
                 
-                time.sleep(20) # Vérifie le prix toutes les 20 secondes
+                if prix_actuel >= prix_vente_cible:
+                    log_window.write(f"💰 Cible atteinte ({prix_actuel}) ! Vente en cours...")
+                    # exchange.create_market_sell_order(SYMBOL, QUANTITE)
+                    log_window.write("🚀 Vente terminée. Redémarrage du cycle dans 1 min.")
+                    vendu = True
+                    time.sleep(60)
+                
+                time.sleep(10) # Rafraîchissement court pour Streamlit
 
         except Exception as e:
-            print(f"Erreur rencontrée : {e}")
-            time.sleep(60) # Attend 1 min avant de relancer en cas de bug
-
-if __name__ == "__main__":
-    bot_logic()
+            st.error(f"Erreur : {e}")
+            time.sleep(30)
