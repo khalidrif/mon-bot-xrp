@@ -1,72 +1,42 @@
-import streamlit as st
-import ccxt
 import time
-import pandas as pd
+import krakenex
 
-# 1. Connexion API Robuste
-@st.cache_resource
-def init_exchange():
-    return ccxt.kraken({
-        'apiKey': st.secrets["KRAKEN_KEY"],
-        'secret': st.secrets["KRAKEN_SECRET"],
-        'enableRateLimit': True,
-        'options': {'nonce': lambda: int(time.time() * 1000)}
+api = krakenex.API()
+api.load_key('kraken.key')
+
+def get_price():
+    data = api.query_public('Ticker', {'pair': 'XRPUSD'})
+    return float(data['result']['XXRPZUSD']['c'][0])
+
+def place_order(order_type, volume):
+    return api.query_private('AddOrder', {
+        'pair': 'XRPUSD',
+        'type': order_type,
+        'ordertype': 'market',
+        'volume': volume
     })
 
-exchange = init_exchange()
+prix_achat = float(input("Prix d'achat (USD) : "))
+prix_vente = float(input("Prix de vente (USD) : "))
+montant = float(input("Montant en XRP : "))
 
-st.title("🤖 XRP Sniper : Correcteur d'Ordres")
+position = 0
 
-# --- ZONE DE DIAGNOSTIC ---
-if st.sidebar.button("🔍 Diagnostiquer ma connexion"):
-    try:
-        # Test 1 : Permissions
-        load = exchange.load_markets()
-        st.sidebar.success("✅ Marchés chargés")
-        
-        # Test 2 : Solde
-        bal = exchange.fetch_balance()
-        usdc_free = bal.get('USDC', {}).get('free', 0)
-        st.sidebar.write(f"Solde USDC libre : {usdc_free}")
-        
-        if usdc_free < 15:
-            st.sidebar.error("❌ Solde USDC trop bas (Min 15 USDC requis)")
-    except Exception as e:
-        st.sidebar.error(f"❌ Erreur : {e}")
+print("\nBot XRP Kraken lancé...")
+print("-----------------------------------\n")
 
-# --- PARAMÈTRES ---
-budget_usdc = st.number_input("Budget (USDC)", value=20.0)
-p_achat = st.number_input("Prix Achat Cible", value=1.3000, format="%.4f")
+while True:
+    prix = get_price()
+    print("Prix actuel XRP :", prix)
 
-if st.button("▶️ LANCER LA SURVEILLANCE"):
-    status = st.empty()
-    while True:
-        try:
-            ticker = exchange.fetch_ticker('XRP/USDC')
-            prix = ticker['last']
-            status.info(f"Prix actuel : {prix} | Cible : {p_achat}")
+    if position == 0 and prix <= prix_achat:
+        print(">>> Achat de", montant, "XRP")
+        print(place_order("buy", montant))
+        position = 1
 
-            if prix <= p_achat:
-                status.warning("🎯 Cible atteinte ! Tentative d'envoi...")
-                
-                # --- LE CORRECTIF D'ORDRE ---
-                # On utilise 'XRP/USDC' mais Kraken peut demander 'XRPUSDC' selon les comptes
-                symbol = 'XRP/USDC' 
-                amount = (budget_usdc * 0.99) / prix # On garde 1% pour les frais
-                
-                # Envoi avec capture d'erreur détaillée
-                try:
-                    ordre = exchange.create_market_buy_order(symbol, amount)
-                    st.success(f"✅ ORDRE ACCEPTÉ ! ID: {ordre['id']}")
-                    break
-                except ccxt.InvalidOrder as e:
-                    st.error(f"❌ Kraken refuse l'ordre : {e}. Vérifiez si le montant ({amount}) est suffisant.")
-                    break
-                except ccxt.InsufficientFunds:
-                    st.error("❌ Pas assez de USDC (frais inclus). Baissez le montant ou ajoutez des USDC.")
-                    break
+    elif position == 1 and prix >= prix_vente:
+        print(">>> Vente de", montant, "XRP")
+        print(place_order("sell", montant))
+        position = 0
 
-            time.sleep(10)
-        except Exception as e:
-            st.error(f"Erreur réseau : {e}")
-            break
+    time.sleep(3)
