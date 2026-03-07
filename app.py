@@ -57,7 +57,6 @@ if "profit" not in st.session_state:
 st.title("BOT XRP/USDC – GRID TRADING")
 
 prix = get_price()
-
 st.info(f"Prix actuel XRP/USDC : {prix}")
 
 # -------------------------------------
@@ -141,13 +140,13 @@ gap:6px;
 </div>
 
 <div style='display:flex; justify-content:space-between;'>
-<div>BUY</div>
-<div>{p['buy']}</div>
+<div style="color:#00ff88;">BUY</div>
+<div style="color:#00ff88;">{p['buy']}</div>
 </div>
 
 <div style='display:flex; justify-content:space-between;'>
-<div>SELL</div>
-<div>{p['sell']}</div>
+<div style="color:#ff4d4d;">SELL</div>
+<div style="color:#ff4d4d;">{p['sell']}</div>
 </div>
 
 <div style='display:flex; justify-content:space-between;'>
@@ -238,7 +237,7 @@ if st.button("Placer BUY actifs"):
                 st.error(str(r["error"]))
 
 # -------------------------------------
-# SUIVI
+# SUIVI ORDRES
 # -------------------------------------
 
 st.subheader("Suivi ordres")
@@ -254,37 +253,41 @@ if st.button("Actualiser"):
 
             q = api.query_private("QueryOrders", {"txid": p["buy_id"]})
 
-            info = q["result"][p["buy_id"]]
+            if p["buy_id"] in q.get("result", {}):
 
-            if info["status"] == "closed" and p["sell_id"] is None:
+                info = q["result"][p["buy_id"]]
 
-                vol = p["usdc"] / p["buy"]
+                if info["status"] == "closed" and p["sell_id"] is None:
 
-                r = place_limit("sell", p["sell"], vol)
+                    vol = p["usdc"] / p["buy"]
 
-                if "txid" in r.get("result", {}):
+                    r = place_limit("sell", p["sell"], vol)
 
-                    p["sell_id"] = r["result"]["txid"][0]
+                    if "txid" in r.get("result", {}):
 
-                    st.success(f"SELL placé {p['sell']}")
+                        p["sell_id"] = r["result"]["txid"][0]
+
+                        st.success(f"SELL placé {p['sell']}")
 
         if p["sell_id"]:
 
             q = api.query_private("QueryOrders", {"txid": p["sell_id"]})
 
-            info = q["result"][p["sell_id"]]
+            if p["sell_id"] in q.get("result", {}):
 
-            if info["status"] == "closed" and not p["done"]:
+                info = q["result"][p["sell_id"]]
 
-                gain = (p["sell"] - p["buy"]) * (p["usdc"] / p["buy"])
+                if info["status"] == "closed" and not p["done"]:
 
-                p["gain"] = gain
+                    gain = (p["sell"] - p["buy"]) * (p["usdc"] / p["buy"])
 
-                st.session_state.profit += gain
+                    p["gain"] = gain
 
-                p["done"] = True
+                    st.session_state.profit += gain
 
-                st.success(f"Gain P{i+1} = {gain:.4f}")
+                    p["done"] = True
+
+                    st.success(f"Gain P{i+1} = {gain:.4f}")
 
 # -------------------------------------
 # PROFIT TOTAL
