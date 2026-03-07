@@ -8,7 +8,7 @@ if 'bot_profits' not in st.session_state: st.session_state.bot_profits = {1:0.0,
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
 if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
 
-st.set_page_config(page_title="XRP SNIPER PRO", layout="centered")
+st.set_page_config(page_title="XRP SNIPER LIBRE", layout="centered")
 
 try:
     # 2. CONNEXION KRAKEN
@@ -28,61 +28,61 @@ try:
     st.write(f"### 🔵 LIBRE : {usdc_dispo:.2f} $")
     st.divider()
 
-    # CONFIGURATION DES 4 BOTS (VOLUMES UNIQUES)
-    bot_configs = {
-        1: {"p": 1.3650, "v": 10.6},
-        2: {"p": 1.3400, "v": 10.8},
-        3: {"p": 1.3200, "v": 11.0},
-        4: {"p": 1.3000, "v": 11.2}
-    }
+    # VOLUMES UNIQUES POUR LA DÉTECTION (B1:10.6, B2:10.8, etc.)
+    bot_vols = {1: 10.6, 2: 10.8, 3: 11.0, 4: 11.2}
+    base_prices = [1.3650, 1.3400, 1.3200, 1.3000]
 
-    for p_idx, cfg in bot_configs.items():
-        # DÉTECTION PRÉCISE
-        mission_active = False
-        montant_reel = 0.0
-        for o in orders:
-            if abs(float(o['amount']) - cfg['v']) < 0.01:
-                mission_active = True
-                montant_reel = float(o['amount']) * float(o['price'])
-                break
+    for i in range(4):
+        p_idx = i + 1
+        vol_bot = bot_vols[p_idx]
+        
+        # RÉGLAGES LIBRES (Placés avant pour pouvoir les lire)
+        with st.expander(f"BOT {p_idx}", expanded=(p_idx==1)):
+            p_in = st.number_input(f"PRIX ACHAT B{p_idx}", value=base_prices[i], format="%.4f", key=f"in{p_idx}")
+            p_out = st.number_input(f"PRIX VENTE B{p_idx}", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{p_idx}")
 
-        # --- LOGIQUE BOULE DE NEIGE ---
-        if st.session_state.bot_active[p_idx] and not mission_active and usdc_dispo >= (cfg['p'] * cfg['v']):
-            gain_net = (0.02) * cfg['v']
-            st.session_state.profit_total += gain_net
-            st.session_state.bot_profits[p_idx] += gain_net
-            st.session_state.cycles[p_idx] += 1
-            params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': cfg['p'] + 0.02}}
-            kraken.create_limit_buy_order('XRP/USDC', cfg['v'], cfg['p'], params)
-            st.rerun()
+            # DÉTECTION PRÉCISE
+            mission_active = False
+            montant_reel = 0.0
+            for o in orders:
+                if abs(float(o['amount']) - vol_bot) < 0.01:
+                    mission_active = True
+                    montant_reel = float(o['amount']) * float(o['price'])
+                    break
 
-        # --- TITRE GÉANT POUR IPHONE ---
-        status = "🟢" if mission_active else "⚪"
-        p_bot = st.session_state.bot_profits[p_idx]
-        # Format : VOYANT | MONTANT | BOT | CYCLES | PROFIT
-        titre = f"{status} {montant_reel:.2f}$ | BOT {p_idx} | 🔄 {st.session_state.cycles[p_idx]} | 💰 +{p_bot:.4f}"
+            # BOULE DE NEIGE AUTO
+            if st.session_state.bot_active[p_idx] and not mission_active and usdc_dispo >= (p_in * vol_bot):
+                gain_net = (p_out - p_in) * vol_bot
+                st.session_state.profit_total += gain_net
+                st.session_state.bot_profits[p_idx] += gain_net
+                st.session_state.cycles[p_idx] += 1
+                params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
+                kraken.create_limit_buy_order('XRP/USDC', vol_bot, p_in, params)
+                st.rerun()
 
-        with st.expander(titre, expanded=(p_idx==1)):
+            # AFFICHAGE DU STATUT DANS LE DOSSIER
+            status = "🟢" if mission_active else "⚪"
+            st.write(f"### {status} {montant_reel:.2f}$ | 🔄 {st.session_state.cycles[p_idx]} | 💰 +{st.session_state.bot_profits[p_idx]:.4f}")
+
             c1, c2 = st.columns(2)
             if c1.button(f"🚀 LANCER B{p_idx}", key=f"run{p_idx}"):
                 st.session_state.bot_active[p_idx] = True
-                if usdc_dispo >= (cfg['p'] * cfg['v']):
-                    params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': cfg['p'] + 0.02}}
-                    kraken.create_limit_buy_order('XRP/USDC', cfg['v'], cfg['p'], params)
+                if usdc_dispo >= (p_in * vol_bot):
+                    params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
+                    kraken.create_limit_buy_order('XRP/USDC', vol_bot, p_in, params)
                     st.rerun()
 
             if c2.button(f"🗑️ STOP B{p_idx}", key=f"stop{p_idx}"):
                 st.session_state.bot_active[p_idx] = False
                 for o in orders:
-                    if abs(float(o['amount']) - cfg['v']) < 0.01:
+                    if abs(float(o['amount']) - vol_bot) < 0.01:
                         kraken.cancel_order(o['id'])
                 st.rerun()
 
     # MISSIONS RÉELLES
     st.divider()
     for o in orders:
-        ico = "🎯 BUY" if o['side'] == 'buy' else "💰 SELL"
-        st.info(f"**{ico} {o['amount']} XRP @ {o['price']} $**")
+        st.info(f"**{o['side'].upper()} {o['amount']} XRP @ {o['price']} $**")
 
 except Exception as e:
     st.error(f"Erreur : {e}")
