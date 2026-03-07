@@ -40,19 +40,21 @@ def get_usdc_balance():
 # -------------------------------------------------------
 # THREAD DU BOT
 # -------------------------------------------------------
-def bot_thread(prix_achat, prix_vente, montant_usdc, log):
+def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, snowball):
     global running, profit_net
     running = True
     position = 0
     prix_achat_reel = 0
+
+    montant_usdc = montant_usdc_initial  # Montant dynamique (boule de neige)
 
     while running:
         prix = get_price()
         montant_xrp = montant_usdc / prix
 
         texte = f"Prix XRP : {prix}\n"
-        texte += f"Montant : {montant_usdc} USDC → {montant_xrp:.4f} XRP\n"
-        texte += f"Profit net actuel : {profit_net:.4f} USDC\n"
+        texte += f"Montant actuel du trade : {montant_usdc:.4f} USDC → {montant_xrp:.4f} XRP\n"
+        texte += f"Profit net total : {profit_net:.4f} USDC\n"
 
         # Achat
         if position == 0 and prix <= prix_achat:
@@ -65,14 +67,22 @@ def bot_thread(prix_achat, prix_vente, montant_usdc, log):
         elif position == 1 and prix >= prix_vente:
             texte += f"\n>>> VENTE de {montant_xrp:.4f} XRP à {prix}\n"
 
-            gain = (prix - prix_achat_reel) * (montant_usdc / prix_achat_reel)
+            gain = (prix - prix_achat_reel) * (montant_usdc_initial / prix_achat_reel)
             profit_net += gain
 
             place_order("sell", montant_xrp)
 
             texte += f"Profit trade : {gain:.4f} USDC\n"
             texte += f"Profit net total : {profit_net:.4f} USDC\n"
+
             position = 0
+
+            # -------------------------------------------------------
+            # EFFET BOULE DE NEIGE (réinvestir le profit)
+            # -------------------------------------------------------
+            if snowball:
+                montant_usdc += gain
+                texte += f"\nBOULE DE NEIGE ACTIVÉE\nNouveau montant USDC : {montant_usdc:.4f}\n"
 
         log.text(texte)
         time.sleep(3)
@@ -80,16 +90,17 @@ def bot_thread(prix_achat, prix_vente, montant_usdc, log):
 # -------------------------------------------------------
 # INTERFACE STREAMLIT
 # -------------------------------------------------------
-st.title("BOT XRP Kraken – Achat/Vente Infinie + STOP + Profit")
+st.title("BOT XRP Kraken – Profit Net + Boule de Neige")
 
 # Affichage du solde USDC
 solde_usdc = get_usdc_balance()
 st.info(f"Solde USDC disponible sur Kraken : {solde_usdc} USDC")
 
-# Paramètres utilisateur
 prix_achat = st.number_input("Prix d'achat (USD)", min_value=0.0)
 prix_vente = st.number_input("Prix de vente (USD)", min_value=0.0)
-montant_usdc = st.number_input("Montant par trade (USDC)", min_value=0.0)
+montant_usdc = st.number_input("Montant USDC initial par trade", min_value=1.0)
+
+snowball = st.checkbox("Activer effet boule de neige (réinvestit le profit)")
 
 log = st.empty()
 
@@ -99,13 +110,16 @@ with col1:
 with col2:
     stop = st.button("STOP BOT")
 
-# Lancer le bot
+# Lancer bot
 if start and not running:
-    t = threading.Thread(target=bot_thread, args=(prix_achat, prix_vente, montant_usdc, log))
+    t = threading.Thread(
+        target=bot_thread,
+        args=(prix_achat, prix_vente, montant_usdc, log, snowball)
+    )
     t.start()
     st.success("Bot lancé !")
 
-# Stopper le bot
+# Stop bot
 if stop:
     running = False
     st.error(f"Bot arrêté ! Profit net final : {profit_net:.4f} USDC")
