@@ -1,241 +1,140 @@
-import streamlit as st
-import krakenex
+# ------------------------------
+# TABLEAU RÉCAPITULATIF PRO (TRI + FILTRE + ACTIONS)
+# ------------------------------
+st.markdown("---")
+st.subheader("📊 Tableau PRO des paliers")
+
 import streamlit.components.v1 as components
 
-# ------------------------------
-# KRAKEN CONFIG
-# ------------------------------
-api = krakenex.API()
-api.key = st.secrets["KRAKEN_API_KEY"]
-api.secret = st.secrets["KRAKEN_API_SECRET"]
-PAIR = "XRPUSDC"
+if len(st.session_state.paliers) == 0:
+    st.warning("Aucun palier.")
+else:
 
-# ------------------------------
-# UTIL FUNCTIONS
-# ------------------------------
-def round_price(p):
-    return float(f"{p:.5f}")
+    # --------- FILTRE ----------
+    etat_filtre = st.selectbox(
+        "Filtrer par état",
+        ["TOUS", "WAIT BUY", "WAIT SELL", "EXEC SELL", "FINI", "OFF"]
+    )
 
-def get_price():
-    d = api.query_public("Ticker", {"pair": PAIR})
-    return float(d["result"][PAIR]["c"][0])
+    # --------- TRI ----------
+    tri = st.selectbox(
+        "Trier par",
+        ["Palier", "BUY", "SELL", "Montant", "Gain", "État"]
+    )
 
-def place_limit(order_type, price, volume):
-    price = round_price(price)
-    order = {
-        "pair": PAIR,
-        "type": order_type,
-        "ordertype": "limit",
-        "price": price,
-        "volume": volume,
-        "oflags": "post"
-    }
-    return api.query_private("AddOrder", order)
+    # construire tableau HTML
+    html = "<div style='font-family:Arial;'><table style='width:100%; border-collapse:collapse;'>"
 
-def cancel_order(order_id):
-    return api.query_private("CancelOrder", {"txid": order_id})
+    # entête du tableau
+    html += """
+    <tr style='background:#222; color:white; font-size:16px;'>
+        <th style='padding:8px; border-bottom:2px solid #444;'>Palier</th>
+        <th style='padding:8px; border-bottom:2px solid #444;'>BUY</th>
+        <th style='padding:8px; border-bottom:2px solid #444;'>SELL</th>
+        <th style='padding:8px; border-bottom:2px solid #444;'>Montant</th>
+        <th style='padding:8px; border-bottom:2px solid #444;'>État</th>
+        <th style='padding:8px; border-bottom:2px solid #444;'>Cycle</th>
+        <th style='padding:8px; border-bottom:2px solid #444;'>Gain</th>
+        <th style='padding:8px; border-bottom:2px solid #444;'>Actions</th>
+    </tr>
+    """
 
+    # préparer données
+    rows = []
+    for i, p in enumerate(st.session_state.paliers):
 
-# ------------------------------
-# STREAMLIT STATE
-# ------------------------------
-if "paliers" not in st.session_state:
-    st.session_state.paliers = []
+        # corriger clés manquantes
+        for k, v in {
+            "active": True,
+            "done": False,
+            "gain": 0.0,
+            "buy_id": None,
+            "sell_id": None,
+        }.items():
+            if k not in p:
+                p[k] = v
 
-if "profit" not in st.session_state:
-    st.session_state.profit = 0.0
-
-# ------------------------------
-# UI
-# ------------------------------
-st.title("BOT XRP/USDC – MULTI-PALIERS COMPACTS (PRO)")
-
-prix_actuel = get_price()
-st.info(f"💰 Prix actuel : {prix_actuel}")
-
-
-# ------------------------------
-# ADD PALIER
-# ------------------------------
-st.subheader("➕ Ajouter un palier")
-
-col1, col2 = st.columns(2)
-with col1:
-    p_buy = st.number_input("Prix BUY", value=round_price(prix_actuel - 0.05), format="%.5f")
-with col2:
-    p_sell = st.number_input("Prix SELL", value=round_price(prix_actuel + 0.05), format="%.5f")
-
-montant = st.number_input("Montant USDC (min 7 USDC)", min_value=7.0, value=10.0)
-
-if st.button("Ajouter ce palier"):
-    st.session_state.paliers.append({
-        "buy": p_buy,
-        "sell": p_sell,
-        "usdc": montant,
-        "buy_id": None,
-        "sell_id": None,
-        "active": True,
-        "done": False,
-        "gain": 0.0
-    })
-    st.success("Palier ajouté !")
-
-
-# ------------------------------
-# PALIER DISPLAY (1 LINE STYLE)
-# ------------------------------
-st.subheader("📋 Paliers (1 ligne chacun)")
-
-for i, p in enumerate(st.session_state.paliers):
-
-    # ---- STATE ----
-    if not p["active"]:
-        etat = "🔴 OFF"
-        couleur = "#880000"
-    elif p["done"]:
-        etat = "🟣 FINI"
-        couleur = "#6A0DAD"
-    elif p["buy_id"] is None:
-        etat = "🟢 WAIT BUY"
-        couleur = "#00AA00"
-    elif p["sell_id"] is None:
-        etat = "🔵 WAIT SELL"
-        couleur = "#0066FF"
-    else:
-        etat = "🟠 EXEC SELL"
-        couleur = "#FF8800"
-
-    # ---- COMPACT HORIZONTAL BAND ----
-    components.html(f"""
-    <div style='
-        display:flex;
-        align-items:center;
-        background-color:#1A1A1A;
-        padding:10px;
-        margin-top:10px;
-        border-radius:8px;
-        border-left:10px solid {couleur};
-        color:white;
-        font-family:Arial;
-        font-size:14px;
-    '>
-
-        <div style='width:50px;'><b>P{i+1}</b></div>
-        <div style='width:140px; color:#00FF00; font-weight:bold;'>BUY {p['buy']}</div>
-        <div style='width:140px; color:#FF4444; font-weight:bold;'>SELL {p['sell']}</div>
-        <div style='width:120px;'>💵 {p['usdc']} USDC</div>
-        <div style='width:150px;'>🔁 {etat}</div>
-        <div style='width:150px;'>📈 {p['gain']:.4f} USDC</div>
-
-    </div>
-    """, height=60)
-
-    # ---- BUTTONS UNDER LINE ----
-    colA, colB, colC, colD, colE = st.columns(5)
-
-    with colA:
+        # état + couleurs
         if not p["active"]:
-            if st.button("🟢 ON", key=f"on_{i}"):
-                p["active"] = True
-                st.experimental_rerun()
+            etat = "OFF"
+            color = "#661111"
+        elif p["done"]:
+            etat = "FINI"
+            color = "#331144"
+        elif p["buy_id"] is None:
+            etat = "WAIT BUY"
+            color = "#113311"
+        elif p["sell_id"] is None:
+            etat = "WAIT SELL"
+            color = "#112244"
+        else:
+            etat = "EXEC SELL"
+            color = "#443311"
 
-    with colB:
-        if p["active"]:
-            if st.button("🔴 OFF", key=f"off_{i}"):
-                p["active"] = False
-                st.experimental_rerun()
-
-    with colC:
-        if p["buy_id"]:
-            if st.button("❌ BUY", key=f"cancelbuy_{i}"):
-                cancel_order(p["buy_id"])
-                p["buy_id"] = None
-                st.experimental_rerun()
-
-    with colD:
-        if p["sell_id"]:
-            if st.button("❌ SELL", key=f"cancelsell_{i}"):
-                cancel_order(p["sell_id"])
-                p["sell_id"] = None
-                st.experimental_rerun()
-
-    with colE:
-        if st.button("🗑️ DEL", key=f"delete_{i}"):
-            st.session_state.paliers.pop(i)
-            st.experimental_rerun()
-
-
-# ------------------------------
-# CANCEL ALL ORDERS
-# ------------------------------
-st.subheader("🛑 Annuler TOUS les ordres Kraken")
-
-if st.button("Annuler tous les ordres Kraken"):
-    res = api.query_private("CancelAll")
-    st.warning(res)
-    for p in st.session_state.paliers:
-        p["buy_id"] = None
-        p["sell_id"] = None
-    st.success("OK, tous les ordres annulés.")
-
-
-# ------------------------------
-# SEND ALL BUY
-# ------------------------------
-st.markdown("---")
-st.subheader("🚀 Placer tous les BUY actifs")
-
-if st.button("Placer LIMIT BUY"):
-    for p in st.session_state.paliers:
-        if p["active"] and p["buy_id"] is None:
-            vol = p["usdc"] / p["buy"]
-            r = place_limit("buy", p["buy"], vol)
-            if not r["error"]:
-                p["buy_id"] = r["result"]["txid"][0]
-                st.success(f"BUY placé : {p['buy']}")
-            else:
-                st.error(str(r["error"]))
-
-
-# ------------------------------
-# FOLLOW ORDERS
-# ------------------------------
-st.markdown("---")
-st.subheader("📡 Suivi")
-
-if st.button("Actualiser"):
-    for p in st.session_state.paliers:
-
-        if not p["active"]:
+        # filtre
+        if etat_filtre != "TOUS" and etat_filtre != etat:
             continue
 
-        # BUY executed
-        if p["buy_id"]:
-            q = api.query_private("QueryOrders", {"txid": p["buy_id"]})
-            info = q["result"][p["buy_id"]]
+        rows.append({
+            "i": i,
+            "Palier": f"P{i+1}",
+            "BUY": p["buy"],
+            "SELL": p["sell"],
+            "Montant": p["usdc"],
+            "Etat": etat,
+            "Couleur": color,
+            "Gain": round(p["gain"], 4)
+        })
 
-            if info["status"] == "closed" and p["sell_id"] is None:
-                vol = p["usdc"] / p["buy"]
-                r = place_limit("sell", p["sell"], vol)
-                if not r["error"]:
-                    p["sell_id"] = r["result"]["txid"][0]
-                    st.success(f"SELL placé {p['sell']}")
+    # tri dynamique
+    rows.sort(key=lambda x: x[tri] if tri != "Palier" else x["i"])
 
-        # SELL executed
-        if p["sell_id"]:
-            q = api.query_private("QueryOrders", {"txid": p["sell_id"]})
-            info = q["result"][p["sell_id"]]
+    # construire lignes HTML
+    for row in rows:
 
-            if info["status"] == "closed" and not p["done"]:
-                gain = (p["sell"] - p["buy"]) * (p["usdc"] / p["buy"])
-                p["gain"] = gain
-                st.session_state.profit += gain
-                p["done"] = True
-                st.success(f"Gain P{i+1} = {gain:.4f} USDC")
+        i = row["i"]
+        p = st.session_state.paliers[i]
 
+        # barre progression cycle
+        if row["Etat"] == "WAIT BUY":
+            progress = 10
+        elif row["Etat"] == "WAIT SELL":
+            progress = 60
+        elif row["Etat"] == "EXEC SELL":
+            progress = 85
+        elif row["Etat"] == "FINI":
+            progress = 100
+        else:
+            progress = 0
 
-# ------------------------------
-# TOTAL GAIN
-# ------------------------------
-st.markdown("---")
-st.info(f"💰 Gain total : {st.session_state.profit:.4f} USDC")
+        html += f"""
+        <tr style='background:{row["Couleur"]}; color:white; font-size:14px;'>
+            <td style='padding:8px;'>{row["Palier"]}</td>
+            <td style='padding:8px;'>{row["BUY"]}</td>
+            <td style='padding:8px;'>{row["SELL"]}</td>
+            <td style='padding:8px;'>{row["Montant"]} USDC</td>
+            <td style='padding:8px; font-weight:bold;'>{row["Etat"]}</td>
+
+            <td style='padding:8px;'>
+                <div style='background:#333; width:100%; height:10px; border-radius:5px;'>
+                    <div style='background:#00FF00; height:10px; width:{progress}%; border-radius:5px;'></div>
+                </div>
+            </td>
+
+            <td style='padding:8px;'>{row["Gain"]} USDC</td>
+
+            <td style='padding:8px;'>
+                <form action='' method='get'>
+                    <button name='ON{i}' style='padding:5px 8px;'>ON</button>
+                    <button name='OFF{i}' style='padding:5px 8px;'>OFF</button>
+                    <button name='CB{i}' style='padding:5px 8px;'>C.BUY</button>
+                    <button name='CS{i}' style='padding:5px 8px;'>C.SELL</button>
+                    <button name='DEL{i}' style='padding:5px 8px;'>DEL</button>
+                </form>
+            </td>
+        </tr>
+        """
+
+    html += "</table></div>"
+
+    components.html(html, height=500, scrolling=True)
