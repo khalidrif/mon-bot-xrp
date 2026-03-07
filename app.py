@@ -1,47 +1,54 @@
 import streamlit as st
 import ccxt
 
-st.title("XRP Single Bot Manager 🤖")
+st.title("XRP Bot Individuel - Kraken 🐙")
 
-# Connexion via Secrets Streamlit
+# Connexion à Kraken
 try:
-    exchange = ccxt.binance({
-        'apiKey': st.secrets["BINANCE_API_KEY"],
-        'secret': st.secrets["BINANCE_SECRET"],
+    exchange = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_API_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
         'enableRateLimit': True,
     })
-    st.success("Connecté à l'Exchange")
+    st.sidebar.success("Connecté à Kraken")
 except Exception as e:
-    st.error(f"Erreur de connexion : {e}")
+    st.sidebar.error(f"Erreur Kraken : {e}")
     st.stop()
 
-# Configuration de l'ordre individuel
-st.sidebar.header("Paramètres du Bot")
-type_ordre = st.sidebar.selectbox("Type de Bot", ["ACHAT (Limit Buy)", "VENTE (Limit Sell)"])
-prix_cible = st.sidebar.number_input("Prix cible (USDT)", value=0.600, format="%.4f")
-quantite = st.sidebar.number_input("Quantité XRP", value=20.0)
+# Paramètres de l'ordre
+symbol = 'XRP/USD' # Ou 'XRP/EUR' ou 'XRP/USDT' selon votre solde
+st.sidebar.header("Réglages du Bot")
+type_ordre = st.sidebar.selectbox("Action", ["ACHAT", "VENTE"])
+prix_cible = st.sidebar.number_input("Prix (USD)", value=0.6000, format="%.4f")
+quantite = st.sidebar.number_input("Quantité XRP", value=30.0)
 
-if st.button(f"Lancer le Bot {type_ordre}"):
+# Bouton pour lancer CE bot spécifique
+if st.button(f"Lancer ce Bot {type_ordre}"):
     try:
-        if "ACHAT" in type_ordre:
-            ordre = exchange.create_limit_buy_order('XRP/USDT', quantite, prix_cible)
+        if type_ordre == "ACHAT":
+            ordre = exchange.create_limit_buy_order(symbol, quantite, prix_cible)
         else:
-            ordre = exchange.create_limit_sell_order('XRP/USDT', quantite, prix_cible)
+            ordre = exchange.create_limit_sell_order(symbol, quantite, prix_cible)
         
-        st.balloons()
-        st.success(f"Bot activé ! ID de l'ordre : {ordre['id']}")
-        st.write(f"Détails : {quantite} XRP à {prix_cible} USDT")
-        
+        st.success(f"✅ Bot ajouté ! ID Kraken : {ordre['id']}")
     except Exception as e:
-        st.error(f"Impossible de lancer le bot : {e}")
+        st.error(f"Erreur lors du placement : {e}")
 
-# Affichage des bots (ordres) actifs
+# Gestion des bots actifs
 st.divider()
-st.subheader("Mes Bots en cours")
+st.subheader("Mes Bots Actifs sur Kraken")
+
 if st.button("Actualiser la liste"):
-    open_orders = exchange.fetch_open_orders('XRP/USDT')
-    if open_orders:
-        for o in open_orders:
-            st.info(f"ID: {o['id']} | {o['side'].upper()} | Prix: {o['price']} | Qté: {o['amount']}")
-    else:
-        st.write("Aucun bot actif pour le moment.")
+    try:
+        open_orders = exchange.fetch_open_orders(symbol)
+        if open_orders:
+            for o in open_orders:
+                col1, col2 = st.columns([3, 1])
+                col1.info(f"Type: {o['side'].upper()} | Prix: {o['price']} | Qté: {o['amount']}")
+                if col2.button("Annuler", key=o['id']):
+                    exchange.cancel_order(o['id'], symbol)
+                    st.rerun()
+        else:
+            st.write("Aucun bot actif.")
+    except Exception as e:
+        st.error(f"Erreur de lecture : {e}")
