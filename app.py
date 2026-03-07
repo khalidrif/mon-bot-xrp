@@ -2,51 +2,66 @@ import streamlit as st
 import ccxt
 import time
 
-st.set_page_config(page_title="Kraken XRP Buy", page_icon="💳")
-st.title("💳 Achat Immédiat XRP sur Kraken")
+st.set_page_config(page_title="Kraken Order Bot", page_icon="💹")
+st.title("💹 Bot Kraken : Exécuteur d'Ordre")
 
-# 1. Connexion avec correction Nonce
-@st.cache_resource
-def get_exchange():
-    return ccxt.kraken({
+# 1. Connexion API (Nonce corrigé pour éviter les erreurs Kraken)
+try:
+    exchange = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_KEY"],
         'secret': st.secrets["KRAKEN_SECRET"],
         'enableRateLimit': True,
         'options': {'nonce': lambda: int(time.time() * 1000)}
     })
-
-exchange = get_exchange()
-
-# 2. Vérification Solde
-try:
+    # Vérification initiale du solde
     balance = exchange.fetch_balance()
     usdc_dispo = balance.get('USDC', {}).get('free', 0)
-    st.sidebar.metric("Ton Solde USDC", f"{usdc_dispo:.2f}")
+    st.sidebar.success(f"Connecté ! Solde : {usdc_dispo:.2f} USDC")
 except Exception as e:
-    st.sidebar.error(f"Erreur API : {e}")
+    st.error(f"Erreur de connexion API : {e}")
+    st.stop()
 
-# 3. Paramètres d'achat
-st.subheader("Configuration de l'ordre")
-montant_xrp = st.number_input("Quantité de XRP à acheter", value=20.0, min_value=10.0, step=1.0)
+# 2. Paramètres de l'ordre
+st.subheader("⚙️ Réglages de l'ordre d'achat")
+col1, col2 = st.columns(2)
+prix_cible = col1.number_input("Acheter si le prix baisse à (USDC)", value=1.3000, format="%.4f")
+montant_xrp = col2.number_input("Quantité de XRP à acheter", value=20.0, min_value=10.0)
 
-# 4. Action d'achat
-if st.button("🚀 ENVOYER L'ORDRE D'ACHAT MAINTENANT"):
-    status = st.empty()
-    try:
-        status.info(f"⏳ Envoi de l'ordre au marché pour {montant_xrp} XRP...")
-        
-        # --- L'ORDRE REEL ---
-        ordre = exchange.create_market_buy_order('XRP/USDC', montant_xrp)
-        # --------------------
-        
-        st.success("✅ ORDRE ACCEPTÉ PAR KRAKEN !")
-        st.json(ordre) # Affiche les détails de la transaction (ID, prix moyen, etc.)
-        st.balloons()
-        
-    except ccxt.InsufficientFunds:
-        st.error("❌ Erreur : Tu n'as pas assez de USDC (pense aux frais de ~0.26%).")
-    except Exception as e:
-        st.error(f"❌ L'ordre a échoué : {e}")
+# 3. Surveillance et Envoi
+if st.button("▶️ DÉMARRER LA SURVEILLANCE"):
+    info_zone = st.empty()
+    prix_zone = st.empty()
+    
+    st.warning("⚠️ Ne fermez pas cette page. Le bot surveille le prix...")
+    
+    while True:
+        try:
+            # Récupérer le prix XRP/USDC en temps réel
+            ticker = exchange.fetch_ticker('XRP/USDC')
+            prix_actuel = ticker['last']
+            
+            # Affichage dynamique
+            prix_zone.metric("Prix XRP actuel", f"{prix_actuel} USDC", f"Cible : {prix_cible}")
+            info_zone.info(f"⏳ Attente... Prix actuel ({prix_actuel}) > Cible ({prix_cible})")
+
+            # --- CONDITION D'ACHAT RÉELLE ---
+            if prix_actuel <= prix_cible:
+                info_zone.warning("🎯 CIBLE ATTEINTE ! Envoi de l'ordre d'achat à Kraken...")
+                
+                # EXECUTION DE L'ORDRE AU MARCHÉ
+                ordre = exchange.create_market_buy_order('XRP/USDC', montant_xrp)
+                
+                # Confirmation
+                st.success(f"✅ ORDRE EXÉCUTÉ ! ID: {ordre['id']}")
+                st.balloons()
+                st.json(ordre) # Affiche les détails (prix payé, frais, etc.)
+                break # On arrête le bot après l'achat réussi
+            
+            time.sleep(5) # Vérification toutes les 5 secondes
+            
+        except Exception as e:
+            st.error(f"❌ Erreur pendant la surveillance : {e}")
+            break
 
 st.divider()
-st.caption("Note : Ce bouton achète du XRP au prix actuel du marché (Market Order).")
+st.caption("Note : Ce bot utilise des 'Market Orders'. Il achète immédiatement au meilleur prix dispo dès que la cible est touchée.")
