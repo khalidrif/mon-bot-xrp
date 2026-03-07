@@ -8,20 +8,20 @@ running = False
 profit_net = 0.0
 
 # -------------------------------------------------------
-# API KRAKEN (Secrets Streamlit)
+# CONFIG API KRAKEN (Secrets Streamlit)
 # -------------------------------------------------------
 api = krakenex.API()
 api.key = st.secrets["KRAKEN_API_KEY"]
 api.secret = st.secrets["KRAKEN_API_SECRET"]
 
 # -------------------------------------------------------
-# PAIRE VALIDÉE PAR TEST : XRPUSDC
+# PAIRE VALIDÉE POUR TON COMPTE : XRPUSDC
 # -------------------------------------------------------
 PAIR = "XRPUSDC"
-st.success("Paire Kraken active : XRPUSDC (TEST RÉUSSI ✔)")
+st.success("Paire Kraken utilisée : XRPUSDC (ordres visibles dans Spot Orders)")
 
 # -------------------------------------------------------
-# FONCTIONS KRAKEN
+# KRAKEN HELPERS
 # -------------------------------------------------------
 def get_price():
     data = api.query_public("Ticker", {"pair": PAIR})
@@ -33,17 +33,22 @@ def get_usdc_balance():
         return float(bal["result"]["USDC"])
     return 0.0
 
-def place_order(order_type, volume):
+# LIMIT ORDER → visible dans Kraken
+def place_order(order_type, price, volume):
     if volume < 5:
         st.error(f"Volume trop faible : {volume:.4f} XRP (min = 5 XRP)")
-        return {"error": ["min volume 5 XRP"], "result": {}}
+        return {"error": ["EOrder:volume_too_small"], "result": {}}
 
-    res = api.query_private("AddOrder", {
+    order = {
         "pair": PAIR,
         "type": order_type,
-        "ordertype": "market",
-        "volume": volume
-    })
+        "ordertype": "limit",
+        "price": price,
+        "volume": volume,
+        "oflags": "post"  # <-- reste visible dans Orders
+    }
+
+    res = api.query_private("AddOrder", order)
 
     if "error" in res and len(res["error"]) > 0:
         st.error("Erreur Kraken : " + str(res["error"]))
@@ -60,6 +65,7 @@ def get_order_history():
     for tid, t in res["result"]["trades"].items():
         if t["pair"] != PAIR:
             continue
+
         rows.append({
             "Type": t["type"].upper(),
             "Prix": float(t["price"]),
@@ -72,17 +78,20 @@ def get_order_history():
     return df.head(25)
 
 # -------------------------------------------------------
-# THREAD DU BOT
+# THREAD BOT (LIMIT ORDERS VISIBLES)
 # -------------------------------------------------------
 def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, history_box, snowball):
     global running, profit_net
     running = True
 
     position = 0
-    prix_achat_reel = 0
     montant_usdc = montant_usdc_initial
+    ordre_en_attente = None
+
+    prix_achat_reel = 0
 
     while running:
+
         prix = get_price()
         montant_xrp = montant_usdc / prix
 
@@ -94,37 +103,68 @@ def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, hi
             f"Profit net : {profit_net:.4f} USDC\n"
         )
 
-        solde = get_usdc_balance()
+        # Vérification solde lors du BUY
+        if position == 0:
+            solde = get_usdc_balance()
+            if solde < montant_usdc:
+                st.warning(f"Solde insuffisant : {solde} USDC")
+                time.sleep(3)
+                continue
 
-        if position == 0 and solde < montant_usdc:
-            st.warning(f"Solde insuffisant : {solde} USDC")
-            time.sleep(3)
-            continue
+        # ---------------------------
+        # LIMIT BUY visible
+        # ---------------------------
+        if position == 0 and prix <= prix_achat and ordre_en_attente is None:
 
-        # ACHAT
-        if position == 0 and prix <= prix_achat:
-            texte += f">>> ACHAT {montant_xrp:.4f} XRP à {prix}\n"
-            prix_achat_reel = prix
-            place_order("buy", montant_xrp)
+            texte += f">>> LIMIT BUY PLACÉ : {montant_xrp:.4f} XRP à {prix_achat}\n"
+
+            res = place_order("buy", prix_achat, montant_xrp)
+
+            if "result" in res and "txid" in res["result"]:
+                ordre_en_attente = res["result"]["txid"][0]
+                texte += f"Ordre visible dans Kraken : {ordre_en_attente}\n"
+                prix_achat_reel = prix_achat  # prix théorique
+
             position = 1
 
-        # VENTE
-        elif position == 1 and prix >= prix_vente:
-            texte += f">>> VENTE {montant_xrp:.4f} XRP à {prix}\n"
+        # ---------------------------
+        # LIMIT SELL visible
+        # ---------------------------
+        elif position == 1 and prix >= prix_vente and ordre_en_attente is None:
 
-            gain = (prix - prix_achat_reel) * (montant_usdc_initial / prix_achat_reel)
-            profit_net += gain
+            texte += f">>> LIMIT SELL PLACÉ : {montant_xrp:.4f} XRP à {prix_vente}\n"
 
-            place_order("sell", montant_xrp)
+            res = place_order("sell", prix_vente, montant_xrp)
 
-            texte += f"Profit trade : {gain:.4f} USDC\n"
-            texte += f"Profit total : {profit_net:.4f} USDC\n"
+            if "result" in res and "txid" in res["result"]:
+                ordre_en_attente = res["result"]["txid"][0]
+                texte += f"Ordre visible dans Kraken : {ordre_en_attente}\n"
 
-            position = 0
+        # ---------------------------
+        # CHECK si ordre exécuté
+        # ---------------------------
+        if ordre_en_attente:
 
-            if snowball:
-                montant_usdc += gain
-                texte += f"BOULE DE NEIGE → {montant_usdc:.4f} USDC\n"
+            check = api.query_private("QueryOrders", {"txid": ordre_en_attente})
+
+            if "result" in check and ordre_en_attente in check["result"]:
+                info = check["result"][ordre_en_attente]
+
+                if info["status"] == "closed":
+                    texte += f"Ordre exécuté : {ordre_en_attente}\n"
+
+                    # calcul profit si SELL
+                    if position == 1:  # on revient à 0
+                        gain = (prix_vente - prix_achat_reel) * (montant_usdc_initial / prix_achat_reel)
+                        profit_net += gain
+                        texte += f"Profit trade : {gain:.4f} USDC\n"
+
+                        if snowball:
+                            montant_usdc += gain
+                            texte += f"BOULE DE NEIGE → {montant_usdc:.4f} USDC\n"
+
+                    ordre_en_attente = None
+                    position = 0
 
         log.text(texte)
 
@@ -140,17 +180,17 @@ def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, hi
 # -------------------------------------------------------
 # INTERFACE STREAMLIT
 # -------------------------------------------------------
-st.title("BOT XRP/USDC – Achat/Vente Auto – Profit Net – Historique")
+st.title("BOT XRP/USDC – LIMIT ORDERS (VISIBLES DANS KRAKEN)")
 
 solde = get_usdc_balance()
-st.info(f"Solde USDC disponible : {solde} USDC")
+st.info(f"Solde USDC actuel : {solde} USDC")
 
 profit_box = st.info("Profit net : 0 USDC")
 history_box = st.empty()
 log = st.empty()
 
-prix_achat = st.number_input("Prix d'achat (USDC)", min_value=0.0)
-prix_vente = st.number_input("Prix de vente (USDC)", min_value=0.0)
+prix_achat = st.number_input("Prix LIMIT BUY", min_value=0.0)
+prix_vente = st.number_input("Prix LIMIT SELL", min_value=0.0)
 montant_usdc = st.number_input("Montant USDC par trade (>= 5 XRP)", min_value=5.0)
 
 snowball = st.checkbox("Activer Boule de Neige")
@@ -159,14 +199,15 @@ col1, col2 = st.columns(2)
 with col1:
     start = st.button("Démarrer le bot")
 with col2:
-    stop = st.button("STOP BOT")
+    stop = st.button("Arrêter le bot")
 
 if start and not running:
-    t = threading.Thread(target=bot_thread, args=(
-        prix_achat, prix_vente, montant_usdc, log, profit_box, history_box, snowball
-    ))
+    t = threading.Thread(
+        target=bot_thread,
+        args=(prix_achat, prix_vente, montant_usdc, log, profit_box, history_box, snowball)
+    )
     t.start()
-    st.success("Bot lancé !")
+    st.success("Bot lancé ! Les ordres apparaîtront dans Kraken → Spot Orders")
 
 if stop:
     running = False
