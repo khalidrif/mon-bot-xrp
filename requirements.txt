@@ -1,5 +1,2 @@
-krakenex
-streamlit
 ccxt
-pandas
-
+streamlit
