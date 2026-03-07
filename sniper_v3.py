@@ -9,7 +9,6 @@ st.markdown("""
     <style>
     .stApp { background-color: #F8F9FA; }
     .main-box { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; margin-bottom: 20px; }
-    .stButton>button { width: 100%; border-radius: 12px; font-weight: bold; height: 50px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -28,7 +27,7 @@ try:
     usdc_dispo = balance['free'].get('USDC', 0.0)
     orders = kraken.fetch_open_orders('XRP/USDC')
 
-    # HEADER : TON TRÉSOR
+    # HEADER : SOLDE LIBRE
     st.markdown(f"""
         <div class="main-box">
             <p style="color: grey; margin-bottom: 5px;">SOLDE LIBRE</p>
@@ -44,27 +43,26 @@ try:
         p_idx = i + 1
         p_base = prices_in[i]
         
-        # RÉGLAGES DU BOT (DÉPLACÉS POUR UNE DÉTECTION PRÉCISE)
-        with st.expander(f"BOT {p_idx}", expanded=(i==0)):
+        # DÉTECTION PRÉCISE POUR LE TITRE
+        mission_active = False
+        montant_engage = 0.0
+        for o in orders:
+            p_o = float(o['price'])
+            if abs(p_o - p_base) < 0.01 or abs(p_o - (p_base + 0.02)) < 0.01:
+                mission_active = True
+                montant_engage = float(o['amount']) * p_o
+                break
+
+        # --- TITRE DEMANDÉ : 🟢 EN MISSION | 14.47 $ | BOT 1 ---
+        if mission_active:
+            titre_barre = f"🟢 EN MISSION | {montant_engage:.2f} $ | BOT {p_idx}"
+        else:
+            titre_barre = f"⚪ À L'ARRÊT | BOT {p_idx}"
+
+        with st.expander(titre_barre, expanded=(i==0)):
             m_invest = st.number_input(f"MONTANT $ B{p_idx}", value=14.5, min_value=14.0, key=f"m{i}")
             p_in = st.number_input(f"ACHAT B{p_idx}", value=p_base, format="%.4f", key=f"in{i}")
             p_out = st.number_input(f"VENTE B{p_idx}", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{i}")
-
-            # --- DÉTECTION ULTRA-STRICTE (ANTI-FANTÔME) ---
-            mission_active = False
-            montant_engage = 0.0
-            for o in orders:
-                p_o = float(o['price'])
-                # On ne s'allume QUE si le prix de l'ordre est IDENTIQUE au réglage (marge de 0.0001)
-                if abs(p_o - p_in) < 0.0001 or abs(p_o - p_out) < 0.0001:
-                    mission_active = True
-                    montant_engage = float(o['amount']) * p_o
-                    break
-
-            # CONSTRUCTION DU TITRE DYNAMIQUE
-            status_txt = "🟢 EN MISSION" if mission_active else "⚪ À L'ARRÊT"
-            montant_txt = f" | {montant_engage:.2f} $" if mission_active else ""
-            st.markdown(f"### {status_txt}{montant_txt}")
 
             c1, c2 = st.columns(2)
             if c1.button(f"🚀 LANCER B{p_idx}", key=f"run{i}"):
@@ -77,19 +75,16 @@ try:
             if c2.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
                 for o in orders:
                     p_o = float(o['price'])
-                    if abs(p_o - p_in) < 0.001 or abs(p_o - p_out) < 0.001:
+                    if abs(p_o - p_in) < 0.01 or abs(p_o - p_out) < 0.01:
                         kraken.cancel_order(o['id'])
                 st.rerun()
 
     # MISSIONS RÉELLES
     st.divider()
-    st.write("### 📦 MISSIONS ACTIVES SUR KRAKEN")
-    if orders:
-        for o in orders:
-            side = "🎯 ACHAT" if o['side'] == 'buy' else "💰 VENTE"
-            st.info(f"{side} {o['amount']} XRP @ {o['price']} $")
-    else:
-        st.write("Aucune mission active.")
+    st.write("### 📦 MISSIONS ACTIVES")
+    for o in orders:
+        side = "🎯 ACHAT" if o['side'] == 'buy' else "💰 VENTE"
+        st.info(f"{side} {o['amount']} XRP @ {o['price']} $")
 
 except Exception as e:
     st.error(f"Erreur : {e}")
