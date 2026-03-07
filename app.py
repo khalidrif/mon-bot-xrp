@@ -2,66 +2,79 @@ import streamlit as st
 import ccxt
 import time
 
-st.set_page_config(page_title="XRP Trader Bot", page_icon="📈")
-st.title("🚀 Bot XRP/USDC Kraken")
+st.set_page_config(page_title="Kraken XRP Sniper", page_icon="🎯")
+st.title("🎯 Bot XRP/USDC : Achat & Vente Précis")
 
-# 1. Initialisation
+# 1. Connexion API
 try:
     exchange = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_KEY"],
         'secret': st.secrets["KRAKEN_SECRET"],
         'enableRateLimit': True,
     })
-    st.success("✅ Connexion API configurée !")
+    st.success("✅ Connecté à Kraken")
 except Exception as e:
     st.error(f"Erreur de connexion : {e}")
     st.stop()
 
-# 2. Paramètres de trading
-col1, col2 = st.columns(2)
+# 2. Paramètres du Trade
+st.subheader("Configuration de l'ordre")
+col1, col2, col3 = st.columns(3)
+
 with col1:
-    quantite = st.number_input("Nombre de XRP à acheter", value=20.0, step=1.0)
+    prix_achat_declench = st.number_input("Prix d'achat (USDC)", value=1.300, format="%.4f")
 with col2:
-    profit_vise = st.number_input("Profit visé par XRP (USDC)", value=0.015, format="%.3f")
+    prix_vente_declench = st.number_input("Prix de vente (USDC)", value=1.350, format="%.4f")
+with col3:
+    montant_xrp = st.number_input("Montant (XRP)", value=30.0, step=1.0)
 
 # 3. Interface de suivi
-prix_zone = st.empty()
-log_zone = st.container()
+prix_live = st.empty()
+log_status = st.info("En attente de démarrage...")
 
-if st.button("Démarrer le cycle Achat ➔ Vente"):
-    st.info("Bot actif... Ne ferme pas cette page.")
+if st.button("🚀 Démarrer le Bot"):
+    st.warning("Bot actif. Ne ferme pas cette page !")
     
-    while True:
+    # ÉTAPE 1 : ATTENTE DU PRIX D'ACHAT
+    achete = False
+    while not achete:
         try:
-            # ÉTAPE 1 : RÉCUPÉRER LE PRIX POUR L'ACHAT
             ticker = exchange.fetch_ticker('XRP/USDC')
             prix_actuel = ticker['last']
-            prix_vente_cible = prix_actuel + profit_vise
+            prix_live.metric("Prix XRP actuel", f"{prix_actuel} USDC", f"Cible Achat: {prix_achat_declench}")
             
-            prix_zone.metric("Prix XRP actuel", f"{prix_actuel} USDC", f"Cible : {prix_vente_cible}")
+            if prix_actuel <= prix_achat_declench:
+                log_status.warning(f"🎯 Prix d'achat atteint ({prix_actuel}) ! Exécution de l'achat...")
+                # COMMANDE RÉELLE
+                exchange.create_market_buy_order('XRP/USDC', montant_xrp)
+                st.balloons()
+                achete = True
+            else:
+                log_status.info(f"⏳ En attente du prix d'achat ({prix_achat_declench})...")
             
-            # ÉTAPE 2 : ACHAT (Décommenter les lignes 'exchange' pour de vrai)
-            with log_zone:
-                st.write(f"🛒 **Achat** de {quantite} XRP à {prix_actuel} USDC...")
-                # order_buy = exchange.create_market_buy_order('XRP/USDC', quantite)
-                st.write(f"⏳ Attente que le prix atteigne **{prix_vente_cible}** pour revendre...")
-
-            # ÉTAPE 3 : BOUCLE D'ATTENTE DE REVENTE
-            vendu = False
-            while not vendu:
-                ticker = exchange.fetch_ticker('XRP/USDC')
-                prix_actuel = ticker['last']
-                prix_zone.metric("Prix XRP actuel", f"{prix_actuel} USDC", f"{prix_actuel - prix_vente_cible:.4f}")
-
-                if prix_actuel >= prix_vente_cible:
-                    with log_zone:
-                        st.write(f"💰 **Cible atteinte !** Vente de {quantite} XRP à {prix_actuel} USDC.")
-                        # order_sell = exchange.create_market_sell_order('XRP/USDC', quantite)
-                        st.balloons()
-                    vendu = True
-                
-                time.sleep(15) # Vérification toutes les 15 secondes
-
+            time.sleep(10)
         except Exception as e:
-            st.error(f"Erreur : {e}")
-            time.sleep(60)
+            st.error(f"Erreur Achat : {e}")
+            time.sleep(30)
+
+    # ÉTAPE 2 : ATTENTE DU PRIX DE VENTE
+    vendu = False
+    while not vendu:
+        try:
+            ticker = exchange.fetch_ticker('XRP/USDC')
+            prix_actuel = ticker['last']
+            prix_live.metric("Prix XRP actuel", f"{prix_actuel} USDC", f"Cible Vente: {prix_vente_declench}", delta_color="normal")
+            
+            if prix_actuel >= prix_vente_declench:
+                log_status.warning(f"💰 Prix de vente atteint ({prix_actuel}) ! Exécution de la vente...")
+                # COMMANDE RÉELLE
+                exchange.create_market_sell_order('XRP/USDC', montant_xrp)
+                st.success("✅ Cycle terminé avec succès !")
+                vendu = True
+            else:
+                log_status.info(f"🚀 XRP acheté ! En attente du prix de vente ({prix_vente_declench})...")
+            
+            time.sleep(10)
+        except Exception as e:
+            st.error(f"Erreur Vente : {e}")
+            time.sleep(30)
