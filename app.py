@@ -2,62 +2,61 @@ import streamlit as st
 import ccxt
 import time
 
-st.set_page_config(page_title="Test Ordre Kraken", page_icon="🧪")
-st.title("🧪 Testeur d'Ordre XRP/USDC")
+st.set_page_config(page_title="XRP Sniper Bot", page_icon="🤖")
+st.title("🤖 Bot XRP/USDC Opérationnel")
 
-# 1. Connexion API avec correction Nonce
-try:
-    exchange = ccxt.kraken({
-        'apiKey': st.secrets["KRAKEN_KEY"],
-        'secret': st.secrets["KRAKEN_SECRET"],
-        'enableRateLimit': True,
-        'options': {'nonce': lambda: int(time.time() * 1000)}
-    })
-    st.success("✅ API Connectée")
-except Exception as e:
-    st.error(f"❌ Erreur de connexion : {e}")
-    st.stop()
+# 1. Connexion (déjà testée avec succès !)
+exchange = ccxt.kraken({
+    'apiKey': st.secrets["KRAKEN_KEY"],
+    'secret': st.secrets["KRAKEN_SECRET"],
+    'enableRateLimit': True,
+    'options': {'nonce': lambda: int(time.time() * 1000)}
+})
 
-# 2. Vérification précise du portefeuille
-if st.button("🔎 Étape 1 : Vérifier mes soldes réels"):
-    try:
-        balance = exchange.fetch_balance()
-        # On filtre pour ne voir que ce que tu possèdes vraiment
-        possessions = {k: v for k, v in balance['total'].items() if v > 0}
-        st.write("Voici ce que le bot voit sur ton compte :")
-        st.json(possessions)
-        
-        if 'USDC' not in possessions:
-            st.warning("⚠️ Attention : Tu n'as pas de USDC. Convertis tes USD ou EUR en USDC sur Kraken.")
-    except Exception as e:
-        st.error(f"Erreur lecture solde : {e}")
+# 2. Configuration du Trade
+st.sidebar.header("Réglages du Bot")
+p_achat = st.sidebar.number_input("Prix Achat (USDC)", value=1.3000, format="%.4f")
+p_vente = st.sidebar.number_input("Prix Vente (USDC)", value=1.4000, format="%.4f")
+montant = st.sidebar.number_input("Montant (XRP)", value=20.0, step=1.0)
 
-# 3. Test d'envoi d'ordre
-st.divider()
-st.subheader("Étape 2 : Envoyer un ordre test")
-montant_test = st.number_input("Montant de XRP à tester (Min 15 recommandé)", value=20.0)
+# 3. Lancement de la boucle
+if st.button("▶️ Démarrer la Surveillance Automatique"):
+    status = st.empty()
+    prix_live = st.empty()
+    etape = "ATTENTE_ACHAT" # On commence par chercher à acheter
+    
+    st.warning("⚠️ Bot actif. Ne ferme pas cette page pour continuer le trading.")
+    
+    while etape != "FINI":
+        try:
+            ticker = exchange.fetch_ticker('XRP/USDC')
+            actuel = ticker['last']
+            
+            if etape == "ATTENTE_ACHAT":
+                prix_live.metric("Prix XRP", f"{actuel} USDC", f"Cible Achat: {p_achat}")
+                status.info(f"⏳ En attente du prix d'achat : {p_achat} USDC...")
+                if actuel <= p_achat:
+                    status.warning("🛒 Prix atteint ! Achat au marché...")
+                    exchange.create_market_buy_order('XRP/USDC', montant)
+                    st.success(f"✅ Achat réussi à {actuel} !")
+                    etape = "ATTENTE_VENTE"
+                    time.sleep(10) # Pause de sécurité
+            
+            elif etape == "ATTENTE_VENTE":
+                prix_live.metric("Prix XRP", f"{actuel} USDC", f"Cible Vente: {p_vente}")
+                status.info(f"🚀 XRP en main. En attente de vente à {p_vente} USDC...")
+                if actuel >= p_vente:
+                    status.warning("💰 Cible atteinte ! Vente au marché...")
+                    exchange.create_market_sell_order('XRP/USDC', montant)
+                    st.success(f"💎 Vente terminée avec profit !")
+                    st.balloons()
+                    etape = "FINI"
 
-if st.button("🚀 LANCER L'ORDRE D'ACHAT MAINTENANT"):
-    try:
-        st.info(f"Tentative d'achat au marché de {montant_test} XRP...")
-        
-        # On tente l'achat immédiat au prix du marché
-        ordre = exchange.create_market_buy_order('XRP/USDC', montant_test)
-        
-        st.success("🎉 SUCCÈS ! L'ordre a été accepté par Kraken.")
-        st.write("Détails de l'ordre :")
-        st.json(ordre)
-        
-    except ccxt.InsufficientFunds as e:
-        st.error(f"❌ FONDS INSUFFISANTS : Tu n'as pas assez de USDC (frais inclus).")
-        st.info("Astuce : Essaie de diminuer le montant de XRP ou d'ajouter des USDC.")
-    except ccxt.InvalidOrder as e:
-        st.error(f"❌ ORDRE INVALIDE : {e}")
-        st.info("Souvent dû à un montant trop petit (Kraken demande ~10-15 XRP minimum).")
-    except ccxt.AuthenticationError as e:
-        st.error(f"❌ ERREUR API : Tes clés n'ont pas les permissions 'Trading'.")
-    except Exception as e:
-        st.error(f"❌ ERREUR INCONNUE : {e}")
+            time.sleep(10) # Vérifie toutes les 10 secondes
+            
+        except Exception as e:
+            st.error(f"⚠️ Une erreur est survenue : {e}")
+            break
 
-st.divider()
-st.caption("Note : Ce bouton achète REELLEMENT du XRP si le test réussit.")
+if st.button("🛑 Arrêter le Bot"):
+    st.experimental_rerun()
