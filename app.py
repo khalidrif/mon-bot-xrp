@@ -8,13 +8,13 @@ running = False
 profit_net = 0.0
 
 # -------------------------------------------------------
-# CONFIG API KRAKEN
+# CONFIG API KRAKEN (Secrets Streamlit)
 # -------------------------------------------------------
 api = krakenex.API()
 api.key = st.secrets["KRAKEN_API_KEY"]
 api.secret = st.secrets["KRAKEN_API_SECRET"]
 
-PAIR = "XXRPZUSD"   # Kraken pair = XRP/USDC (USD = stablecoin pool)
+PAIR = "XXRPZUSD"   # Pair Kraken (XRP contre USDC)
 
 # -------------------------------------------------------
 # Kraken Helpers
@@ -30,8 +30,9 @@ def get_usdc_balance():
     return 0.0
 
 def place_order(order_type, volume):
+    # Vérification minimum Kraken : 5 XRP
     if volume < 5:
-        st.error(f"Volume trop bas : {volume:.4f} XRP (min = 5 XRP)")
+        st.error(f"Volume trop bas pour Kraken : {volume:.4f} XRP (min = 5 XRP)")
         return {"error": ["EOrder:volume_too_small"], "result": {}}
 
     res = api.query_private("AddOrder", {
@@ -41,6 +42,7 @@ def place_order(order_type, volume):
         "volume": volume
     })
 
+    # Affichage erreurs Kraken
     if "error" in res and len(res["error"]) > 0:
         st.error("Erreur Kraken : " + str(res["error"]))
 
@@ -134,10 +136,10 @@ def bot_thread(prix_achat, prix_vente, montant_usdc_initial, log, profit_box, hi
 # -------------------------------------------------------
 # INTERFACE STREAMLIT
 # -------------------------------------------------------
-st.title("BOT XRP Kraken – USDC | Profit + Boule de Neige + Historique")
+st.title("BOT XRP Kraken – USDC | Historique + Profit + Boule de Neige")
 
 solde_usdc = get_usdc_balance()
-st.info(f"Solde USDC Kraken : {solde_usdc} USDC")
+st.info(f"Solde USDC sur Kraken : {solde_usdc} USDC")
 
 profit_box = st.info("Profit net : 0 USDC")
 history_box = st.empty()
