@@ -1,1 +1,5 @@
 krakenex
+streamlit
+ccxt
+pandas
+
