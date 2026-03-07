@@ -38,9 +38,9 @@ try:
     vol_clic = (usdc_reel * 0.48) / prix_actuel if usdc_reel > 14 else 10.5
 
     # --- INTERFACE DUO ---
-    c_a, c_b = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     
-    with c_a:
+    with c1:
         st.markdown("<div class='bot-card'>", unsafe_allow_html=True)
         st.subheader("🚜 BOT 1")
         p1_in = st.number_input("ACHAT 1", value=1.3600, format="%.4f", key="p1i")
@@ -51,7 +51,7 @@ try:
             st.balloons()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with c_b:
+    with c2:
         st.markdown("<div class='bot-card'>", unsafe_allow_html=True)
         st.subheader("🚜 BOT 2")
         p2_in = st.number_input("ACHAT 2", value=1.3400, format="%.4f", key="p2i")
@@ -61,6 +61,25 @@ try:
             kraken.create_limit_buy_order('XRP/USDC', vol_clic, p2_in, params)
             st.balloons()
         st.markdown("</div>", unsafe_allow_html=True)
+            with c3:
+        st.markdown("<div class='bot-card'>", unsafe_allow_html=True)
+        st.subheader("🚜 BOT 3")
+        # On utilise des 'key' uniques (p3i, p3o)
+        p3_in = st.number_input("ACHAT 3", value=1.3200, format="%.4f", key="p3i")
+        p3_out = st.number_input("VENTE 3", value=1.3400, format="%.4f", key="p3o")
+        
+        if st.button("🚀 LANCER B3"):
+            # Calcul : on prend 1/3 de ton argent disponible
+            vol_b3 = (usdc_reel * 0.95 / 3) / prix_actuel
+            if vol_b3 >= 10:
+                params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p3_out}}
+                kraken.create_limit_buy_order('XRP/USDC', vol_b3, p3_in, params)
+                st.balloons()
+                st.success("B3 activé !")
+            else:
+                st.error("Solde insuffisant (Attends ton dépôt !)")
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
     # --- MISSIONS EN COURS ---
     st.divider()
