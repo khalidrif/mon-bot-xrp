@@ -4,10 +4,26 @@ import time
 
 # 1. MÉMOIRE DES PROFITS ET ÉTATS
 if 'profit_total' not in st.session_state: st.session_state.profit_total = 0.0
+if 'bot_profits' not in st.session_state: st.session_state.bot_profits = {1:0.0, 2:0.0, 3:0.0, 4:0.0}
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
 if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
 
-st.set_page_config(page_title="XRP Sniper Snowball", layout="centered")
+st.set_page_config(page_title="XRP Sniper Profit+", layout="centered")
+
+# STYLE TERMINAL NOIR ET ORANGE
+st.markdown("""
+    <style>
+    .profit-badge {
+        background-color: #000000;
+        color: #FFA500;
+        padding: 2px 8px;
+        border-radius: 5px;
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: bold;
+        border: 1px solid #FFA500;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 try:
     # 2. CONNEXION KRAKEN
@@ -22,11 +38,11 @@ try:
     usdc_dispo = balance['free'].get('USDC', 0.0)
     orders = kraken.fetch_open_orders('XRP/USDC')
 
-    # HEADER : AFFICHAGE DU TRÉSOR
-    st.write(f"### 💰 PROFIT : {st.session_state.profit_total:.4f} $ | 🔵 LIBRE : {usdc_dispo:.2f} $")
+    # HEADER GÉNÉRAL
+    st.write(f"### 💰 PROFIT TOTAL : {st.session_state.profit_total:.4f} $ | 🔵 LIBRE : {usdc_dispo:.2f} $")
     st.divider()
 
-    # CONFIGURATION DES 4 BOTS (EMPREINTE DIGITALE PAR VOLUME)
+    # CONFIGURATION DES 4 BOTS
     bot_configs = {
         1: {"p": 1.3650, "v": 10.6},
         2: {"p": 1.3400, "v": 10.8},
@@ -35,7 +51,7 @@ try:
     }
 
     for p_idx, cfg in bot_configs.items():
-        # DÉTECTION PRÉCISE
+        # DÉTECTION PAR VOLUME
         mission_active = False
         montant_reel = 0.0
         for o in orders:
@@ -45,26 +61,26 @@ try:
                 break
 
         # --- LOGIQUE BOULE DE NEIGE ---
-        # Si le bot est activé (LANCER) mais qu'il n'y a plus d'ordre (Vente finie)
         is_running = st.session_state.bot_active[p_idx]
         if is_running and not mission_active and usdc_dispo >= (cfg['p'] * cfg['v']):
-            # 1. On calcule le profit du cycle (Prix Vente - Prix Achat) * Volume
-            p_in_calc = cfg['p']
-            p_out_calc = p_in_calc + 0.02
-            gain_net = (p_out_calc - p_in_calc) * cfg['v']
-            
-            # 2. Mise à jour de la mémoire
+            # Calcul du profit du cycle
+            gain_net = (0.02) * cfg['v'] # Marge de 0.02 $
             st.session_state.profit_total += gain_net
+            st.session_state.bot_profits[p_idx] += gain_net # PROFIT PAR BOT
             st.session_state.cycles[p_idx] += 1
             
-            # 3. RELANCE AUTOMATIQUE
-            params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out_calc}}
-            kraken.create_limit_buy_order('XRP/USDC', cfg['v'], p_in_calc, params)
+            # Relance automatique
+            params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': cfg['p'] + 0.02}}
+            kraken.create_limit_buy_order('XRP/USDC', cfg['v'], cfg['p'], params)
             st.rerun()
 
-        # TITRE : 🟢 EN MISSION | 14.47 $ | BOT 1 | 🔄 0
-        status = "🟢 EN MISSION" if mission_active else "⚪ À L'ARRÊT"
-        titre = f"{status} | {montant_reel:.2f} $ | BOT {p_idx} | 🔄 {st.session_state.cycles[p_idx]}"
+        # TITRE : VOYANT | MONTANT | BOT | PROFIT NOIR/ORANGE
+        status = "🟢" if mission_active else "⚪"
+        p_net = st.session_state.bot_profits[p_idx]
+        
+        # HTML pour le badge de profit noir et orange
+        profit_html = f'<span class="profit-badge">+{p_net:.4f} $</span>'
+        titre = f"{status} | {montant_reel:.2f} $ | BOT {p_idx} | 🔄 {st.session_state.cycles[p_idx]} | {profit_html}"
 
         with st.expander(titre, expanded=(p_idx==1)):
             p_in = st.number_input(f"ACHAT B{p_idx}", value=cfg['p'], format="%.4f", key=f"in{p_idx}")
@@ -85,10 +101,11 @@ try:
                         kraken.cancel_order(o['id'])
                 st.rerun()
 
-    # MISSIONS RÉELLES
+    # BAS DE PAGE
     st.divider()
-    if st.button("🚨 RESET PROFITS & CYCLES"):
+    if st.button("🚨 RESET TOTAL (A0)"):
         st.session_state.profit_total = 0.0
+        st.session_state.bot_profits = {1:0.0, 2:0.0, 3:0.0, 4:0.0}
         st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
         st.rerun()
 
