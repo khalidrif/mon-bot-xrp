@@ -3,15 +3,14 @@ import ccxt
 import time
 
 # 1. STYLE IPHONE PREMIUM
-st.set_page_config(page_title="XRP Double Sniper", layout="centered")
+st.set_page_config(page_title="XRP Sniper Duo", layout="centered")
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(180deg, #F8F9FA 0%, #E9ECEF 100%); color: #212529; }
     [data-testid="stMetric"]:nth-of-type(1) div[data-testid="stMetricValue"] { color: #007AFF !important; font-size: 2.2rem !important; }
     [data-testid="stMetric"]:nth-of-type(2) div[data-testid="stMetricValue"] { color: #FF9500 !important; font-size: 2.2rem !important; }
     .cumul-box { background: linear-gradient(135deg, #28a745 0%, #218838 100%); border-radius: 25px; padding: 20px; text-align: center; color: white; margin-bottom: 20px; }
-    .stButton>button { width: 100%; height: 60px; border-radius: 20px !important; background-color: #F3BA2F !important; font-weight: bold; }
-    .bot-card { background: white; padding: 15px; border-radius: 15px; border: 1px solid #DEE2E6; margin-bottom: 10px; }
+    .stButton>button { width: 100%; height: 60px; border-radius: 20px !important; background-color: #F3BA2F !important; font-weight: bold; font-size: 18px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -31,39 +30,46 @@ try:
 
     st.divider()
 
-    # --- CONFIGURATION MANUELLE DES 2 BOTS ---
+    # --- CONFIGURATION MANUELLE ---
     st.markdown("### 🚜 RÉGLAGE DES 2 MISSIONS")
     
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("**BOT 1 (Haut)**")
-        p1_in = st.number_input("ACHAT 1", value=1.3600, format="%.4f")
-        p1_out = st.number_input("VENTE 1", value=1.3800, format="%.4f")
+    c_a, c_b = st.columns(2)
+    with c_a:
+        st.markdown("**BOT 1**")
+        p1_in = st.number_input("ACHAT 1", value=1.3600, format="%.4f", key="p1i")
+        p1_out = st.number_input("VENTE 1", value=1.3800, format="%.4f", key="p1o")
     
-    with col_b:
-        st.markdown("**BOT 2 (Bas)**")
-        p2_in = st.number_input("ACHAT 2", value=1.3400, format="%.4f")
-        p2_out = st.number_input("VENTE 2", value=1.3800, format="%.4f") # Tu peux changer ici !
+    with c_b:
+        st.markdown("**BOT 2**")
+        p2_in = st.number_input("ACHAT 2", value=1.3400, format="%.4f", key="p2i")
+        p2_out = st.number_input("VENTE 2", value=1.3800, format="%.4f", key="p2o")
 
-    # Calcul Volume (50/50 du solde)
-    vol_par_bot = (usdc_reel * 0.96 / 2) / prix_actuel if usdc_reel > 28 else 0
+    # --- BOUTONS SÉPARÉS ---
+    st.write("")
+    l1, l2 = st.columns(2)
 
-    if st.button("🚀 LANCER LES 2 SNIPERS"):
-        if vol_par_bot < 10:
-            st.error("Solde trop petit (Besoin de 28$ min pour 2 bots)")
-        else:
-            # Ordre 1
-            params1 = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p1_out}}
-            kraken.create_limit_buy_order('XRP/USDC', vol_par_bot, p1_in, params1)
-            time.sleep(0.5)
-            # Ordre 2
-            params2 = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p2_out}}
-            kraken.create_limit_buy_order('XRP/USDC', vol_par_bot, p2_in, params2)
-            
-            st.balloons()
-            st.success(f"✅ 2 ordres placés ({vol_par_bot:.1f} XRP chacun)")
+    # Sécurité : On utilise 48% du solde pour chaque bot pour être sûr de passer
+    vol_test = (usdc_reel * 0.48) / prix_actuel if usdc_reel > 14 else 0
 
-    if st.button("🚨 ANNULER TOUT"):
+    with l1:
+        if st.button("🚀 LANCER BOT 1"):
+            if usdc_reel > 14:
+                params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p1_out}}
+                kraken.create_limit_buy_order('XRP/USDC', vol_test, p1_in, params)
+                st.success(f"✅ Bot 1 actif ({vol_test:.1f} XRP)")
+                st.balloons()
+            else: st.error("Solde < 14$")
+
+    with l2:
+        if st.button("🚀 LANCER BOT 2"):
+            if usdc_reel > 14:
+                params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p2_out}}
+                kraken.create_limit_buy_order('XRP/USDC', vol_test, p2_in, params)
+                st.success(f"✅ Bot 2 actif ({vol_test:.1f} XRP)")
+                st.balloons()
+            else: st.error("Solde < 14$")
+
+    if st.button("🚨 ANNULER TOUT / RESET"):
         kraken.cancel_all_orders('XRP/USDC')
         st.rerun()
 
