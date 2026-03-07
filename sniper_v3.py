@@ -8,7 +8,7 @@ if 'bot_profits' not in st.session_state: st.session_state.bot_profits = {1:0.0,
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
 if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
 
-st.set_page_config(page_title="XRP SNIPER MASTER", layout="centered")
+st.set_page_config(page_title="XRP SNIPER PRO", layout="centered")
 
 try:
     # 2. CONNEXION KRAKEN
@@ -24,11 +24,11 @@ try:
     orders = kraken.fetch_open_orders('XRP/USDC')
 
     # HEADER GÉANT
-    st.write(f"## 💵 TOTAL PROFIT : {st.session_state.profit_total:.4f} $")
+    st.write(f"## 💵 TOTAL : {st.session_state.profit_total:.4f} $")
     st.write(f"### 🔵 LIBRE : {usdc_dispo:.2f} $")
     st.divider()
 
-    # CONFIGURATION DES 4 BOTS (VOLUMES UNIQUES POUR SÉPARER B1, B2, B3, B4)
+    # VOLUMES UNIQUES POUR SÉPARER B1, B2, B3, B4
     bot_vols = {1: 10.6, 2: 10.8, 3: 11.0, 4: 11.2}
     base_prices = [1.3650, 1.3400, 1.3200, 1.3000]
 
@@ -36,7 +36,7 @@ try:
         p_idx = i + 1
         vol_bot = bot_vols[p_idx]
         
-        # --- PRÉ-DÉTECTION POUR LA BARRE DE TITRE ---
+        # --- DÉTECTION POUR LA BARRE ---
         mission_active = False
         montant_reel = 0.0
         for o in orders:
@@ -49,14 +49,15 @@ try:
         p_bot = st.session_state.bot_profits[p_idx]
         cyc = st.session_state.cycles[p_idx]
         
-        # TITRE DEMANDÉ : 🟢 14.47$ | 🔄 0 | 💰 +0.0000 | BOT 1
-        titre = f"{status} {montant_reel:.2f}$ | 🔄 {cyc} | 💰 +{p_bot:.4f}$ | BOT {p_idx}"
+        # TITRE AVEC PROFIT EN GROS (Majuscules et Gras)
+        titre = f"{status} {montant_reel:.2f}$ | 🔄 {cyc} | 💰 +{p_bot:.4f} $ | B{p_idx}"
 
         with st.expander(titre, expanded=(p_idx==1)):
+            # --- SAISIE LIBRE ---
             p_in = st.number_input(f"ACHAT B{p_idx}", value=base_prices[i], format="%.4f", key=f"in{p_idx}")
             p_out = st.number_input(f"VENTE B{p_idx}", value=round(p_in + 0.02, 4), format="%.4f", key=f"out{p_idx}")
 
-            # LOGIQUE BOULE DE NEIGE AUTO
+            # BOULE DE NEIGE AUTO
             if st.session_state.bot_active[p_idx] and not mission_active and usdc_dispo >= (p_in * vol_bot):
                 gain_net = (p_out - p_in) * vol_bot
                 st.session_state.profit_total += gain_net
