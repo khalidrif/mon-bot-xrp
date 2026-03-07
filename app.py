@@ -31,8 +31,8 @@ def place_limit(order_type, price, volume):
         "oflags": "post"
     })
 
-def cancel_order(oid):
-    return api.query_private("CancelOrder", {"txid": oid})
+def cancel_order(order_id):
+    return api.query_private("CancelOrder", {"txid": order_id})
 
 # -------------------------------------
 # STATE
@@ -43,16 +43,17 @@ if "profit" not in st.session_state:
     st.session_state.profit = 0.0
 
 # -------------------------------------
-# UI HEADER
+# HEADER
 # -------------------------------------
-st.title("BOT XRP/USDC — MULTI-PALIERS (FINAL TABLEAU SIMPLE)")
+st.title("BOT XRP/USDC – MULTI-PALIERS (SUPER PRO FINAL)")
+
 prix = get_price()
 st.info(f"Prix actuel XRP/USDC : {prix}")
 
 # -------------------------------------
-# ADD PALIER
+# AJOUT PALIER
 # -------------------------------------
-st.subheader("Ajouter un palier")
+st.subheader("➕ Ajouter un palier")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -73,90 +74,143 @@ if st.button("Ajouter"):
         "done": False,
         "gain": 0.0,
     })
-    st.success("Palier ajouté")
+    st.success("Palier ajouté ✔")
 
 # -------------------------------------
-# DISPLAY PALIERS (TABLEAU SIMPLE)
+# AFFICHAGE PALIERS SUPER PRO
 # -------------------------------------
-st.subheader("Paliers")
+st.subheader("📋 Paliers (SUPER PRO)")
 
-if len(st.session_state.paliers) == 0:
-    st.warning("Aucun palier.")
-else:
-    for i, p in enumerate(st.session_state.paliers):
+for i, p in enumerate(st.session_state.paliers):
 
-        # corriger clés manquantes
-        for k, v in {
-            "active": True, "done": False, "gain": 0.0,
-            "buy_id": None, "sell_id": None
-        }.items():
-            if k not in p:
-                p[k] = v
+    # Fix keys
+    for k, v in {
+        "active": True,
+        "done": False,
+        "gain": 0.0,
+        "buy_id": None,
+        "sell_id": None,
+    }.items():
+        if k not in p:
+            p[k] = v
 
-        components.html(f"""
-        <table style='width:100%; border-collapse:collapse; font-family:Arial;'>
-            <tr style='background:#111; color:white; font-size:14px;'>
-                <td style='padding:6px; text-align:center;'>{'P'+str(i+1)}</td>
-                <td style='padding:6px; text-align:center;'>{p['buy']}</td>
-                <td style='padding:6px; text-align:center;'>{p['sell']}</td>
-                <td style='padding:6px; text-align:center;'>{p['usdc']} USDC</td>
+    # Déterminer l'état + couleur
+    if not p["active"]:
+        etat = "OFF"
+        couleur = "#880000"
+    elif p["done"]:
+        etat = "FINI"
+        couleur = "#660066"
+    elif p["buy_id"] is None:
+        etat = "WAIT BUY"
+        couleur = "#00AA00"
+    elif p["sell_id"] is None:
+        etat = "WAIT SELL"
+        couleur = "#0044AA"
+    else:
+        etat = "EXEC SELL"
+        couleur = "#AA6600"
 
-                <td style='padding:6px; text-align:center;'>
-                    <a href='/?off={i}'>
-                        <button style='padding:4px 12px;'>OFF</button>
-                    </a>
-                </td>
+    # BANDE SUPER PRO (alignement terminal)
+    components.html(f"""
+    <div style='
+        background-color:#101010;
+        padding:6px 10px;
+        margin-top:6px;
+        border-radius:6px;
+        border-left:6px solid {couleur};
+        font-family:Consolas, monospace;
+        font-size:14px;
+        color:white;
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+    '>
 
-                <td style='padding:6px; text-align:center;'>
-                    <a href='/?del={i}'>
-                        <button style='padding:4px 12px; background:#AA0000; color:white;'>DEL</button>
-                    </a>
-                </td>
-            </tr>
-        </table>
-        """, height=45)
+        <div style='
+            display:grid;
+            grid-template-columns: 60px 150px 150px 120px 150px 130px;
+            column-gap:15px;
+            align-items:center;
+        '>
+            <div>P{i+1}</div>
+            <div>BUY:{p['buy']}</div>
+            <div>SELL:{p['sell']}</div>
+            <div>{p['usdc']} USDC</div>
+            <div>{etat}</div>
+            <div>Gain:{p['gain']:.4f}</div>
+        </div>
+
+        <div style='display:flex; gap:10px;'>
+
+            <a href='/?off={i}'>
+                <button style='
+                    padding:3px 12px;
+                    background:#bb0000;
+                    color:white;
+                    border:none;
+                    border-radius:4px;
+                    font-family:Consolas, monospace;
+                '>OFF</button>
+            </a>
+
+            <a href='/?del={i}'>
+                <button style='
+                    padding:3px 12px;
+                    background:#660000;
+                    color:white;
+                    border:none;
+                    border-radius:4px;
+                    font-family:Consolas, monospace;
+                '>DEL</button>
+            </a>
+
+        </div>
+
+    </div>
+    """, height=55)
 
 # -------------------------------------
-# URL ACTIONS : OFF / DEL
+# TRAITEMENT DES ACTIONS URL
 # -------------------------------------
 query = st.query_params
 
 for key in list(query):
 
-    # Désactiver
+    # OFF
     if key.startswith("off"):
-        idx = int(key.replace("off",""))
+        idx = int(key.replace("off", ""))
         st.session_state.paliers[idx]["active"] = False
         st.query_params.clear()
         st.rerun()
 
-    # Supprimer
+    # DEL
     if key.startswith("del"):
-        idx = int(key.replace("del",""))
+        idx = int(key.replace("del", ""))
         st.session_state.paliers.pop(idx)
         st.query_params.clear()
         st.rerun()
 
 # -------------------------------------
-# SEND ALL BUY
+# PLACER TOUS LES BUY
 # -------------------------------------
-st.subheader("Placer BUY")
+st.subheader("🚀 Placer BUY actifs")
 
-if st.button("Placer tous les BUY actifs"):
+if st.button("Placer BUY"):
     for p in st.session_state.paliers:
         if p["active"] and p["buy_id"] is None:
             vol = p["usdc"] / p["buy"]
             r = place_limit("buy", p["buy"], vol)
             if not r["error"]:
                 p["buy_id"] = r["result"]["txid"][0]
-                st.success(f"BUY placé : {p['buy']}")
+                st.success(f"BUY placé {p['buy']}")
             else:
                 st.error(str(r["error"]))
 
 # -------------------------------------
-# FOLLOW ORDERS
+# SUIVI ORDRES BUY / SELL
 # -------------------------------------
-st.subheader("Suivi")
+st.subheader("📡 Suivi")
 
 if st.button("Actualiser"):
     for i, p in enumerate(st.session_state.paliers):
@@ -164,7 +218,7 @@ if st.button("Actualiser"):
         if not p["active"]:
             continue
 
-        # BUY effectué
+        # BUY exécuté → placer SELL
         if p["buy_id"]:
             q = api.query_private("QueryOrders", {"txid": p["buy_id"]})
             info = q["result"][p["buy_id"]]
@@ -173,21 +227,21 @@ if st.button("Actualiser"):
                 r = place_limit("sell", p["sell"], vol)
                 if "txid" in r.get("result", {}):
                     p["sell_id"] = r["result"]["txid"][0]
-                    st.success(f"SELL placé : {p['sell']}")
+                    st.success(f"SELL placé {p['sell']}")
 
-        # SELL effectué
+        # SELL exécuté → gain
         if p["sell_id"]:
             q = api.query_private("QueryOrders", {"txid": p["sell_id"]})
             info = q["result"][p["sell_id"]]
             if info["status"] == "closed" and not p["done"]:
                 gain = (p["sell"] - p["buy"]) * (p["usdc"] / p["buy"])
                 p["gain"] = gain
-                p["done"] = True
                 st.session_state.profit += gain
-                st.success(f"Gain P{i+1} = {gain:.4f} USDC")
+                p["done"] = True
+                st.success(f"Gain P{i+1} = {gain:.4f}")
 
 # -------------------------------------
 # TOTAL GAIN
 # -------------------------------------
 st.markdown("---")
-st.info(f"Gain total : {st.session_state.profit:.4f} USDC")
+st.info(f"💰 Gain total : {st.session_state.profit:.4f} USDC")
