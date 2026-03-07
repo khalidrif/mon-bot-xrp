@@ -2,12 +2,13 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. MÉMOIRE DES PROFITS ET ÉTATS
+# 1. MÉMOIRE DES PROFITS, CYCLES ET ÉTATS
 if 'profit_total' not in st.session_state: st.session_state.profit_total = 0.0
 if 'cycles' not in st.session_state: st.session_state.cycles = {1:0, 2:0, 3:0, 4:0}
-if 'bot_active' not in st.session_state: st.session_state.bot_active = {1:False, 2:False, 3:False, 4:False}
+if 'active_bots' not in st.session_state: st.session_state.active_bots = {1:True, 2:True, 3:True, 4:True}
+if 'last_click' not in st.session_state: st.session_state.last_click = 0
 
-st.set_page_config(page_title="XRP Auto-Snowball", layout="centered")
+st.set_page_config(page_title="XRP Sniper Honnête", layout="centered")
 
 try:
     # 2. CONNEXION KRAKEN (FIX NONCE)
@@ -24,41 +25,45 @@ try:
     usdc_dispo = balance['free'].get('USDC', 0.0)
     orders = kraken.fetch_open_orders('XRP/USDC')
 
-    # HEADER
+    # HEADER (Ta version préférée)
     st.write(f"### 💰 PROFIT : {st.session_state.profit_total:.2f} $ | 🔵 LIBRE : {usdc_dispo:.2f} $")
     st.divider()
 
-    # 3. LES 4 BOTS EN MODE "REACHAT AUTO"
+    # 3. LES 4 BOTS ISOLÉS (NE TOUCHENT PAS AU LIBRE)
     prices_in = [1.3650, 1.3400, 1.3200, 1.3000]
 
     for i in range(4):
         p_idx = i + 1
         p_base = prices_in[i]
         
-        # DÉTECTION PAR ZONE (B1:>1.35, B2:1.33-1.35, B3:1.31-1.33, B4:<1.31)
+        # DÉTECTION INTELLIGENTE PAR ZONE (Pour le voyant VERT)
         mission_active = False
+        montant_dans_bot = 0.0
         for o in orders:
             p_o = float(o['price'])
             if (i == 0 and p_o > 1.35) or (i == 1 and 1.33 <= p_o <= 1.35) or \
                (i == 2 and 1.31 <= p_o < 1.33) or (i == 3 and p_o < 1.31):
                 mission_active = True
+                montant_dans_bot = float(o['amount']) * p_o
                 break
 
         status = "🟢 ACTIF" if mission_active else "⚪ INACTIF"
-        
-        with st.expander(f"🚜 BOT {p_idx} | {status} | 🔄 {st.session_state.cycles[p_idx]} Cycles"):
+        label_bot = f"🚜 BOT {p_idx} | {status} | 📦 {montant_dans_bot:.2f} $ | 🔄 {st.session_state.cycles[p_idx]}"
+
+        with st.expander(label_bot, expanded=(i==0)):
+            # MONTANT FIXE (L'enclos du bot)
             m_invest = st.number_input(f"MONTANT $ B{p_idx}", value=14.5, min_value=14.0, key=f"m{i}")
             p_in = st.number_input(f"ACHAT B{p_idx}", value=p_base, format="%.4f", key=f"in{i}")
             p_out = round(p_in + 0.02, 4)
 
-            # --- LA BOULE DE NEIGE AUTOMATIQUE ---
-            if st.session_state.bot_active[p_idx] and not mission_active and usdc_dispo >= m_invest:
-                # 1. Calcul et ajout du profit
+            # --- BOULE DE NEIGE ISOLÉE (AUTO-REACHAT) ---
+            # Le bot relance l'achat UNIQUEMENT avec m_invest (ignore le Libre)
+            if st.session_state.active_bots.get(p_idx) and not mission_active and usdc_dispo >= m_invest:
+                # 1. Calcul Profit + Cycle
                 gain = (p_out - p_in) * (m_invest / p_in)
                 st.session_state.profit_total += gain
                 st.session_state.cycles[p_idx] += 1
-                
-                # 2. RELANCE DE L'ACHAT AUTOMATIQUE ( Snowball )
+                # 2. Relance avec le montant m_invest (n'utilise pas tes 10$)
                 vol = round(m_invest / p_in, 1)
                 params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
                 kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
@@ -66,15 +71,16 @@ try:
 
             col_l, col_s = st.columns(2)
             if col_l.button(f"🚀 LANCER B{p_idx}", key=f"run{i}"):
-                if usdc_dispo >= m_invest:
-                    st.session_state.bot_active[p_idx] = True
+                if time.time() - st.session_state.last_click > 5 and usdc_dispo >= m_invest:
+                    st.session_state.last_click = time.time()
+                    st.session_state.active_bots[p_idx] = True
                     vol = round(m_invest / p_in, 1)
                     params = {'close': {'ordertype': 'limit', 'type': 'sell', 'price': p_out}}
                     kraken.create_limit_buy_order('XRP/USDC', vol, p_in, params)
                     st.rerun()
 
             if col_s.button(f"🗑️ STOP B{p_idx}", key=f"stop{i}"):
-                st.session_state.bot_active[p_idx] = False
+                st.session_state.active_bots[p_idx] = False
                 for o in orders:
                     p_o = float(o['price'])
                     if (i == 0 and p_o > 1.35) or (i == 1 and 1.33 <= p_o <= 1.35) or \
