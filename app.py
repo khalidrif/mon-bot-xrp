@@ -1,75 +1,115 @@
 import streamlit as st
 import time
 import krakenex
+import threading
 
-# -------------------------------
-# INTERFACE STREAMLIT
-# -------------------------------
+# -------------------------------------------------------
+# VARIABLES GLOBALES
+# -------------------------------------------------------
+running = False
+profit_net = 0.0
 
-st.title("BOT XRP Kraken – Achat / Vente Infinie (1 SEUL FICHIER)")
 
-st.write("Configure ton bot :")
+# -------------------------------------------------------
+# FONCTIONS KRAKEN
+# -------------------------------------------------------
+api = krakenex.API()
+api.load_key('kraken.key')
 
-prix_achat = st.number_input("Prix d'achat (USD)", min_value=0.0)
-prix_vente = st.number_input("Prix de vente (USD)", min_value=0.0)
-montant = st.number_input("Montant en XRP", min_value=0.0)
+def get_price():
+    data = api.query_public('Ticker', {'pair': 'XRPUSD'})
+    return float(data['result']['XXRPZUSD']['c'][0])
 
-run_bot = st.button("Démarrer le bot")
+def place_order(order_type, volume):
+    return api.query_private('AddOrder', {
+        'pair': 'XRPUSD',
+        'type': order_type,
+        'ordertype': 'market',
+        'volume': volume
+    })
 
-# -------------------------------
-# SI L'UTILISATEUR APPUIE SUR START
-# -------------------------------
-if run_bot:
 
-    st.success("Bot démarré ! Il tourne en direct ci‑dessous.")
-    st.write("Vous pouvez laisser cette page ouverte.")
+# -------------------------------------------------------
+# FONCTION PRINCIPALE DU BOT (THREAD)
+# -------------------------------------------------------
+def bot_thread(prix_achat, prix_vente, montant_usdc, log):
 
-    # -------------------------------
-    # CONNEXION API KRAKEN
-    # -------------------------------
-    api = krakenex.API()
-    api.load_key('kraken.key')
+    global running, profit_net
+    running = True
+    position = 0
+    prix_achat_reel = 0
 
-    # Récupération du prix
-    def get_price():
-        data = api.query_public('Ticker', {'pair': 'XRPUSD'})
-        return float(data['result']['XXRPZUSD']['c'][0])
-
-    # Ordre Kraken
-    def place_order(order_type, volume):
-        return api.query_private('AddOrder', {
-            'pair': 'XRPUSD',
-            'type': order_type,
-            'ordertype': 'market',
-            'volume': volume
-        })
-
-    position = 0  # 0 = pas d'XRP, 1 = XRP en portefeuille
-
-    # Zone d’affichage live
-    log = st.empty()
-
-    # -------------------------------
-    # BOUCLE INFINIE
-    # -------------------------------
-    while True:
+    while running:
         prix = get_price()
+        montant_xrp = montant_usdc / prix
 
-        texte = f"Prix actuel XRP : {prix}\n"
+        texte = f"Prix XRP : {prix}\n"
+        texte += f"Montant : {montant_usdc} USDC → {montant_xrp:.4f} XRP\n"
+        texte += f"Profit net actuel : {profit_net:.4f} USDC\n"
 
-        # Achat
+        # ---------------------------
+        # ACHAT
+        # ---------------------------
         if position == 0 and prix <= prix_achat:
-            texte += f"\n>>> Achat de {montant} XRP au prix {prix}\n"
-            res = place_order("buy", montant)
-            texte += str(res)
+            texte += f"\n>>> ACHAT de {montant_xrp:.4f} XRP à {prix}\n"
+            prix_achat_reel = prix
+            place_order("buy", montant_xrp)
             position = 1
 
-        # Vente
+        # ---------------------------
+        # VENTE
+        # ---------------------------
         elif position == 1 and prix >= prix_vente:
-            texte += f"\n>>> Vente de {montant} XRP au prix {prix}\n"
-            res = place_order("sell", montant)
-            texte += str(res)
+            texte += f"\n>>> VENTE de {montant_xrp:.4f} XRP à {prix}\n"
+            gain = (prix - prix_achat_reel) * (montant_usdc / prix_achat_reel)
+            profit_net += gain
+
+            place_order("sell", montant_xrp)
             position = 0
+
+            texte += f"Profit sur ce trade : {gain:.4f} USDC\n"
+            texte += f"Profit net total : {profit_net:.4f} USDC\n"
 
         log.text(texte)
         time.sleep(3)
+
+
+# -------------------------------------------------------
+# INTERFACE STREAMLIT
+# -------------------------------------------------------
+st.title("BOT XRP Kraken – Achat/Vente + STOP + Profit Net")
+
+prix_achat = st.number_input("Prix d'achat (USD)", min_value=0.0)
+prix_vente = st.number_input("Prix de vente (USD)", min_value=0.0)
+montant_usdc = st.number_input("Montant en USDC", min_value=0.0)
+
+log = st.empty()
+
+col1, col2 = st.columns(2)
+
+with col1:
+    start = st.button("Démarrer le bot")
+
+with col2:
+    stop = st.button("STOP BOT")
+
+
+# -------------------------------------------------------
+# DEMARRER LE BOT
+# -------------------------------------------------------
+if start and not running:
+
+    t = threading.Thread(
+        target=bot_thread,
+        args=(prix_achat, prix_vente, montant_usdc, log)
+    )
+    t.start()
+    st.success("Bot lancé !")
+
+
+# -------------------------------------------------------
+# STOPPER LE BOT
+# -------------------------------------------------------
+if stop:
+    running = False
+    st.error(f"Bot arrêté ! Profit net final : {profit_net:.4f} USDC")
