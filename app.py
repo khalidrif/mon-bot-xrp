@@ -5,14 +5,29 @@ st.set_page_config(layout="wide")
 
 st.title("Bot Trading XRP")
 
-# Exemple de paliers
-paliers = [
-    {"buy":1.33607,"sell":1.37607,"usdc":10,"gain":0},
-    {"buy":1.33000,"sell":1.37000,"usdc":10,"gain":0},
-    {"buy":1.32500,"sell":1.36500,"usdc":10,"gain":0},
-]
+# Paramètres d'entrée
+montant = st.number_input("Montant par palier ($)", value=10)
+nb_paliers = st.number_input("Nombre de paliers", value=5)
 
-for i,p in enumerate(paliers):
+st.write("---")
+
+# Génération des paliers
+paliers = []
+prix_depart = 1.33607
+
+for i in range(int(nb_paliers)):
+    buy = round(prix_depart - (i * 0.005), 5)
+    sell = round(buy + 0.04, 5)
+
+    paliers.append({
+        "buy": buy,
+        "sell": sell,
+        "usdc": montant,
+        "gain": 0
+    })
+
+# Affichage des barres
+for i, p in enumerate(paliers):
 
     components.html(f"""
     <div style="
