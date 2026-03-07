@@ -1,82 +1,80 @@
-import krakenex
+import streamlit as st
+import ccxt
 import time
+from datetime import datetime
 
-# --- CONFIGURATION API ---
-k = krakenex.API()
-k.key = 'VOTRE_CLE_API'      # <--- Colle ta clé API ici
-k.secret = 'VOTRE_SECRET_API' # <--- Colle ton secret ici
+st.set_page_config(page_title="XRP Net Bot", layout="centered")
+st.title("💰 XRP Net : Boule de Neige")
 
-PAIRE = 'XXRPZUSD'      # Paire XRP/Dollar
-FRAIS_KRAKEN = 0.0026   # Frais de 0.26% par transaction
+# --- CONFIGURATION ---
+with st.container():
+    col1, col2 = st.columns(2)
+    buy_p = col1.number_input("Prix d'Achat (USD)", value=2.50, format="%.4f")
+    sell_p = col2.number_input("Prix de Vente (USD)", value=2.60, format="%.4f")
+    amount_init = st.number_input("Montant de départ (XRP)", value=20.0)
 
-# --- CONFIGURATION INITIALE ---
-print("="*45)
-print("      BOT XRP BOULE DE NEIGE - FINAL")
-print("="*45)
-p_achat = float(input("Prix d'ACHAT cible (ex: 0.50)  : "))
-p_vente = float(input("Prix de VENTE cible (ex: 0.55)  : "))
-montant = float(input("Montant départ (Min 15 XRP) : "))
+# Connexion API (via Secrets Streamlit)
+exchange = ccxt.kraken({
+    'apiKey': st.secrets["KRAKEN_API_KEY"],
+    'secret': st.secrets["KRAKEN_SECRET"],
+    'enableRateLimit': True,
+})
 
-gain_net_cumule = 0.0
-cycles = 0
-etape = "ACHAT"
+# Initialisation du capital net
+if 'current_qty' not in st.session_state:
+    st.session_state.current_qty = amount_init
 
-print(f"\n[STATUT] Bot lancé sur {PAIRE}...")
-print(f"Stratégie : Acheter à {p_achat}$ / Vendre à {p_vente}$")
-print("-" * 45)
+# --- AFFICHAGE DES GAINS NETS ---
+st.write("---")
+c1, c2 = st.columns(2)
+c1.metric("Stock XRP Net", f"{st.session_state.current_qty:.2f} XRP")
+profit_net = st.session_state.current_qty - amount_init
+c2.metric("Gain Net Accumulé", f"+{profit_net:.2f} XRP", delta=f"{profit_net:.4f}")
 
-while True:
-    try:
-        # 1. Récupération du prix actuel
-        ticker = k.query_public('Ticker', {'pair': PAIRE})
-        if ticker.get('error'):
-            print(f"\nErreur API : {ticker['error']}")
-            time.sleep(30)
-            continue
-            
-        prix_actuel = float(ticker['result'][PAIRE]['c'][0])
-        
-        # 2. Affichage de la barre de statut dynamique
-        barre = f"XRP: {prix_actuel:.4f}$ | FOURCHETTE: [{p_achat}$ - {p_vente}$] | MODE: {etape} | CYCLES: {cycles} | NET: +{gain_net_cumule:.2f}$"
-        print(barre, end='\r')
+status = st.empty()
+log_area = st.container()
 
-        # 3. Logique d'ACHAT
-        if etape == "ACHAT" and prix_actuel <= p_achat:
-            print(f"\n[ACTION] Achat de {montant:.2f} XRP à {prix_actuel}$")
-            
-            # --- ACTIVER L'ORDRE REEL ICI ---
-            # k.query_private('AddOrder', {'pair': PAIRE, 'type': 'buy', 'ordertype': 'market', 'volume': montant})
-            
-            etape = "VENTE"
-
-        # 4. Logique de VENTE + CALCUL NET + REINVESTISSEMENT
-        elif etape == "VENTE" and prix_actuel >= p_vente:
-            print(f"\n[ACTION] Vente de {montant:.2f} XRP à {prix_actuel}$")
-            
-            # --- ACTIVER L'ORDRE REEL ICI ---
-            # k.query_private('AddOrder', {'pair': PAIRE, 'type': 'sell', 'ordertype': 'market', 'volume': montant})
-
-            # Calcul du profit NET (Vente - Achat - Frais des deux trades)
-            valeur_vente = montant * prix_actuel
-            valeur_achat = montant * p_achat
-            frais_totaux = (valeur_vente + valeur_achat) * FRAIS_KRAKEN
-            
-            profit_net_cycle = valeur_vente - valeur_achat - frais_totaux
-            gain_net_cumule += profit_net_cycle
-            
-            # EFFET BOULE DE NEIGE : On réinvestit le profit net pour le cycle suivant
-            # On calcule combien d'XRP supplémentaires on peut acheter avec ce profit
-            montant += (profit_net_cycle / prix_actuel)
-            
-            cycles += 1
-            print(f"--- CYCLE N°{cycles} RÉUSSI ---")
-            print(f"Gain Net Cycle : +{profit_net_cycle:.4f}$ | Total NET : {gain_net_cumule:.2f}$")
-            print(f"Nouveau montant XRP pour le prochain cycle : {montant:.2f}")
-            
-            etape = "ACHAT"
-
-    except Exception as e:
-        print(f"\n[ERREUR] : {e}")
+# --- LOGIQUE DU BOT ---
+if st.button("Lancer le Bot (Gain Net)"):
+    st.info("Surveillance du marché activée...")
     
-    # Pause de 10 secondes pour respecter les limites de Kraken
-    time.sleep(10)
+    while True:
+        try:
+            ticker = exchange.fetch_ticker('XRP/USD')
+            prix_actuel = ticker['last']
+            status.markdown(f"**Prix actuel :** `{prix_actuel}$` | **Cible :** `{buy_p}$`")
+
+            # 1. ACHAT NET
+            if prix_actuel <= buy_p:
+                status.warning("🛒 Exécution de l'achat...")
+                # exchange.create_limit_buy_order('XRP/USD', st.session_state.current_qty, buy_p)
+                
+                # 2. VENTE ET CALCUL NET (Boule de neige)
+                status.warning("⏳ Achat fait. Attente du prix de vente...")
+                while True:
+                    p = exchange.fetch_ticker('XRP/USD')['last']
+                    if p >= sell_p:
+                        # exchange.create_limit_sell_order('XRP/USD', st.session_state.current_qty, sell_p)
+                        
+                        # Calcul Net après 0.26% de frais à l'achat ET à la vente
+                        frais = 0.0026
+                        # On réinvestit tout le capital net restant
+                        nouveau_net = ((st.session_state.current_qty * sell_p * (1-frais)) / buy_p) * (1-frais)
+                        
+                        st.session_state.current_qty = nouveau_net
+                        st.success(f"✅ Cycle terminé ! Nouveau solde net : {nouveau_net:.2f} XRP")
+                        time.sleep(2)
+                        st.rerun() # Mise à jour immédiate de l'affichage
+                        break
+                    time.sleep(15)
+            
+            time.sleep(15)
+
+        except Exception as e:
+            st.error(f"Erreur API : {e}")
+            time.sleep(30)
+
+# Historique simple
+with log_area:
+    st.write("---")
+    st.write("🕒 **Dernière mise à jour :**", datetime.now().strftime("%H:%M:%S"))
