@@ -10,72 +10,49 @@ paliers = [
 
 for i,p in enumerate(paliers):
 
-    etat = "WAIT BUY"
-    couleur = "#00aa44"
-
     components.html(f"""
     <div style="
     background:#101010;
-    width:680px;
-    height:34px;
+    width:95%;
+    height:30px;
     margin:auto;
     margin-top:6px;
-    border-radius:6px;
-    border-left:4px solid {couleur};
-    font-family:Consolas, monospace;
-    font-size:13px;
-    color:#e6e6e6;
-    display:grid;
-    grid-template-columns:50px 130px 130px 80px 120px 90px 70px 70px;
+    border-radius:5px;
+    font-family:Arial;
+    font-size:12px;
+    color:white;
+    display:flex;
     align-items:center;
-    padding-left:10px;
+    justify-content:space-between;
+    padding-left:6px;
+    padding-right:6px;
     ">
 
-    <div style="color:#aaaaaa;">P{i+1}</div>
+    <span>P{i+1}</span>
 
-    <div style="color:#00ff88;font-weight:bold;">
-    BUY {p['buy']}
-    </div>
+    <span style="color:#00ff88;">
+    B:{p['buy']}
+    </span>
 
-    <div style="color:#ff4d4d;font-weight:bold;">
-    SELL {p['sell']}
-    </div>
+    <span style="color:#ff4d4d;">
+    S:{p['sell']}
+    </span>
 
-    <div style="color:#dddddd;">
-    ${p['usdc']}
-    </div>
+    <span>${p['usdc']}</span>
 
-    <div style="color:#ffaa00;">
-    {etat}
-    </div>
+    <span>WAIT</span>
 
-    <div style="color:#00ffaa;">
-    +{p['gain']:.4f}
-    </div>
+    <span>+{p['gain']}</span>
 
     <button style="
-    width:60px;
-    height:24px;
-    background:#cc0000;
-    color:white;
-    border:none;
-    border-radius:4px;
-    font-size:11px;
-    cursor:pointer;">
-    OFF
-    </button>
+    height:20px;
+    font-size:10px;
+    ">OFF</button>
 
     <button style="
-    width:60px;
-    height:24px;
-    background:#550000;
-    color:white;
-    border:none;
-    border-radius:4px;
-    font-size:11px;
-    cursor:pointer;">
-    DEL
-    </button>
+    height:20px;
+    font-size:10px;
+    ">DEL</button>
 
     </div>
-    """,height=40)
+    """, height=35)
