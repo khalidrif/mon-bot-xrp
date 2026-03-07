@@ -2,58 +2,62 @@ import streamlit as st
 import ccxt
 import time
 
-st.set_page_config(page_title="Kraken XRP Sniper", page_icon="🎯")
-st.title("🎯 Bot XRP/USDC Kraken")
+st.set_page_config(page_title="Test Ordre Kraken", page_icon="🧪")
+st.title("🧪 Testeur d'Ordre XRP/USDC")
 
-# 1. Connexion API
-@st.cache_resource
-def init_exchange():
-    try:
-        return ccxt.kraken({
-            'apiKey': st.secrets["KRAKEN_KEY"],
-            'secret': st.secrets["KRAKEN_SECRET"],
-            'enableRateLimit': True,
-            'options': {'nonce': lambda: int(time.time() * 1000)}
-        })
-    except Exception as e:
-        st.error(f"Erreur de connexion : {e}")
-        return None
+# 1. Connexion API avec correction Nonce
+try:
+    exchange = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_KEY"],
+        'secret': st.secrets["KRAKEN_SECRET"],
+        'enableRateLimit': True,
+        'options': {'nonce': lambda: int(time.time() * 1000)}
+    })
+    st.success("✅ API Connectée")
+except Exception as e:
+    st.error(f"❌ Erreur de connexion : {e}")
+    st.stop()
 
-exchange = init_exchange()
-
-# 2. Interface latérale (Solde)
-if exchange:
+# 2. Vérification précise du portefeuille
+if st.button("🔎 Étape 1 : Vérifier mes soldes réels"):
     try:
         balance = exchange.fetch_balance()
-        usdc_dispo = balance.get('USDC', {}).get('free', 0)
-        st.sidebar.metric("Solde USDC", f"{usdc_dispo:.2f}")
-    except:
-        st.sidebar.error("Erreur lecture solde")
+        # On filtre pour ne voir que ce que tu possèdes vraiment
+        possessions = {k: v for k, v in balance['total'].items() if v > 0}
+        st.write("Voici ce que le bot voit sur ton compte :")
+        st.json(possessions)
+        
+        if 'USDC' not in possessions:
+            st.warning("⚠️ Attention : Tu n'as pas de USDC. Convertis tes USD ou EUR en USDC sur Kraken.")
+    except Exception as e:
+        st.error(f"Erreur lecture solde : {e}")
 
-# 3. Paramètres
-st.subheader("Configuration")
-p_achat = st.number_input("Prix Achat (USDC)", value=1.3000, format="%.4f")
-p_vente = st.number_input("Prix Vente (USDC)", value=1.3500, format="%.4f")
-montant = st.number_input("Montant XRP", value=10.0, step=1.0)
+# 3. Test d'envoi d'ordre
+st.divider()
+st.subheader("Étape 2 : Envoyer un ordre test")
+montant_test = st.number_input("Montant de XRP à tester (Min 15 recommandé)", value=20.0)
 
-# 4. Exécution
-if st.button("Démarrer"):
-    status = st.empty()
-    etape = "ACHAT"
-    
-    while etape != "FINI":
-        try:
-            ticker = exchange.fetch_ticker('XRP/USDC')
-            actuel = ticker['last']
-            
-            if etape == "ACHAT" and actuel <= p_achat:
-                exchange.create_market_buy_order('XRP/USDC', montant)
-                etape = "VENTE"
-            elif etape == "VENTE" and actuel >= p_vente:
-                exchange.create_market_sell_order('XRP/USDC', montant)
-                etape = "FINI"
-            
-            time.sleep(10)
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-            break
+if st.button("🚀 LANCER L'ORDRE D'ACHAT MAINTENANT"):
+    try:
+        st.info(f"Tentative d'achat au marché de {montant_test} XRP...")
+        
+        # On tente l'achat immédiat au prix du marché
+        ordre = exchange.create_market_buy_order('XRP/USDC', montant_test)
+        
+        st.success("🎉 SUCCÈS ! L'ordre a été accepté par Kraken.")
+        st.write("Détails de l'ordre :")
+        st.json(ordre)
+        
+    except ccxt.InsufficientFunds as e:
+        st.error(f"❌ FONDS INSUFFISANTS : Tu n'as pas assez de USDC (frais inclus).")
+        st.info("Astuce : Essaie de diminuer le montant de XRP ou d'ajouter des USDC.")
+    except ccxt.InvalidOrder as e:
+        st.error(f"❌ ORDRE INVALIDE : {e}")
+        st.info("Souvent dû à un montant trop petit (Kraken demande ~10-15 XRP minimum).")
+    except ccxt.AuthenticationError as e:
+        st.error(f"❌ ERREUR API : Tes clés n'ont pas les permissions 'Trading'.")
+    except Exception as e:
+        st.error(f"❌ ERREUR INCONNUE : {e}")
+
+st.divider()
+st.caption("Note : Ce bouton achète REELLEMENT du XRP si le test réussit.")
