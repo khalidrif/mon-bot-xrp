@@ -1,75 +1,98 @@
 import streamlit as st
 import ccxt
+import pandas as pd
 import time
+from datetime import datetime
 
-st.set_page_config(page_title="Kraken XRP Grid", layout="wide")
+# Configuration de la page Pro
+st.set_page_config(page_title="Kraken XRP Algo-Trader", layout="wide", page_icon="📈")
 
-# --- CONNEXION ---
-try:
-    exchange = ccxt.kraken({
+# Style CSS personnalisé pour un look "Dark Mode Professional"
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; }
+    .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; border: 1px solid #3e4255; }
+    .bot-card { padding: 20px; border-radius: 15px; border-left: 5px solid #00ffcc; background-color: #161b22; margin-bottom: 20px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- CONNEXION KRAKEN ---
+@st.cache_resource
+def get_exchange():
+    return ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_API_KEY"],
         'secret': st.secrets["KRAKEN_SECRET"],
         'enableRateLimit': True,
     })
-    st.success("✅ Connecté à Kraken")
+
+try:
+    exchange = get_exchange()
+    balance = exchange.fetch_balance()
+    xrp_bal = balance['total'].get('XRP', 0)
+    usdc_bal = balance['total'].get('USDC', 0)
 except Exception as e:
-    st.error(f"❌ Erreur de connexion : {e}")
+    st.error(f"Erreur de connexion API : {e}")
     st.stop()
 
-st.title("🤖 XRP Multi-Bot Automatique")
-
-# --- CONFIGURATION DES BOTS ---
-st.write("### ⚙️ Paramètres des Bots")
-
-col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
-with col1: 
-    p1_buy = st.number_input("Bot 1 : Achat", value=2.450, format="%.3f")
-    p2_buy = st.number_input("Bot 2 : Achat", value=2.350, format="%.3f")
-with col2:
-    p1_sell = st.number_input("Bot 1 : Vente", value=2.550, format="%.3f")
-    p2_sell = st.number_input("Bot 2 : Vente", value=2.450, format="%.3f")
-with col3:
-    qty1 = st.number_input("Bot 1 : Quantité", value=20.0, key="q1")
-    qty2 = st.number_input("Bot 2 : Quantité", value=20.0, key="q2")
-with col4:
-    st.write("") # Espace
-    run_btn = st.button("▶️ DÉMARRER")
-    stop_btn = st.button("⏹️ ARRÊTER")
+# --- HEADER & PORTFOLIO ---
+st.title("📈 Kraken XRP Professional Grid")
+col_bal1, col_bal2, col_bal3, col_bal4 = st.columns(4)
+with col_bal1: st.metric("Solde XRP", f"{xrp_bal:,.2f} XRP")
+with col_bal2: st.metric("Solde USDC", f"{usdc_bal:,.2f} USDC")
+with col_bal3: 
+    ticker = exchange.fetch_ticker('XRP/USDC')
+    st.metric("Prix XRP/USDC", f"{ticker['last']:.4f}", f"{ticker['percentage']:.2f}%")
+with col_bal4: st.write(f"⏱️ {datetime.now().strftime('%H:%M:%S')}")
 
 st.divider()
 
-# --- ZONE DE SUIVI (LOGS) ---
-st.write("### 📊 État des Bots en Temps Réel")
-status_bot1 = st.empty()
-status_bot2 = st.empty()
+# --- CONFIGURATION DES BOTS ---
+st.subheader("⚙️ Configuration des Lignes de Trading")
+c1, c2 = st.columns(2)
 
-# Gestion de l'exécution
-if run_btn:
-    st.session_state.active = True
-if stop_btn:
-    st.session_state.active = False
-    st.warning("Arrêt demandé... Le bot finira sa vérification en cours.")
+with c1:
+    st.markdown('<div class="bot-card"><h4>🤖 BOT LIGNE HAUTE</h4>', unsafe_allow_html=True)
+    h_buy = st.number_input("Achat (Haut)", value=2.450, format="%.3f", key="hb")
+    h_sell = st.number_input("Vente (Haut)", value=2.550, format="%.3f", key="hs")
+    h_qty = st.number_input("Quantité XRP (H)", value=20.0, key="hq")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# --- LOGIQUE DE BOUCLE ---
-if st.session_state.get('active'):
-    symbol = 'XRP/USDC'
+with c2:
+    st.markdown('<div class="bot-card" style="border-left-color: #ff4b4b;"><h4>🤖 BOT LIGNE BASSE</h4>', unsafe_allow_html=True)
+    b_buy = st.number_input("Achat (Bas)", value=2.350, format="%.3f", key="bb")
+    b_sell = st.number_input("Vente (Bas)", value=2.450, format="%.3f", key="bs")
+    b_qty = st.number_input("Quantité XRP (B)", value=20.0, key="bq")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- CONTRÔLE ET LOGS ---
+col_ctrl, col_logs = st.columns([1, 2])
+
+with col_ctrl:
+    st.write("### 🕹️ Contrôle")
+    if 'active' not in st.session_state: st.session_state.active = False
     
-    # Initialisation simplifiée pour l'exemple (1 cycle par bot alternativement)
+    if st.button("▶️ DÉMARRER LA GRILLE", use_container_width=True, type="primary"):
+        st.session_state.active = True
+    
+    if st.button("⏹️ ARRÊTER TOUT", use_container_width=True):
+        st.session_state.active = False
+        st.experimental_rerun()
+
+with col_logs:
+    st.write("### 📊 Activité en Temps Réel")
+    log_h = st.empty()
+    log_b = st.empty()
+
+# --- LOGIQUE D'EXÉCUTION ---
+if st.session_state.active:
+    symbol = 'XRP/USDC'
     while st.session_state.active:
-        # BOT 1 : Vérification/Action
-        status_bot1.info(f"🔄 **Bot 1** : Placement ordre d'achat à **{p1_buy}**...")
-        # Ici on place l'ordre et on attend (logique simplifiée)
-        # Pour une version "H24", le script attendrait ici l'exécution de Kraken
+        # --- LOGIQUE BOT HAUT ---
+        log_h.info(f"**Bot Haut** : En attente d'achat à **{h_buy}**...")
+        # (Ici vous pouvez insérer le code réel exchange.create_order)
         
-        time.sleep(2) # Simulation de latence réseau
-        status_bot1.warning(f"⏳ **Bot 1** : En attente d'exécution sur Kraken...")
+        # --- LOGIQUE BOT BAS ---
+        log_b.info(f"**Bot Bas** : En attente d'achat à **{b_buy}**...")
         
-        # BOT 2 : Vérification/Action
-        status_bot2.info(f"🔄 **Bot 2** : Placement ordre d'achat à **{p2_buy}**...")
-        
-        time.sleep(5) # Pause pour ne pas saturer l'API Kraken
-        
-        # Note : Dans Streamlit, cette boucle bloque l'interface. 
-        # Pour arrêter, il faut souvent rafraîchir la page ou utiliser le bouton Stop.
-else:
-    st.info("Bots en pause. Cliquez sur Démarrer pour lancer les cycles.")
+        time.sleep(10) # Pause de sécurité pour l'API
+        st.toast("Mise à jour des bots...")
