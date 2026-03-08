@@ -1,33 +1,37 @@
 import streamlit as st
 import ccxt
+import json, os
 from streamlit_autorefresh import st_autorefresh
 
-# ---------------------------------------------------
+# ----------------------------------------------------
 # CONFIG
-# ---------------------------------------------------
+# ----------------------------------------------------
 st.set_page_config(page_title="Bots Snowball", page_icon="❄️", layout="wide")
 
-st.markdown("""
-<style>
-.bot-row {
-    border: 1px solid #cccccc55;
-    padding: 10px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    background: #f7f7f7;
-}
-.status-green {
-    color: #1FAA59; font-size: 30px;
-}
-.status-red {
-    color: #B4161B; font-size: 30px;
-}
-</style>
-""", unsafe_allow_html=True)
+SAVE_FILE = "bots_data.json"
 
-# ---------------------------------------------------
-# CONNECT KRAKEN
-# ---------------------------------------------------
+# ----------------------------------------------------
+# SAUVEGARDE / CHARGEMENT
+# ----------------------------------------------------
+def save_data():
+    with open(SAVE_FILE, "w") as f:
+        json.dump(st.session_state.bots, f, indent=4)
+
+def load_data():
+    if os.path.exists(SAVE_FILE):
+        with open(SAVE_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+# ----------------------------------------------------
+# INIT SESSION
+# ----------------------------------------------------
+if "bots" not in st.session_state:
+    st.session_state.bots = load_data()
+
+# ----------------------------------------------------
+# KRAKEN
+# ----------------------------------------------------
 try:
     exchange = ccxt.kraken({
         "apiKey": st.secrets["KRAKEN_KEY"],
@@ -35,69 +39,71 @@ try:
         "enableRateLimit": True,
     })
 except:
-    st.error("Erreur clé API")
+    st.error("Erreur API Kraken")
     st.stop()
 
-st_autorefresh(interval=8000, key="refresh")
+st_autorefresh(interval=7000, key="refresh")
 
-# ---------------------------------------------------
-# SESSION DATA
-# ---------------------------------------------------
-if "bots" not in st.session_state:
-    st.session_state.bots = []
-
-# ---------------------------------------------------
-# PRIX + SOLDES
-# ---------------------------------------------------
+# ----------------------------------------------------
+# PRIX & SOLDES
+# ----------------------------------------------------
 try:
     ticker = exchange.fetch_ticker("XRP/USD")
     prix = ticker["last"]
 
     bal = exchange.fetch_balance()
+    usd_total = next((bal["total"][x] for x in ["USDC","USD","ZUSD"] if x in bal["total"]),0)
+    xrp_total = bal["total"].get("XRP", 0)
 
-    usd = next((bal["total"][s] for s in ["USDC", "USD", "ZUSD"] if s in bal["total"]), 0)
-    xrp = bal["total"].get("XRP", 0.0)
 except:
-    st.error("Erreur connexion Kraken.")
+    st.error("Erreur Kraken")
     st.stop()
 
-# ---------------------------------------------------
+# ----------------------------------------------------
 # HEADER
-# ---------------------------------------------------
+# ----------------------------------------------------
 st.title("❄️ Bots Snowball XRP")
-
 st.metric("Prix XRP", f"{prix:.4f} $")
 
-# ---------------------------------------------------
+# ----------------------------------------------------
 # BOUTON AJOUT BOT
-# ---------------------------------------------------
+# ----------------------------------------------------
 if st.button("➕ Ajouter un bot"):
     st.session_state.bots.append({
         "enabled": False,
+        "mode": "BUY",           # BUY → pastille verte / SELL → rouge
+        "usdc": 10,              # montant USDC utilisé par ce bot
         "buy": prix * 0.99,
         "sell": prix * 1.01,
         "entry": None,
         "gain": 0.0,
         "cycles": 0
     })
+    save_data()
     st.rerun()
 
-# ---------------------------------------------------
+# ----------------------------------------------------
 # AFFICHAGE DES BOTS
-# ---------------------------------------------------
+# ----------------------------------------------------
 for i, bot in enumerate(st.session_state.bots):
 
-    st.markdown("<div class='bot-row'>", unsafe_allow_html=True)
+    col0, colU, col1, col2, col3, col4, col5 = st.columns([1,2,3,3,3,3,2])
 
-    col0, col1, col2, col3, col4, col5 = st.columns([1, 3, 3, 3, 3, 2])
-
-    # Pastille verte / rouge
-    if bot["enabled"]:
-        col0.markdown("<div class='status-green'>●</div>", unsafe_allow_html=True)
+    # Pastille
+    if bot["mode"] == "BUY":
+        col0.markdown("🟢")
     else:
-        col0.markdown("<div class='status-red'>●</div>", unsafe_allow_html=True)
+        col0.markdown("🔴")
 
-    # Buy
+    # Montant USDC
+    bot["usdc"] = colU.number_input(
+        "USDC",
+        min_value=1.0,
+        value=float(bot["usdc"]),
+        key=f"usdc_{i}"
+    )
+
+    # Buy target
     bot["buy"] = col1.number_input(
         "Buy ≤",
         value=float(bot["buy"]),
@@ -105,7 +111,7 @@ for i, bot in enumerate(st.session_state.bots):
         key=f"buy_{i}"
     )
 
-    # Sell
+    # Sell target
     bot["sell"] = col2.number_input(
         "Sell ≥",
         value=float(bot["sell"]),
@@ -113,47 +119,65 @@ for i, bot in enumerate(st.session_state.bots):
         key=f"sell_{i}"
     )
 
-    # Gain total
+    # Gain
     col3.metric("Gain", f"{bot['gain']:.4f} $")
 
-    # Nombre de cycles
+    # Cycles
     col4.metric("Cycles", bot["cycles"])
 
-    # Bouton ON/OFF
+    # Bouton Start / Stop
     if bot["enabled"]:
-        if col5.button(f"Stop", key=f"stop_{i}"):
+        if col5.button("Stop", key=f"stop_{i}"):
             bot["enabled"] = False
             bot["entry"] = None
+            save_data()
             st.rerun()
     else:
-        if col5.button(f"Start", key=f"start_{i}"):
+        if col5.button("Start", key=f"start_{i}"):
             bot["enabled"] = True
+            bot["mode"] = "BUY"
+            save_data()
             st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------------------------------------------------
-# LOGIQUE DE TRADING
-# ---------------------------------------------------
+# ----------------------------------------------------
+# LOGIQUE TRADING SNOWBALL
+# ----------------------------------------------------
 for bot in st.session_state.bots:
 
     if not bot["enabled"]:
         continue
 
-    # ACHAT
-    if bot["entry"] is None:
-        if prix <= bot["buy"] and usd > 5:
-            qty = (usd - 1) / prix
+    # Mode BUY (🟢)
+    if bot["mode"] == "BUY":
+
+        if prix <= bot["buy"] and bot["usdc"] > 1:
+
+            qty = (bot["usdc"] - 1) / prix
+
             exchange.create_market_buy_order("XRP/USD", qty)
+
             bot["entry"] = prix
+            bot["mode"] = "SELL"   # passe en mode vente
+            save_data()
             st.rerun()
 
-    # VENTE
-    else:
-        if prix >= bot["sell"] and xrp > 1:
-            exchange.create_market_sell_order("XRP/USD", xrp)
-            gain = (prix - bot["entry"]) * xrp
+    # Mode SELL (🔴)
+    elif bot["mode"] == "SELL":
+
+        if prix >= bot["sell"] and xrp_total > 1:
+
+            exchange.create_market_sell_order("XRP/USD", xrp_total)
+
+            gain = (prix - bot["entry"]) * xrp_total
             bot["gain"] += gain
             bot["cycles"] += 1
-            bot["entry"] = None    # restart snowball
+            bot["entry"] = None
+            bot["mode"] = "BUY"    # recommence cycle
+
+            save_data()
             st.rerun()
+
+# ----------------------------------------------------
+# SAUVER À CHAQUE CHANGEMENT
+# ----------------------------------------------------
+save_data()
