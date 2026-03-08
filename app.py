@@ -2,7 +2,7 @@ import streamlit as st
 import ccxt
 import json, os, time
 
-st.set_page_config(page_title="Bots Snowball", page_icon="❄️", layout="wide")
+st.set_page_config(page_title="Bots Snowball XRP/USDC", page_icon="❄️", layout="wide")
 
 SAVE_FILE = "bots.json"
 
@@ -40,30 +40,42 @@ except:
     st.stop()
 
 # ---------------------------
-# Prix
+# Prix XRP/USDC
 # ---------------------------
 def get_price():
     try:
-        return exchange.fetch_ticker("XRP/USD")["last"]
+        return exchange.fetch_ticker("XRP/USDC")["last"]
     except:
         return None
 
 prix = get_price()
 
-st.title("❄️ Snowball XRP (Ultra Stable)")
+st.title("❄️ Snowball XRP/USDC – Ultra Stable")
+
 if prix:
-    st.metric("Prix XRP", f"{prix:.4f} $")
+    st.metric("Prix XRP/USDC", f"{prix:.4f}")
 else:
     st.error("Erreur récupération prix")
     st.stop()
 
 # ---------------------------
-# Bouton ajouter bot
+# Solde USDC réel Kraken
+# ---------------------------
+try:
+    bal = exchange.fetch_balance()
+    usdc_balance = bal["total"].get("USDC", 0)
+except:
+    usdc_balance = 0
+
+st.metric("USDC Kraken Disponible", f"{usdc_balance:.4f}")
+
+# ---------------------------
+# Ajouter bot
 # ---------------------------
 if st.button("➕ Ajouter un bot"):
     st.session_state.bots.append({
         "enabled": False,
-        "mode": "BUY",       # BUY = 🟢  SELL = 🔴
+        "mode": "BUY",       # BUY = 🟢 , SELL = 🔴
         "usdc": 10.0,
         "buy": prix * 0.99,
         "sell": prix * 1.01,
@@ -85,96 +97,99 @@ for i, bot in enumerate(st.session_state.bots):
     # Pastille
     col0.write("🟢" if bot["mode"] == "BUY" else "🔴")
 
-    # USDC du bot
+    # Montant USDC utilisé par ce bot
     bot["usdc"] = colU.number_input(
         "USDC",
         min_value=1.0,
         value=float(bot["usdc"]),
-        key=f"u_{i}"
+        key=f"u{i}"
     )
 
-    # Buy target
+    # Buy limit
     bot["buy"] = col1.number_input(
         "Buy ≤",
         value=float(bot["buy"]),
         format="%.4f",
-        key=f"b_{i}"
+        key=f"b{i}"
     )
 
-    # Sell target
+    # Sell limit
     bot["sell"] = col2.number_input(
         "Sell ≥",
         value=float(bot["sell"]),
         format="%.4f",
-        key=f"s_{i}"
+        key=f"s{i}"
     )
 
     # Gain
     col3.metric("Gain", f"{bot['gain']:.4f} $")
 
-    # Cycles
+    # Cycles snowball
     col4.metric("Cycles", bot["cycles"])
 
-    # Bouton Start/Stop
+    # Start / Stop
     if bot["enabled"]:
-        if col5.button("Stop", key=f"stop_{i}"):
+        if col5.button("Stop", key=f"stop{i}"):
             bot["enabled"] = False
             bot["entry"] = None
             bot["mode"] = "BUY"
             save_bots()
             st.rerun()
     else:
-        if col5.button("Start", key=f"start_{i}"):
+        if col5.button("Start", key=f"start{i}"):
             bot["enabled"] = True
             bot["mode"] = "BUY"
             save_bots()
             st.rerun()
 
 # ---------------------------
-# Logique trading (toutes les 2 secondes)
+# LOGIQUE SNOWBALL
 # ---------------------------
 now = time.time()
-if now - st.session_state.last_run > 2:
+if now - st.session_state.last_run > 2:  # toutes les 2s
     st.session_state.last_run = now
 
     prix = get_price()
 
-    for bot in st.session_state.bots:
+    if prix:
 
-        if not bot["enabled"]:
-            continue
+        for bot in st.session_state.bots:
 
-        # MODE BUY = attendre achat
-        if bot["mode"] == "BUY":
+            if not bot["enabled"]:
+                continue
 
-            if prix <= bot["buy"]:
-                qty = bot["usdc"] / prix
+            # MODE BUY (🟢)
+            if bot["mode"] == "BUY":
 
-                try:
-                    exchange.create_market_buy_order("XRP/USD", qty)
-                except Exception as e:
-                    st.error(f"Erreur achat : {e}")
-                    continue
+                if prix <= bot["buy"]:
 
-                bot["entry"] = prix
-                bot["xrp_qty"] = qty
-                bot["mode"] = "SELL"
-                save_bots()
+                    qty = bot["usdc"] / prix
 
-        # MODE SELL = attendre vente
-        elif bot["mode"] == "SELL":
+                    try:
+                        exchange.create_market_buy_order("XRP/USDC", qty)
+                    except Exception as e:
+                        st.error(f"Erreur achat bot : {e}")
+                        continue
 
-            if prix >= bot["sell"]:
+                    bot["entry"] = prix
+                    bot["xrp_qty"] = qty
+                    bot["mode"] = "SELL"
+                    save_bots()
 
-                try:
-                    exchange.create_market_sell_order("XRP/USD", bot["xrp_qty"])
-                except Exception as e:
-                    st.error(f"Erreur vente : {e}")
-                    continue
+            # MODE SELL (🔴)
+            elif bot["mode"] == "SELL":
 
-                gain = (prix - bot["entry"]) * bot["xrp_qty"]
-                bot["gain"] += gain
-                bot["cycles"] += 1
-                bot["entry"] = None
-                bot["mode"] = "BUY"
-                save_bots()
+                if prix >= bot["sell"]:
+
+                    try:
+                        exchange.create_market_sell_order("XRP/USDC", bot["xrp_qty"])
+                    except Exception as e:
+                        st.error(f"Erreur vente bot : {e}")
+                        continue
+
+                    gain = (prix - bot["entry"]) * bot["xrp_qty"]
+                    bot["gain"] += gain
+                    bot["cycles"] += 1
+                    bot["entry"] = None
+                    bot["mode"] = "BUY"
+                    save_bots()
