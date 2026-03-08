@@ -1,84 +1,102 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="XRP Grid Bot", layout="wide")
+# Configuration de la page
+st.set_page_config(page_title="XRP Snowball Bot", layout="wide", page_icon="❄️")
 
-st.title("🤖 XRP Trading Bot Pro")
-
-# --- Initialisation ---
+# --- INITIALISATION ---
 if "paliers" not in st.session_state:
     st.session_state.paliers = []
+if "capital_historique" not in st.session_state:
+    st.session_state.capital_historique = []
 
-# --- Sidebar : Paramètres de simulation ---
+# --- FONCTION DE CALCUL ---
+def ajouter_bot(buy, sell, mise):
+    st.session_state.paliers.append({
+        "buy": buy,
+        "sell": sell,
+        "mise_initiale": mise,
+        "statut": "EN ATTENTE", # EN ATTENTE -> ACHETÉ -> VENDU
+        "resultat": 0.0
+    })
+
+# --- UI : HEADER ---
+st.title("❄️ XRP Snowball Bot")
+st.markdown("Chaque profit est réinvesti dans le palier suivant pour maximiser les intérêts composés.")
+
+# --- SIDEBAR : LE MARCHÉ ---
 with st.sidebar:
-    st.header("⚙️ Simulation")
-    prix_actuel = st.number_input("Prix XRP Actuel ($)", value=1.3400, format="%.4f", step=0.0001)
-    st.info("Simulez la variation du prix pour voir les bots s'activer.")
-
-# --- Ajouter un Bot ---
-with st.expander("➕ Configurer un nouveau palier", expanded=True):
-    c1, c2, c3 = st.columns(3)
-    buy_target = c1.number_input("Cible d'achat (BUY)", value=prix_actuel - 0.01, format="%.4f")
-    sell_target = c2.number_input("Cible de vente (SELL)", value=prix_actuel + 0.02, format="%.4f")
-    montant_usdc = c3.number_input("Investissement (USDC)", value=10.0, step=1.0)
-    
-    if st.button("Lancer le Bot sur ce palier", use_container_width=True):
-        st.session_state.paliers.append({
-            "buy": buy_target,
-            "sell": sell_target,
-            "usdc": montant_usdc,
-            "status": "ATTENTE", # ATTENTE, ACHETÉ, TERMINÉ
-            "id": len(st.session_state.paliers)
-        })
+    st.header("📊 Simulation Marché")
+    prix_actuel = st.number_input("Prix XRP Actuel ($)", value=1.340, step=0.001, format="%.3f")
+    st.divider()
+    if st.button("Effacer tout l'historique"):
+        st.session_state.paliers = []
         st.rerun()
 
-# --- Logique de mise à jour automatique ---
-profit_realise = 0.0
+# --- LOGIQUE DE MISE À JOUR (AUTO) ---
+profit_total_realise = 0.0
+capital_disponible = 0.0
+
 for p in st.session_state.paliers:
-    # 1. Si prix baisse sous BUY -> Le bot achète
-    if p["status"] == "ATTENTE" and prix_actuel <= p["buy"]:
-        p["status"] = "ACHETÉ"
+    # 1. Automatisme d'Achat
+    if p["statut"] == "EN ATTENTE" and prix_actuel <= p["buy"]:
+        p["statut"] = "ACHETÉ"
     
-    # 2. Si prix monte au-dessus de SELL après achat -> Le bot vend
-    if p["status"] == "ACHETÉ" and prix_actuel >= p["sell"]:
-        p["status"] = "TERMINÉ"
+    # 2. Automatisme de Vente
+    if p["statut"] == "ACHETÉ" and prix_actuel >= p["sell"]:
+        p["statut"] = "VENDU"
+        # Calcul du gain : (Prix Vente / Prix Achat) * Mise
+        p["resultat"] = (p["sell"] / p["buy"]) * p["mise_initiale"]
     
-    # Calcul du profit réalisé
-    if p["status"] == "TERMINÉ":
-        profit_realise += (p["sell"] - p["buy"]) * (p["usdc"] / p["buy"])
+    # Calcul du profit cumulé pour le dashboard
+    if p["statut"] == "VENDU":
+        profit_total_realise += (p["resultat"] - p["mise_initiale"])
+        capital_disponible = p["resultat"]
 
-# --- Affichage des performances ---
-m1, m2 = st.columns(2)
-m1.metric("Prix XRP", f"{prix_actuel}$")
-m2.metric("Profit Réalisé", f"{round(profit_realise, 4)} USDC", delta=f"{round(profit_realise, 2)} $")
+# --- UI : DASHBOARD ---
+c1, c2, c3 = st.columns(3)
+c1.metric("Prix XRP", f"{prix_actuel} $")
+c2.metric("Profit Cumulé", f"+{round(profit_total_realise, 4)} $", delta="USDC")
+c3.metric("Mise Prochain Bot", f"{round(capital_disponible if capital_disponible > 0 else 10.0, 2)} $")
 
-# --- Liste des Bots ---
-st.subheader("📊 État des paliers")
-if not st.session_state.paliers:
-    st.write("Aucun bot actif.")
-else:
-    for i, p in enumerate(st.session_state.paliers):
-        col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 2, 1])
-        
-        col1.write(f"**Bot {i+1}**")
-        
-        # Style selon le statut
-        if p["status"] == "ATTENTE":
-            col2.warning(f"⏳ Cible: {p['buy']}")
-        elif p["status"] == "ACHETÉ":
-            col2.success(f"🎯 Acheté à: {p['buy']}")
-        else:
-            col2.info(f"✅ Terminé")
-
-        col3.error(f"🔴 Vente: {p['sell']}")
-        col4.write(f"💰 {p['usdc']} USDC")
-        
-        if col5.button("🗑️", key=f"del_{i}"):
-            st.session_state.paliers.pop(i)
-            st.rerun()
-
-# --- Option : Nettoyer les terminés ---
-if any(p["status"] == "TERMINÉ" for p in st.session_state.paliers):
-    if st.button("Nettoyer les bots terminés"):
-        st.session_state.paliers = [p for p in st.session_state.paliers if p["status"] != "TERMINÉ"]
+# --- UI : CONFIGURATION ---
+with st.expander("🚀 Lancer un nouveau palier", expanded=True):
+    col1, col2, col3 = st.columns(3)
+    
+    # Suggestion automatique de la mise (Boule de Neige)
+    mise_suggeree = capital_disponible if capital_disponible > 0 else 10.0
+    
+    buy_input = col1.number_input("Cible d'Achat", value=prix_actuel - 0.01, format="%.3f")
+    sell_input = col2.number_input("Cible de Vente", value=prix_actuel + 0.02, format="%.3f")
+    mise_input = col3.number_input("Capital à engager", value=mise_suggeree)
+    
+    if st.button("Activer le Palier", use_container_width=True):
+        ajouter_bot(buy_input, sell_input, mise_input)
+        st.success(f"Bot activé pour {mise_input}$ !")
         st.rerun()
+
+# --- UI : ÉTAT DES BOTS ---
+st.subheader("📝 Suivi des opérations")
+if not st.session_state.paliers:
+    st.info("Aucun palier actif. Configurez votre premier trade ci-dessus.")
+else:
+    # Transformation en DataFrame pour un affichage propre
+    df_bots = []
+    for i, p in enumerate(st.session_state.paliers):
+        df_bots.append({
+            "N°": i + 1,
+            "Statut": "⏳ Attend Achat" if p["statut"] == "EN ATTENTE" else "🚀 En Position" if p["statut"] == "ACHETÉ" else "✅ Terminé",
+            "Achat à": f"{p['buy']} $",
+            "Vente à": f"{p['sell']} $",
+            "Mise": f"{round(p['mise_initiale'], 2)} $",
+            "Résultat": f"{round(p['resultat'], 2)} $" if p['resultat'] > 0 else "En cours..."
+        })
+    st.table(df_bots)
+
+# --- GRAPHIQUE DE CROISSANCE ---
+if profit_total_realise > 0:
+    st.subheader("📈 Croissance du Capital")
+    # Simulation simple d'une courbe
+    historique_gain = [p["resultat"] for p in st.session_state.paliers if p["statut"] == "VENDU"]
+    if historique_gain:
+        st.line_chart(historique_gain)
