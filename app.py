@@ -1,37 +1,34 @@
 import streamlit as st
 import ccxt
-import json, os
-import time
+import json, os, time
 
 st.set_page_config(page_title="Bots Snowball", page_icon="❄️", layout="wide")
 
 SAVE_FILE = "bots.json"
 
-# -------------------------------
-# SAUVEGARDE
-# -------------------------------
-def save():
-    with open(SAVE_FILE, "w") as f:
-        json.dump(st.session_state.bots, f, indent=4)
-
-def load():
+# ---------------------------
+# Save / Load
+# ---------------------------
+def load_bots():
     if os.path.exists(SAVE_FILE):
         with open(SAVE_FILE, "r") as f:
             return json.load(f)
     return []
 
-# -------------------------------
-# SESSION
-# -------------------------------
+def save_bots():
+    with open(SAVE_FILE, "w") as f:
+        json.dump(st.session_state.bots, f, indent=4)
+
+# Init session
 if "bots" not in st.session_state:
-    st.session_state.bots = load()
+    st.session_state.bots = load_bots()
 
-if "last_check" not in st.session_state:
-    st.session_state.last_check = 0
+if "last_run" not in st.session_state:
+    st.session_state.last_run = 0
 
-# -------------------------------
-# KRAKEN
-# -------------------------------
+# ---------------------------
+# Kraken
+# ---------------------------
 try:
     exchange = ccxt.kraken({
         "apiKey": st.secrets["KRAKEN_KEY"],
@@ -42,28 +39,31 @@ except:
     st.error("Erreur API Kraken")
     st.stop()
 
-# -------------------------------
-# FONCTION : GET PRICE
-# -------------------------------
-@st.cache_data(ttl=2)
+# ---------------------------
+# Prix
+# ---------------------------
 def get_price():
-    return exchange.fetch_ticker("XRP/USD")["last"]
-
-# -------------------------------
-# UI PRINCIPALE
-# -------------------------------
-st.title("❄️ Snowball XRP – Ultra Stable")
+    try:
+        return exchange.fetch_ticker("XRP/USD")["last"]
+    except:
+        return None
 
 prix = get_price()
-st.metric("Prix XRP", f"{prix:.4f}")
 
-# -------------------------------
-# AJOUT BOT
-# -------------------------------
+st.title("❄️ Snowball XRP (Ultra Stable)")
+if prix:
+    st.metric("Prix XRP", f"{prix:.4f} $")
+else:
+    st.error("Erreur récupération prix")
+    st.stop()
+
+# ---------------------------
+# Bouton ajouter bot
+# ---------------------------
 if st.button("➕ Ajouter un bot"):
     st.session_state.bots.append({
         "enabled": False,
-        "mode": "BUY",
+        "mode": "BUY",       # BUY = 🟢  SELL = 🔴
         "usdc": 10.0,
         "buy": prix * 0.99,
         "sell": prix * 1.01,
@@ -72,72 +72,70 @@ if st.button("➕ Ajouter un bot"):
         "gain": 0.0,
         "cycles": 0
     })
-    save()
-    st.experimental_rerun()
+    save_bots()
+    st.rerun()
 
-# -------------------------------
-# AFFICHAGE BOTS
-# -------------------------------
+# ---------------------------
+# Affichage des bots
+# ---------------------------
 for i, bot in enumerate(st.session_state.bots):
 
     col0, colU, col1, col2, col3, col4, col5 = st.columns([1,2,3,3,3,3,2])
 
-    # PASTILLE
+    # Pastille
     col0.write("🟢" if bot["mode"] == "BUY" else "🔴")
 
-    # MONTANT USDC
+    # USDC du bot
     bot["usdc"] = colU.number_input(
         "USDC",
         min_value=1.0,
         value=float(bot["usdc"]),
-        key=f"u{i}"
+        key=f"u_{i}"
     )
 
-    # BUY
+    # Buy target
     bot["buy"] = col1.number_input(
         "Buy ≤",
         value=float(bot["buy"]),
         format="%.4f",
-        key=f"b{i}"
+        key=f"b_{i}"
     )
 
-    # SELL
+    # Sell target
     bot["sell"] = col2.number_input(
         "Sell ≥",
         value=float(bot["sell"]),
         format="%.4f",
-        key=f"s{i}"
+        key=f"s_{i}"
     )
 
-    # GAIN
+    # Gain
     col3.metric("Gain", f"{bot['gain']:.4f} $")
 
-    # CYCLES
+    # Cycles
     col4.metric("Cycles", bot["cycles"])
 
-    # START / STOP
+    # Bouton Start/Stop
     if bot["enabled"]:
-        if col5.button("Stop", key=f"x{i}"):
+        if col5.button("Stop", key=f"stop_{i}"):
             bot["enabled"] = False
             bot["entry"] = None
             bot["mode"] = "BUY"
-            save()
-            st.experimental_rerun()
+            save_bots()
+            st.rerun()
     else:
-        if col5.button("Start", key=f"y{i}"):
+        if col5.button("Start", key=f"start_{i}"):
             bot["enabled"] = True
             bot["mode"] = "BUY"
-            save()
-            st.experimental_rerun()
+            save_bots()
+            st.rerun()
 
-# -------------------------------
-# LOGIQUE TRADING (légère et rapide)
-# -------------------------------
+# ---------------------------
+# Logique trading (toutes les 2 secondes)
+# ---------------------------
 now = time.time()
-
-# Pour éviter spam → vérif toutes les 2 secondes
-if now - st.session_state.last_check > 2:
-    st.session_state.last_check = now
+if now - st.session_state.last_run > 2:
+    st.session_state.last_run = now
 
     prix = get_price()
 
@@ -146,25 +144,24 @@ if now - st.session_state.last_check > 2:
         if not bot["enabled"]:
             continue
 
-        # MODE BUY
+        # MODE BUY = attendre achat
         if bot["mode"] == "BUY":
 
             if prix <= bot["buy"]:
-
                 qty = bot["usdc"] / prix
 
                 try:
                     exchange.create_market_buy_order("XRP/USD", qty)
                 except Exception as e:
-                    st.error(f"Erreur achat Bot : {e}")
+                    st.error(f"Erreur achat : {e}")
                     continue
 
                 bot["entry"] = prix
                 bot["xrp_qty"] = qty
                 bot["mode"] = "SELL"
-                save()
+                save_bots()
 
-        # MODE SELL
+        # MODE SELL = attendre vente
         elif bot["mode"] == "SELL":
 
             if prix >= bot["sell"]:
@@ -172,7 +169,7 @@ if now - st.session_state.last_check > 2:
                 try:
                     exchange.create_market_sell_order("XRP/USD", bot["xrp_qty"])
                 except Exception as e:
-                    st.error(f"Erreur vente Bot : {e}")
+                    st.error(f"Erreur vente : {e}")
                     continue
 
                 gain = (prix - bot["entry"]) * bot["xrp_qty"]
@@ -180,6 +177,4 @@ if now - st.session_state.last_check > 2:
                 bot["cycles"] += 1
                 bot["entry"] = None
                 bot["mode"] = "BUY"
-                save()
-
-st.success("Bot opérationnel – aucune surcharge ✓")
+                save_bots()
