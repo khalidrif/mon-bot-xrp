@@ -2,7 +2,7 @@ import streamlit as st
 import ccxt
 import json, os, time
 
-st.set_page_config(page_title="Bots Snowball XRP/USDC", page_icon="❄️", layout="wide")
+st.set_page_config(page_title="Bots Snowball LIMIT XRP/USDC", page_icon="❄️", layout="wide")
 
 SAVE_FILE = "bots.json"
 
@@ -19,7 +19,7 @@ def save_bots():
     with open(SAVE_FILE, "w") as f:
         json.dump(st.session_state.bots, f, indent=4)
 
-# Init session
+# Init
 if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
@@ -50,7 +50,7 @@ def get_price():
 
 prix = get_price()
 
-st.title("❄️ Snowball XRP/USDC – Ultra Stable")
+st.title("❄️ Snowball XRP/USDC – LIMIT Orders")
 
 if prix:
     st.metric("Prix XRP/USDC", f"{prix:.4f}")
@@ -59,7 +59,7 @@ else:
     st.stop()
 
 # ---------------------------
-# Solde USDC réel Kraken
+# Solde USDC réel
 # ---------------------------
 try:
     bal = exchange.fetch_balance()
@@ -75,64 +75,71 @@ st.metric("USDC Kraken Disponible", f"{usdc_balance:.4f}")
 if st.button("➕ Ajouter un bot"):
     st.session_state.bots.append({
         "enabled": False,
-        "mode": "BUY",       # BUY = 🟢 , SELL = 🔴
+        "mode": "OFF",        # OFF → ⚫   BUY → 🟢   SELL → 🔴
         "usdc": 10.0,
         "buy": prix * 0.99,
         "sell": prix * 1.01,
         "entry": None,
         "xrp_qty": 0.0,
         "gain": 0.0,
-        "cycles": 0
+        "cycles": 0,
+        "order_id": None
     })
     save_bots()
     st.rerun()
 
 # ---------------------------
-# Affichage des bots
+# Affichage bots
 # ---------------------------
 for i, bot in enumerate(st.session_state.bots):
 
     col0, colU, col1, col2, col3, col4, col5 = st.columns([1,2,3,3,3,3,2])
 
     # Pastille
-    col0.write("🟢" if bot["mode"] == "BUY" else "🔴")
+    if bot["mode"] == "OFF":
+        col0.write("⚫")  # gris
+    elif bot["mode"] == "BUY":
+        col0.write("🟢")
+    else:
+        col0.write("🔴")
 
-    # Montant USDC utilisé par ce bot
+    # Montant USDC
     bot["usdc"] = colU.number_input(
         "USDC",
         min_value=1.0,
         value=float(bot["usdc"]),
-        key=f"u{i}"
+        key=f"uu{i}"
     )
 
-    # Buy limit
+    # Buy target
     bot["buy"] = col1.number_input(
-        "Buy ≤",
+        "Buy LIMIT ≤",
         value=float(bot["buy"]),
         format="%.4f",
-        key=f"b{i}"
+        key=f"bb{i}"
     )
 
-    # Sell limit
+    # Sell target
     bot["sell"] = col2.number_input(
-        "Sell ≥",
+        "Sell LIMIT ≥",
         value=float(bot["sell"]),
         format="%.4f",
-        key=f"s{i}"
+        key=f"ss{i}"
     )
 
     # Gain
     col3.metric("Gain", f"{bot['gain']:.4f} $")
 
-    # Cycles snowball
+    # Cycles
     col4.metric("Cycles", bot["cycles"])
 
     # Start / Stop
     if bot["enabled"]:
         if col5.button("Stop", key=f"stop{i}"):
             bot["enabled"] = False
+            bot["mode"] = "OFF"
+            bot["order_id"] = None
             bot["entry"] = None
-            bot["mode"] = "BUY"
             save_bots()
             st.rerun()
     else:
@@ -143,10 +150,10 @@ for i, bot in enumerate(st.session_state.bots):
             st.rerun()
 
 # ---------------------------
-# LOGIQUE SNOWBALL
+# LOGIQUE LIMIT TRADING
 # ---------------------------
 now = time.time()
-if now - st.session_state.last_run > 2:  # toutes les 2s
+if now - st.session_state.last_run > 2:
     st.session_state.last_run = now
 
     prix = get_price()
@@ -158,38 +165,52 @@ if now - st.session_state.last_run > 2:  # toutes les 2s
             if not bot["enabled"]:
                 continue
 
-            # MODE BUY (🟢)
+            # MODE BUY (LIMIT)
             if bot["mode"] == "BUY":
 
-                if prix <= bot["buy"]:
+                qty = bot["usdc"] / bot["buy"]
 
-                    qty = bot["usdc"] / prix
+                try:
+                    order = exchange.create_limit_buy_order("XRP/USDC", qty, bot["buy"])
+                    bot["order_id"] = order["id"]
+                except Exception as e:
+                    st.error(f"Erreur LIMIT BUY : {e}")
+                    continue
 
-                    try:
-                        exchange.create_market_buy_order("XRP/USDC", qty)
-                    except Exception as e:
-                        st.error(f"Erreur achat bot : {e}")
-                        continue
+                # Vérifier si exécuté
+                try:
+                    o = exchange.fetch_order(bot["order_id"], "XRP/USDC")
+                    if o["status"] == "closed":
+                        bot["entry"] = bot["buy"]
+                        bot["xrp_qty"] = qty
+                        bot["mode"] = "SELL"
+                        bot["order_id"] = None
+                        save_bots()
+                except:
+                    pass
 
-                    bot["entry"] = prix
-                    bot["xrp_qty"] = qty
-                    bot["mode"] = "SELL"
-                    save_bots()
-
-            # MODE SELL (🔴)
+            # MODE SELL (LIMIT)
             elif bot["mode"] == "SELL":
 
-                if prix >= bot["sell"]:
+                try:
+                    order = exchange.create_limit_sell_order("XRP/USDC", bot["xrp_qty"], bot["sell"])
+                    bot["order_id"] = order["id"]
+                except Exception as e:
+                    st.error(f"Erreur LIMIT SELL : {e}")
+                    continue
 
-                    try:
-                        exchange.create_market_sell_order("XRP/USDC", bot["xrp_qty"])
-                    except Exception as e:
-                        st.error(f"Erreur vente bot : {e}")
-                        continue
+                # Vérifier si exécuté
+                try:
+                    o = exchange.fetch_order(bot["order_id"], "XRP/USDC")
+                    if o["status"] == "closed":
+                        gain = (bot["sell"] - bot["entry"]) * bot["xrp_qty"]
+                        bot["gain"] += gain
+                        bot["cycles"] += 1
+                        bot["entry"] = None
+                        bot["order_id"] = None
+                        bot["mode"] = "BUY"     # restart snowball
+                        save_bots()
+                except:
+                    pass
 
-                    gain = (prix - bot["entry"]) * bot["xrp_qty"]
-                    bot["gain"] += gain
-                    bot["cycles"] += 1
-                    bot["entry"] = None
-                    bot["mode"] = "BUY"
-                    save_bots()
+save_bots()
