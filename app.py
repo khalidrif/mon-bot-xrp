@@ -13,21 +13,6 @@ if "paliers" not in st.session_state:
     st.session_state.paliers = []
 
 # -------------------------
-# Style simple
-# -------------------------
-
-st.markdown("""
-<style>
-.stNumberInput input{
-height:45px;
-font-size:18px;
-border-radius:10px;
-border:1px solid #ddd;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------------
 # Prix XRP
 # -------------------------
 
@@ -60,45 +45,39 @@ with col4:
             "usdc": usdc,
             "buy_done": False
         })
+        st.rerun()
 
 # -------------------------
-# Logique bot
+# Bots actifs
 # -------------------------
 
-for p in st.session_state.paliers:
+st.subheader("📊 Bots actifs")
 
-    if not p["buy_done"] and prix <= p["buy"]:
-        p["buy_done"] = True
-
-    if p["buy_done"] and prix >= p["sell"]:
-        p["buy_done"] = False
-
-# -------------------------
-# Tableau bots
-# -------------------------
-
-table = []
 profit_total = 0
 
 for i,p in enumerate(st.session_state.paliers):
 
+    col1,col2,col3,col4,col5,col6 = st.columns(6)
+
+    # couleur BUY
+    if p["buy_done"]:
+        buy_display = f"🟢 {p['buy']}"
+    else:
+        buy_display = f"{p['buy']}"
+
     profit = (p["sell"] - p["buy"]) * (p["usdc"] / p["buy"])
     profit_total += profit
 
-    buy_display = "🟢 " + str(p["buy"]) if p["buy_done"] else str(p["buy"])
+    col1.write(f"Bot {i+1}")
+    col2.write(f"BUY : {buy_display}")
+    col3.write(f"SELL : 🔴 {p['sell']}")
+    col4.write(f"USDC : {p['usdc']}")
+    col5.write(f"Profit : {round(profit,4)}")
 
-    table.append({
-        "Bot": i+1,
-        "BUY": buy_display,
-        "SELL": p["sell"],
-        "USDC": p["usdc"],
-        "Profit Bot": round(profit,4)
-    })
-
-df = pd.DataFrame(table)
-
-st.subheader("📊 Bots actifs")
-st.dataframe(df, use_container_width=True)
+    # bouton achat
+    if col6.button("Acheter", key=f"buy{i}"):
+        p["buy_done"] = True
+        st.rerun()
 
 # -------------------------
 # Profit total
@@ -125,15 +104,3 @@ if len(st.session_state.paliers) > 0:
     if st.button("Supprimer Bot"):
         st.session_state.paliers.pop(bot_index-1)
         st.rerun()
-
-# -------------------------
-# Boutons bot
-# -------------------------
-
-col1,col2 = st.columns(2)
-
-with col1:
-    st.button("▶ Start Bot")
-
-with col2:
-    st.button("⏹ Stop Bot")
