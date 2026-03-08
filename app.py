@@ -1,189 +1,187 @@
+
 import streamlit as st
 import ccxt
 from streamlit_autorefresh import st_autorefresh
 
-# --- CONFIG GLOBAL ---
-st.set_page_config(
-    page_title="Kraken XRP Snowball REAL",
-    page_icon="🐙",
-    layout="wide",
-)
+# ---------------------------
+# CONFIG APP
+# ---------------------------
+st.set_page_config(page_title="Kraken Multi-Bots XRP", page_icon="🤖", layout="wide")
 
-# --- STYLE RESPONSIVE IPHONE ---
+# Style iPhone + couleurs bots
 st.markdown("""
-    <style>
-    @media (max-width: 600px) {
-        .block-container {
-            padding-left: 0.8rem;
-            padding-right: 0.8rem;
-        }
+<style>
+@media (max-width: 600px) {
+    .block-container {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
     }
-    .status-green {
-        background-color: #1FAA59;
-        color: white;
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-weight: bold;
-    }
-    .status-red {
-        background-color: #B4161B;
-        color: white;
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-weight: bold;
-    }
-    </style>
+}
+.status-green {
+    background:#1FAA59;color:white;padding:6px 12px;border-radius:6px;
+}
+.status-red {
+    background:#B4161B;color:white;padding:6px 12px;border-radius:6px;
+}
+</style>
 """, unsafe_allow_html=True)
 
-# --- CONNEXION KRAKEN ---
+# ---------------------------
+# CONNEXION KRAKEN
+# ---------------------------
 try:
     exchange = ccxt.kraken({
-        'apiKey': st.secrets["KRAKEN_KEY"],
-        'secret': st.secrets["KRAKEN_SECRET"],
-        'enableRateLimit': True,
+        "apiKey": st.secrets["KRAKEN_KEY"],
+        "secret": st.secrets["KRAKEN_SECRET"],
+        "enableRateLimit": True,
     })
 except Exception:
-    st.error("⚠️ Erreur : Clés API Kraken manquantes.")
+    st.error("Erreur clé API")
     st.stop()
 
-# --- REFRESH AUTO ---
+# Refresh auto 10 sec
 st_autorefresh(interval=10000, key="refresh_loop")
 
-# --- SESSION STATE ---
-defaults = {
-    "bot_status": "VEILLE",    # VEILLE • ATTENTE_ACHAT • EN_POSITION
-    "targets": {"buy": 0.0, "sell": 0.0},
-    "entry_price": None,
-    "gain_total": 0.0,
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+# ---------------------------
+# SESSION STATE
+# ---------------------------
+if "auto_bot_status" not in st.session_state:
+    st.session_state.auto_bot_status = "VEILLE"
 
-# --- RÉCUPÉRATION DES DONNÉES ---
+if "manual_bots" not in st.session_state:
+    st.session_state.manual_bots = {
+        f"bot{i}": {
+            "enabled": False,
+            "status": "VEILLE",
+            "buy": 0.0,
+            "sell": 0.0,
+            "entry_price": None,
+            "gain": 0.0,
+        }
+        for i in range(1, 4)   # 3 bots manuels
+    }
+
+# ---------------------------
+# DONNÉES KRANKEN
+# ---------------------------
 try:
-    ticker = exchange.fetch_ticker('XRP/USD')
-    prix_actuel = ticker["last"]
+    ticker = exchange.fetch_ticker("XRP/USD")
+    prix = ticker["last"]
 
     balance = exchange.fetch_balance()
-    solde_usd = next(
-        (balance["total"][s] for s in ["USDC", "USD", "ZUSD"] if s in balance["total"]),
-        0.0
-    )
-    solde_xrp = balance["total"].get("XRP", 0.0)
+
+    usd = 0.0
+    for s in ["USDC", "USD", "ZUSD"]:
+        if s in balance["total"]:
+            usd = balance["total"][s]
+            break
+
+    xrp = balance["total"].get("XRP", 0.0)
 
 except Exception as e:
     st.error(f"Erreur Kraken : {e}")
     st.stop()
 
-# --- BARRE LATÉRALE ---
-st.sidebar.title("⚙️ Contrôles du Bot")
+# ---------------------------
+# BARRE LATERALE
+# ---------------------------
+st.sidebar.title("🤖 Multi-Bots")
 
-# Pastille d'état
-if st.session_state.bot_status in ["ATTENTE_ACHAT", "EN_POSITION"]:
-    st.sidebar.markdown('<div class="status-green">Bot : ACTIF</div>', unsafe_allow_html=True)
-else:
-    st.sidebar.markdown('<div class="status-red">Bot : ARRÊTÉ</div>', unsafe_allow_html=True)
+for i in range(1, 4):
+    b = st.session_state.manual_bots[f"bot{i}"]
+    color = "#1FAA59" if b["enabled"] else "#B4161B"
 
-st.sidebar.write(" ")
+    st.sidebar.markdown(
+        f"<div style='color:{color};font-weight:bold;'>● Bot {i} — {b['status']}</div>",
+        unsafe_allow_html=True
+    )
 
-# GAIN NET
-if st.session_state.entry_price:
-    gain_pct = ((prix_actuel - st.session_state.entry_price) / st.session_state.entry_price) * 100
-else:
-    gain_pct = 0
-
-st.sidebar.metric("Gain Net", f"{round(st.session_state.gain_total, 4)} $")
-st.sidebar.metric("Gain Trade en cours", f"{gain_pct:.2f} %")
-
-# Contrôles manuels
-st.sidebar.subheader("🖐 Mode manuel")
-
-if st.sidebar.button("Acheter XRP (market)"):
-    if solde_usd > 5:
-        qty = (solde_usd - 1) / prix_actuel
-        exchange.create_market_buy_order("XRP/USD", qty)
-        st.success(f"Achat manuel fait : {qty:.2f} XRP")
+    if st.sidebar.button(f"{'Désactiver' if b['enabled'] else 'Activer'} Bot {i}"):
+        b["enabled"] = not b["enabled"]
+        b["status"] = "ATTENTE_ACHAT" if b["enabled"] else "VEILLE"
         st.rerun()
 
-if st.sidebar.button("Vendre XRP (market)"):
-    if solde_xrp > 1:
-        exchange.create_market_sell_order("XRP/USD", solde_xrp)
-        st.success(f"Vente manuelle faite : {solde_xrp:.2f} XRP")
-        st.rerun()
+    st.sidebar.metric(f"Gain Bot {i}", f"{round(b['gain'],4)} $")
+    st.sidebar.write("")
 
-# --- DASHBOARD ---
-st.title("🐙 Kraken XRP Auto-Snowball")
+# ---------------------------
+# DASHBOARD
+# ---------------------------
+st.title("🤖 Multi-Bots XRP Kraken")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Prix XRP", f"{prix_actuel:.4f} $")
-c2.metric("USD Disponible", f"{round(solde_usd, 2)} $")
-c3.metric("XRP Disponible", f"{round(solde_xrp, 4)}")
+c1.metric("Prix XRP", f"{prix:.4f} $")
+c2.metric("USD", f"{round(usd,2)} $")
+c3.metric("XRP", f"{round(xrp,4)}")
 
-# --- FOURCHETTE DE PRIX COLORÉE ---
-if st.session_state.bot_status == "ATTENTE_ACHAT":
-    color = "#B4161B"  # rouge
-else:
-    color = "#1FAA59"  # vert
+# ---------------------------
+# PARAMÈTRES DES 3 BOTS
+# ---------------------------
+st.subheader("⚙️ Paramétrage des Bots Manuels")
 
-st.markdown(
-    f"""
-    <div style='padding:10px;border-radius:8px;background:{color};color:white;font-weight:bold;text-align:center;'>
-        Fourchette prix : Achat ≤ {st.session_state.targets["buy"]}  |  Vente ≥ {st.session_state.targets["sell"]}
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+for i in range(1, 4):
+    b = st.session_state.manual_bots[f"bot{i}"]
 
-# --- CONFIGURATION ---
-with st.container():
-    st.subheader("❄️ Paramètres du Bot")
+    st.markdown(f"### Bot {i}")
 
-    col1, col2 = st.columns(2)
-    buy = col1.number_input("Acheter si prix ≤", value=float(prix_actuel * 0.99), format="%.4f")
-    sell = col2.number_input("Vendre si prix ≥", value=float(prix_actuel * 1.01), format="%.4f")
+    colA, colB = st.columns(2)
+    b["buy"] = colA.number_input(
+        f"Bot {i} — Acheter si prix ≤",
+        value=float(prix * 0.99),
+        format="%.4f",
+        key=f"buy_{i}"
+    )
+    b["sell"] = colB.number_input(
+        f"Bot {i} — Vendre si prix ≥",
+        value=float(prix * 1.01),
+        format="%.4f",
+        key=f"sell_{i}"
+    )
 
-    if st.button("🚀 Activer Bot"):
-        st.session_state.targets["buy"] = buy
-        st.session_state.targets["sell"] = sell
-        st.session_state.bot_status = "ATTENTE_ACHAT"
-        st.session_state.entry_price = None
-        st.rerun()
+    if b["enabled"]:
+        color = "#1FAA59" if b["status"] == "EN_POSITION" else "#B4161B"
+        st.markdown(
+            f"<div style='background:{color};padding:10px;border-radius:6px;color:white;text-align:center;'>"
+            f"Achat ≤ {b['buy']} | Vente ≥ {b['sell']}"
+            f"</div>",
+            unsafe_allow_html=True
+        )
 
-# --- LOGIQUE BOT ---
-try:
+# ---------------------------
+# LOGIQUE DES 3 BOTS
+# ---------------------------
+for i in range(1, 4):
+    b = st.session_state.manual_bots[f"bot{i}"]
+
+    if not b["enabled"]:
+        continue
+
     # Achat
-    if st.session_state.bot_status == "ATTENTE_ACHAT":
-        if prix_actuel <= st.session_state.targets["buy"] and solde_usd > 5:
-            qty = (solde_usd - 1) / prix_actuel
+    if b["status"] == "ATTENTE_ACHAT":
+        if prix <= b["buy"] and usd > 5:
+            qty = (usd - 1) / prix
             exchange.create_market_buy_order("XRP/USD", qty)
-
-            st.session_state.entry_price = prix_actuel
-            st.session_state.bot_status = "EN_POSITION"
-
-            st.success(f"ACHAT AUTO : {qty:.2f} XRP")
+            b["entry_price"] = prix
+            b["status"] = "EN_POSITION"
+            st.success(f"Bot {i}: ACHAT {qty:.2f} XRP")
             st.rerun()
 
     # Vente
-    if st.session_state.bot_status == "EN_POSITION":
-        if prix_actuel >= st.session_state.targets["sell"] and solde_xrp > 1:
-            exchange.create_market_sell_order("XRP/USD", solde_xrp)
-
-            gain = (prix_actuel - st.session_state.entry_price) * solde_xrp
-            st.session_state.gain_total += gain
-
-            st.success(f"VENTE AUTO : +{gain:.4f} $")
-            st.session_state.bot_status = "VEILLE"
-
-            st.balloons()
+    if b["status"] == "EN_POSITION":
+        if prix >= b["sell"] and xrp > 1:
+            exchange.create_market_sell_order("XRP/USD", xrp)
+            gain = (prix - b["entry_price"]) * xrp
+            b["gain"] += gain
+            b["status"] = "ATTENTE_ACHAT"
+            st.success(f"Bot {i}: VENTE +{gain:.4f} $")
             st.rerun()
 
-except Exception as e:
-    st.error(f"Erreur trading : {e}")
-
-# --- STOP BOUTON ---
-if st.button("🛑 STOP BOT"):
-    st.session_state.bot_status = "VEILLE"
-    st.session_state.entry_price = None
-    st.session_state.targets = {"buy": 0, "sell": 0}
+# ---------------------------
+# STOP GENERAL
+# ---------------------------
+if st.button("🛑 STOP TOUS LES BOTS"):
+    for i in range(1, 4):
+        b = st.session_state.manual_bots[f"bot{i}"]
+        b["enabled"] = False
+        b["status"] = "VEILLE"
     st.rerun()
