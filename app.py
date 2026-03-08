@@ -1,103 +1,141 @@
 import streamlit as st
-import krakenex
 import pandas as pd
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="XRP Bot", layout="wide")
 
-# -----------------------------
-# CONFIG KRAKEN
-# -----------------------------
-api = krakenex.API()
-api.key = st.secrets["KRAKEN_API_KEY"]
-api.secret = st.secrets["KRAKEN_API_SECRET"]
+st.title("🤖 XRP Trading Bot")
 
-PAIR = "XRPUSDC"
+# -------------------------
+# Initialisation bots
+# -------------------------
 
-# -----------------------------
-# FUNCTIONS
-# -----------------------------
-def round_price(p):
-    return float(f"{p:.5f}")
-
-def get_price():
-    data = api.query_public("Ticker", {"pair": PAIR})
-    return float(data["result"][PAIR]["c"][0])
-
-# -----------------------------
-# STATE
-# -----------------------------
 if "paliers" not in st.session_state:
-    st.session_state.paliers = []
+    st.session_state.paliers = [
+        {"buy":1.33607,"sell":1.37607,"usdc":10,"buy_done":False},
+        {"buy":1.32000,"sell":1.36000,"usdc":10,"buy_done":False},
+        {"buy":1.30000,"sell":1.34000,"usdc":10,"buy_done":False},
+    ]
 
-# -----------------------------
-# HEADER
-# -----------------------------
-st.title("BOT XRP / USDC")
 
-prix = get_price()
-st.info(f"Prix actuel : {prix}")
+# -------------------------
+# Style barre montant
+# -------------------------
 
-# -----------------------------
-# AJOUT PALIER
-# -----------------------------
-st.subheader("Ajouter un palier")
+st.markdown("""
+<style>
 
-col1, col2 = st.columns(2)
+.stNumberInput input{
+height:45px;
+font-size:18px;
+border-radius:10px;
+border:1px solid #ddd;
+}
 
-with col1:
-    p_buy = st.number_input(
-        "BUY",
-        value=round_price(prix - 0.02),
-        format="%.5f"
-    )
+.buy{
+color:green;
+font-weight:bold;
+}
 
-with col2:
-    p_sell = st.number_input(
-        "SELL",
-        value=round_price(prix + 0.02),
-        format="%.5f"
-    )
+.sell{
+color:red;
+font-weight:bold;
+}
 
-montant = st.number_input("Montant USDC", min_value=7.0, value=10.0)
+</style>
+""", unsafe_allow_html=True)
 
-if st.button("Ajouter palier"):
 
-    profit_estime = (p_sell - p_buy) * (montant / p_buy)
+# -------------------------
+# Barre montant
+# -------------------------
 
-    st.session_state.paliers.append({
-        "buy": p_buy,
-        "sell": p_sell,
-        "usdc": montant,
-        "profit": profit_estime
-    })
+st.subheader("💰 Montant USDC")
 
-    st.success("Palier ajouté")
+montant = st.number_input(
+"Montant par bot",
+min_value=1.0,
+value=10.0,
+step=1.0
+)
 
-# -----------------------------
-# TABLEAU
-# -----------------------------
-st.subheader("Paliers actifs")
+# appliquer montant
+for p in st.session_state.paliers:
+    p["usdc"] = montant
+
+
+# -------------------------
+# Simulation prix XRP
+# -------------------------
+
+prix = st.number_input(
+"Prix XRP",
+value=1.34,
+step=0.001
+)
+
+st.write("Prix actuel :", prix)
+
+
+# -------------------------
+# Logique bot
+# -------------------------
+
+for p in st.session_state.paliers:
+
+    if not p["buy_done"] and prix <= p["buy"]:
+        p["buy_done"] = True
+
+    if p["buy_done"] and prix >= p["sell"]:
+        p["buy_done"] = False
+
+
+# -------------------------
+# Tableau bots
+# -------------------------
 
 table = []
 profit_total = 0
 
-for i, p in enumerate(st.session_state.paliers):
+for i,p in enumerate(st.session_state.paliers):
 
-    profit_total += p["profit"]
+    profit = (p["sell"]-p["buy"]) * (p["usdc"]/p["buy"])
+    profit_total += profit
+
+    buy_color = "🟢 "+str(p["buy"]) if p["buy_done"] else str(p["buy"])
 
     table.append({
-        "Bot": i+1,
-        "BUY": p["buy"],
-        "SELL": p["sell"],
-        "USDC": p["usdc"],
-        "Profit Bot": round(p["profit"],4)
+        "Bot":i+1,
+        "BUY":buy_color,
+        "SELL":p["sell"],
+        "USDC":p["usdc"],
+        "Profit Bot":round(profit,4)
     })
+
 
 df = pd.DataFrame(table)
 
-st.dataframe(df, use_container_width=True)
+st.dataframe(df,use_container_width=True)
 
-# -----------------------------
-# PROFIT TOTAL
-# -----------------------------
-st.success(f"Profit total estimé : {round(profit_total,4)} USDC")
+
+# -------------------------
+# Profit total
+# -------------------------
+
+st.subheader("💵 Profit total")
+
+st.success(round(profit_total,4))
+
+
+# -------------------------
+# Boutons
+# -------------------------
+
+col1,col2 = st.columns(2)
+
+with col1:
+    if st.button("▶ Start Bot"):
+        st.success("Bot activé")
+
+with col2:
+    if st.button("⏹ Stop Bot"):
+        st.warning("Bot arrêté")
