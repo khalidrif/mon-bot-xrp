@@ -2,10 +2,10 @@ import streamlit as st
 import ccxt
 from streamlit_autorefresh import st_autorefresh
 
-# --- CONFIGURATION PAGE ---
+# --- CONFIG GLOBAL ---
 st.set_page_config(page_title="Kraken XRP Snowball REAL", page_icon="🐙", layout="wide")
 
-# --- CONNEXION KRAKEN (Via Secrets) ---
+# --- CONNEXION KRAKEN ---
 try:
     exchange = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_KEY"],
@@ -16,81 +16,89 @@ except Exception:
     st.error("⚠️ Erreur : Clés API Kraken manquantes dans les Secrets Streamlit.")
     st.stop()
 
-# --- REFRESH AUTO (Toutes les 10 secondes) ---
-st_autorefresh(interval=10000, key="bot_loop")
+# --- RAFRAICHISSEMENT AUTO ---
+st_autorefresh(interval=10000, key="bot_refresh")
 
-# --- INITIALISATION MÉMOIRE ---
+# --- MEMOIRE SESSION ---
 if "bot_status" not in st.session_state:
-    st.session_state.bot_status = "VEILLE" # VEILLE, ATTENTE_ACHAT, EN_POSITION
+    st.session_state.bot_status = "VEILLE"
 if "targets" not in st.session_state:
     st.session_state.targets = {"buy": 0.0, "sell": 0.0}
 
-# --- RÉCUPÉRATION DES DONNÉES RÉELLES ---
+# --- RÉCUPÉRATION DONNÉES ---
 try:
-    # 1. Prix XRP en direct
     ticker = exchange.fetch_ticker('XRP/USD')
     prix_actuel = ticker['last']
 
-    # 2. Soldes Réels
     balance = exchange.fetch_balance()
-    solde_usdc = balance['total'].get('USDC', balance['total'].get('ZUSD', 0.0))
-    solde_xrp = balance['total'].get('XRP', 0.0)
-except Exception as e:
-    st.warning(f"Erreur de connexion Kraken : {e}")
-    prix_actuel = 0.0
-    solde_usdc = 0.0
 
-# --- UI : DASHBOARD ---
+    # Recherche multi-symbole : USDC, USD, ZUSD
+    solde_usd = 0.0
+    for symbol in ["USDC", "USD", "ZUSD"]:
+        if symbol in balance['total']:
+            solde_usd = balance['total'][symbol]
+            break
+
+    solde_xrp = balance['total'].get('XRP', 0.0)
+
+except Exception as e:
+    st.warning(f"Erreur Kraken : {e}")
+    st.stop()
+
+# --- DASHBOARD ---
 st.title("🐙 Kraken XRP Auto-Snowball (MODE RÉEL)")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Prix XRP", f"{prix_actuel} $")
-c2.metric("Solde USDC", f"{round(solde_usdc, 2)} $")
+c1.metric("Prix XRP", f"{prix_actuel:.4f} $")
+c2.metric("Solde USD", f"{round(solde_usd, 2)} $")
 c3.metric("Solde XRP", f"{round(solde_xrp, 2)}")
 
-st.info(f"État actuel du Bot : **{st.session_state.bot_status}**")
+st.info(f"État du Bot : **{st.session_state.bot_status}**")
 
-# --- CONFIGURATION DU CYCLE ---
+# --- PARAMÉTRAGE ---
 with st.container(border=True):
-    st.subheader("❄️ Paramétrer la Boule de Neige")
+    st.subheader("❄️ Paramétrer le cycle")
+
     col_a, col_b = st.columns(2)
-    
-    buy_target = col_a.number_input("Acheter TOUT si prix <= ", value=prix_actuel * 0.998, format="%.4f")
-    sell_target = col_b.number_input("Vendre TOUT si prix >= ", value=prix_actuel * 1.01, format="%.4f")
-    
-    if st.button("🚀 ACTIVER LE TRADING RÉEL", use_container_width=True, type="primary"):
+    buy_target = col_a.number_input("Acheter TOUT si prix <= ", value=float(prix_actuel * 0.998), format="%.4f")
+    sell_target = col_b.number_input("Vendre TOUT si prix >= ", value=float(prix_actuel * 1.01), format="%.4f")
+
+    if st.button("🚀 ACTIVER LE TRADING RÉEL", type="primary", use_container_width=True):
         st.session_state.targets["buy"] = buy_target
         st.session_state.targets["sell"] = sell_target
         st.session_state.bot_status = "ATTENTE_ACHAT"
         st.rerun()
 
-# --- LOGIQUE DE TRADING RÉEL ---
-if st.session_state.bot_status == "ATTENTE_ACHAT":
-    if prix_actuel <= st.session_state.targets["buy"] and solde_usdc > 5:
-        try:
-            # Calcul quantité (On garde 1$ de marge pour les frais)
-            quantite = (solde_usdc - 1) / prix_actuel
-            # ORDRE D'ACHAT RÉEL
-            exchange.create_market_buy_order('XRP/USD', quantite)
-            st.session_state.bot_status = "EN_POSITION"
-            st.success(f"✅ ACHAT RÉEL EFFECTUÉ : {quantite} XRP")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Erreur Achat : {e}")
+# --- TRADING LIVE ---
+try:
 
-elif st.session_state.bot_status == "EN_POSITION":
-    if prix_actuel >= st.session_state.targets["sell"] and solde_xrp > 1:
-        try:
-            # ORDRE DE VENTE RÉEL
-            exchange.create_market_sell_order('XRP/USD', solde_xrp)
+    if st.session_state.bot_status == "ATTENTE_ACHAT":
+        if prix_actuel <= st.session_state.targets["buy"] and solde_usd > 5:
+
+            quantite = max((solde_usd - 1) / prix_actuel, 0)
+
+            if quantite < 1:
+                st.warning("Pas assez de fonds pour acheter au moins 1 XRP")
+            else:
+                order = exchange.create_market_buy_order('XRP/USD', quantite)
+                st.session_state.bot_status = "EN_POSITION"
+                st.success(f"✅ Achat exécuté : {quantite:.2f} XRP")
+                st.rerun()
+
+    elif st.session_state.bot_status == "EN_POSITION":
+        if prix_actuel >= st.session_state.targets["sell"] and solde_xrp > 1:
+
+            order = exchange.create_market_sell_order('XRP/USD', solde_xrp)
             st.session_state.bot_status = "VEILLE"
             st.balloons()
-            st.success(f"💰 VENTE RÉELLE EFFECTUÉE : {solde_xrp} XRP")
+            st.success(f"💰 Vente exécutée : {solde_xrp:.2f} XRP")
             st.rerun()
-        except Exception as e:
-            st.error(f"Erreur Vente : {e}")
 
-# --- ARRÊT D'URGENCE ---
+except Exception as e:
+    st.error(f"Erreur Trade : {e}")
+
+# --- STOP ---
 if st.button("🛑 ARRÊTER LE BOT"):
     st.session_state.bot_status = "VEILLE"
+    st.session_state.targets = {"buy": 0.0, "sell": 0.0}
     st.rerun()
