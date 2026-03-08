@@ -2,35 +2,32 @@ import streamlit as st
 import ccxt
 from streamlit_autorefresh import st_autorefresh
 
-# ------------------------------------------------------
+# ---------------------------------------------------
 # CONFIG
-# ------------------------------------------------------
-st.set_page_config(page_title="Kraken Multi-Bots XRP", page_icon="🤖", layout="wide")
+# ---------------------------------------------------
+st.set_page_config(page_title="Bots Snowball", page_icon="❄️", layout="wide")
 
 st.markdown("""
 <style>
-.bot-block {
-    padding: 15px;
+.bot-row {
+    border: 1px solid #cccccc55;
+    padding: 10px;
     border-radius: 10px;
-    background: #11111111;
-    margin-bottom: 15px;
-    border: 1px solid #CCCCCC55;
+    margin-bottom: 10px;
+    background: #f7f7f7;
 }
-.red-box {
-    background:#B4161B;color:white;padding:8px;border-radius:6px;text-align:center;
+.status-green {
+    color: #1FAA59; font-size: 30px;
 }
-.green-box {
-    background:#1FAA59;color:white;padding:8px;border-radius:6px;text-align:center;
-}
-@media (max-width: 600px) {
-    .block-container { padding-left: 0.3rem; padding-right: 0.3rem; }
+.status-red {
+    color: #B4161B; font-size: 30px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------------------------------------------
-# CONNEXION KRAKEN
-# ------------------------------------------------------
+# ---------------------------------------------------
+# CONNECT KRAKEN
+# ---------------------------------------------------
 try:
     exchange = ccxt.kraken({
         "apiKey": st.secrets["KRAKEN_KEY"],
@@ -38,131 +35,125 @@ try:
         "enableRateLimit": True,
     })
 except:
-    st.error("Clés API Kraken manquantes.")
+    st.error("Erreur clé API")
     st.stop()
 
-st_autorefresh(interval=10000, key="refresh")
+st_autorefresh(interval=8000, key="refresh")
 
-# ------------------------------------------------------
-# SESSION STATE INITIALISATION
-# ------------------------------------------------------
-if "nb_bots" not in st.session_state:
-    st.session_state.nb_bots = 1
-
+# ---------------------------------------------------
+# SESSION DATA
+# ---------------------------------------------------
 if "bots" not in st.session_state:
-    st.session_state.bots = {}
+    st.session_state.bots = []
 
-# ------------------------------------------------------
-# MISE À JOUR NOMBRE DE BOTS
-# ------------------------------------------------------
-st.sidebar.title("🤖 Gestion des Bots")
-
-nb = st.sidebar.number_input("Nombre total de bots :", min_value=1, max_value=200, step=1)
-st.session_state.nb_bots = nb
-
-# Créer automatiquement les bots manquants
-for i in range(1, st.session_state.nb_bots + 1):
-    key = f"bot{i}"
-    if key not in st.session_state.bots:
-        st.session_state.bots[key] = {
-            "enabled": False,
-            "status": "VEILLE",
-            "buy": 0.0,
-            "sell": 0.0,
-            "entry": None,
-            "gain": 0.0,
-        }
-
-# ------------------------------------------------------
-# DONNÉES KRAKEN
-# ------------------------------------------------------
+# ---------------------------------------------------
+# PRIX + SOLDES
+# ---------------------------------------------------
 try:
     ticker = exchange.fetch_ticker("XRP/USD")
     prix = ticker["last"]
 
-    balance = exchange.fetch_balance()
-    usd = next((balance["total"][s] for s in ["USDC", "USD", "ZUSD"] if s in balance["total"]), 0)
-    xrp = balance["total"].get("XRP", 0.0)
+    bal = exchange.fetch_balance()
 
-except Exception as e:
-    st.error(f"Erreur Kraken : {e}")
+    usd = next((bal["total"][s] for s in ["USDC", "USD", "ZUSD"] if s in bal["total"]), 0)
+    xrp = bal["total"].get("XRP", 0.0)
+except:
+    st.error("Erreur connexion Kraken.")
     st.stop()
 
-# ------------------------------------------------------
-# DASHBOARD
-# ------------------------------------------------------
-st.title("🤖 Multi-Bots XRP (Nombre illimité)")
+# ---------------------------------------------------
+# HEADER
+# ---------------------------------------------------
+st.title("❄️ Bots Snowball XRP")
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Prix XRP", f"{prix:.4f} $")
-c2.metric("USD", f"{usd:.2f} $")
-c3.metric("XRP", f"{xrp:.4f}")
+st.metric("Prix XRP", f"{prix:.4f} $")
 
-# ------------------------------------------------------
-# BOUCLE D'AFFICHAGE DES BOTS
-# ------------------------------------------------------
-for i in range(1, st.session_state.nb_bots + 1):
+# ---------------------------------------------------
+# BOUTON AJOUT BOT
+# ---------------------------------------------------
+if st.button("➕ Ajouter un bot"):
+    st.session_state.bots.append({
+        "enabled": False,
+        "buy": prix * 0.99,
+        "sell": prix * 1.01,
+        "entry": None,
+        "gain": 0.0,
+        "cycles": 0
+    })
+    st.rerun()
 
-    bot = st.session_state.bots[f"bot{i}"]
+# ---------------------------------------------------
+# AFFICHAGE DES BOTS
+# ---------------------------------------------------
+for i, bot in enumerate(st.session_state.bots):
 
-    st.markdown(f"<div class='bot-block'>", unsafe_allow_html=True)
+    st.markdown("<div class='bot-row'>", unsafe_allow_html=True)
 
-    st.markdown(f"## Bot {i}")
+    col0, col1, col2, col3, col4, col5 = st.columns([1, 3, 3, 3, 3, 2])
 
-    # Activation du bot
+    # Pastille verte / rouge
     if bot["enabled"]:
-        if st.button(f"🛑 Stop Bot {i}"):
+        col0.markdown("<div class='status-green'>●</div>", unsafe_allow_html=True)
+    else:
+        col0.markdown("<div class='status-red'>●</div>", unsafe_allow_html=True)
+
+    # Buy
+    bot["buy"] = col1.number_input(
+        "Buy ≤",
+        value=float(bot["buy"]),
+        format="%.4f",
+        key=f"buy_{i}"
+    )
+
+    # Sell
+    bot["sell"] = col2.number_input(
+        "Sell ≥",
+        value=float(bot["sell"]),
+        format="%.4f",
+        key=f"sell_{i}"
+    )
+
+    # Gain total
+    col3.metric("Gain", f"{bot['gain']:.4f} $")
+
+    # Nombre de cycles
+    col4.metric("Cycles", bot["cycles"])
+
+    # Bouton ON/OFF
+    if bot["enabled"]:
+        if col5.button(f"Stop", key=f"stop_{i}"):
             bot["enabled"] = False
-            bot["status"] = "VEILLE"
+            bot["entry"] = None
             st.rerun()
     else:
-        if st.button(f"🚀 Activer Bot {i}"):
+        if col5.button(f"Start", key=f"start_{i}"):
             bot["enabled"] = True
-            bot["status"] = "ATTENTE_ACHAT"
             st.rerun()
-
-    # Paramètres du bot
-    col1, col2 = st.columns(2)
-    bot["buy"] = col1.number_input(f"Bot {i} - Acheter si prix ≤", value=float(prix*0.99), format="%.4f", key=f"buy_{i}")
-    bot["sell"] = col2.number_input(f"Bot {i} - Vendre si prix ≥", value=float(prix*1.01), format="%.4f", key=f"sell_{i}")
-
-    # Fourchette de prix colorée
-    if bot["status"] == "EN_POSITION":
-        st.markdown(f"<div class='green-box'>Achat ≤ {bot['buy']} | Vente ≥ {bot['sell']}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='red-box'>Achat ≤ {bot['buy']} | Vente ≥ {bot['sell']}</div>", unsafe_allow_html=True)
-
-    # Gain
-    st.metric("Gain total", f"{bot['gain']:.4f} $")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ------------------------------------------------------
+# ---------------------------------------------------
 # LOGIQUE DE TRADING
-# ------------------------------------------------------
-for i in range(1, st.session_state.nb_bots + 1):
-
-    bot = st.session_state.bots[f"bot{i}"]
+# ---------------------------------------------------
+for bot in st.session_state.bots:
 
     if not bot["enabled"]:
         continue
 
-    # Achat automatique
-    if bot["status"] == "ATTENTE_ACHAT":
+    # ACHAT
+    if bot["entry"] is None:
         if prix <= bot["buy"] and usd > 5:
             qty = (usd - 1) / prix
             exchange.create_market_buy_order("XRP/USD", qty)
             bot["entry"] = prix
-            bot["status"] = "EN_POSITION"
-            st.success(f"Bot {i} : ACHAT {qty:.2f} XRP")
             st.rerun()
 
-    # Vente automatique
-    if bot["status"] == "EN_POSITION":
+    # VENTE
+    else:
         if prix >= bot["sell"] and xrp > 1:
             exchange.create_market_sell_order("XRP/USD", xrp)
             gain = (prix - bot["entry"]) * xrp
             bot["gain"] += gain
-            bot["status"] = "ATTENTE_ACHAT"
-            st.success(f"Bot {i} : VENTE +{gain:.4f} $")
+            bot["cycles"] += 1
+            bot["entry"] = None    # restart snowball
             st.rerun()
