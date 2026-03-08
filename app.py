@@ -6,75 +6,60 @@ st.set_page_config(page_title="XRP Bot", layout="wide")
 st.title("🤖 XRP Trading Bot")
 
 # -------------------------
-# Initialisation bots
+# Initialisation
 # -------------------------
 
 if "paliers" not in st.session_state:
-    st.session_state.paliers = [
-        {"buy":1.33607,"sell":1.37607,"usdc":10,"buy_done":False},
-        {"buy":1.32000,"sell":1.36000,"usdc":10,"buy_done":False},
-        {"buy":1.30000,"sell":1.34000,"usdc":10,"buy_done":False},
-    ]
-
+    st.session_state.paliers = []
 
 # -------------------------
-# Style barre montant
+# Style simple
 # -------------------------
 
 st.markdown("""
 <style>
-
 .stNumberInput input{
 height:45px;
 font-size:18px;
 border-radius:10px;
 border:1px solid #ddd;
 }
-
-.buy{
-color:green;
-font-weight:bold;
-}
-
-.sell{
-color:red;
-font-weight:bold;
-}
-
 </style>
 """, unsafe_allow_html=True)
 
-
 # -------------------------
-# Barre montant
-# -------------------------
-
-st.subheader("💰 Montant USDC")
-
-montant = st.number_input(
-"Montant par bot",
-min_value=1.0,
-value=10.0,
-step=1.0
-)
-
-# appliquer montant
-for p in st.session_state.paliers:
-    p["usdc"] = montant
-
-
-# -------------------------
-# Simulation prix XRP
+# Prix XRP
 # -------------------------
 
-prix = st.number_input(
-"Prix XRP",
-value=1.34,
-step=0.001
-)
+prix = st.number_input("Prix XRP", value=1.34, step=0.001)
 
 st.write("Prix actuel :", prix)
 
+# -------------------------
+# Ajouter bot
+# -------------------------
+
+st.subheader("➕ Ajouter un Bot")
+
+col1,col2,col3,col4 = st.columns(4)
+
+with col1:
+    buy = st.number_input("BUY", value=1.33)
+
+with col2:
+    sell = st.number_input("SELL", value=1.37)
+
+with col3:
+    usdc = st.number_input("USDC", value=10.0)
+
+with col4:
+    if st.button("Ajouter Bot"):
+        st.session_state.paliers.append({
+            "buy": buy,
+            "sell": sell,
+            "usdc": usdc,
+            "buy_done": False
+        })
 
 # -------------------------
 # Logique bot
@@ -88,7 +73,6 @@ for p in st.session_state.paliers:
     if p["buy_done"] and prix >= p["sell"]:
         p["buy_done"] = False
 
-
 # -------------------------
 # Tableau bots
 # -------------------------
@@ -98,44 +82,58 @@ profit_total = 0
 
 for i,p in enumerate(st.session_state.paliers):
 
-    profit = (p["sell"]-p["buy"]) * (p["usdc"]/p["buy"])
+    profit = (p["sell"] - p["buy"]) * (p["usdc"] / p["buy"])
     profit_total += profit
 
-    buy_color = "🟢 "+str(p["buy"]) if p["buy_done"] else str(p["buy"])
+    buy_display = "🟢 " + str(p["buy"]) if p["buy_done"] else str(p["buy"])
 
     table.append({
-        "Bot":i+1,
-        "BUY":buy_color,
-        "SELL":p["sell"],
-        "USDC":p["usdc"],
-        "Profit Bot":round(profit,4)
+        "Bot": i+1,
+        "BUY": buy_display,
+        "SELL": p["sell"],
+        "USDC": p["usdc"],
+        "Profit Bot": round(profit,4)
     })
-
 
 df = pd.DataFrame(table)
 
-st.dataframe(df,use_container_width=True)
-
+st.subheader("📊 Bots actifs")
+st.dataframe(df, use_container_width=True)
 
 # -------------------------
 # Profit total
 # -------------------------
 
-st.subheader("💵 Profit total")
-
+st.subheader("💰 Profit total")
 st.success(round(profit_total,4))
 
+# -------------------------
+# Supprimer bot
+# -------------------------
+
+if len(st.session_state.paliers) > 0:
+
+    st.subheader("🗑 Supprimer un bot")
+
+    bot_index = st.number_input(
+        "Numéro du bot",
+        min_value=1,
+        max_value=len(st.session_state.paliers),
+        step=1
+    )
+
+    if st.button("Supprimer Bot"):
+        st.session_state.paliers.pop(bot_index-1)
+        st.rerun()
 
 # -------------------------
-# Boutons
+# Boutons bot
 # -------------------------
 
 col1,col2 = st.columns(2)
 
 with col1:
-    if st.button("▶ Start Bot"):
-        st.success("Bot activé")
+    st.button("▶ Start Bot")
 
 with col2:
-    if st.button("⏹ Stop Bot"):
-        st.warning("Bot arrêté")
+    st.button("⏹ Stop Bot")
