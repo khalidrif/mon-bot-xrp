@@ -40,14 +40,14 @@ if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
 # ----------------------------------------------------
-# MIGRATION (évite KeyError)
+# MIGRATION — évite KeyError
 # ----------------------------------------------------
 for bot in st.session_state.bots:
     bot.setdefault("enabled", True)
-    bot.setdefault("mode", "WAIT_BUY")
-    bot.setdefault("target_usdc", 100.0)
-    bot.setdefault("buy_price", 0.45)
-    bot.setdefault("sell_price", 0.50)
+    bot.setdefault("mode", "CONFIG")  # <-- IMPORTANT
+    bot.setdefault("target_usdc", 0.0)
+    bot.setdefault("buy_price", 0.0)
+    bot.setdefault("sell_price", 0.0)
     bot.setdefault("snowball", True)
     bot.setdefault("gain", 0.0)
     bot.setdefault("cycles", 0)
@@ -100,15 +100,15 @@ colBal1.metric("USDC Disponible", f"{usdc:.3f}")
 colBal2.metric("XRP Disponible", f"{xrp:.3f}")
 
 # ----------------------------------------------------
-# ADD BOT
+# AJOUT BOT — NE FAIT RIEN AUTOMATIQUEMENT !!
 # ----------------------------------------------------
 if st.button("➕ Ajouter Bot"):
     st.session_state.bots.append({
         "enabled": True,
-        "mode": "WAIT_BUY",
-        "target_usdc": 100.0,
-        "buy_price": round(prix * 0.99, 5),
-        "sell_price": round(prix * 1.01, 5),
+        "mode": "CONFIG",      # <-- MODE PAR DÉFAUT, PAS D'ACTION AUTOMATIQUE
+        "target_usdc": 0.0,
+        "buy_price": 0.0,
+        "sell_price": 0.0,
         "snowball": True,
         "gain": 0.0,
         "cycles": 0,
@@ -126,18 +126,20 @@ for i, bot in enumerate(st.session_state.bots):
 
     col0, col1, col2, col3, col4 = st.columns([1,3,3,3,2])
 
-    # Status
-    if bot["mode"] == "WAIT_BUY":
+    # STATUS
+    if bot["mode"] == "CONFIG":
+        col0.write("⚙️")
+    elif bot["mode"] == "WAIT_BUY":
         col0.write("🟡")
     elif bot["mode"] == "BUY":
         col0.write("🟢")
     else:
         col0.write("🔴")
 
-    # Inputs
-    bot["target_usdc"] = col1.number_input("Montant (USDC)", value=float(bot["target_usdc"]), min_value=5.0, key=f"u{i}")
-    bot["buy_price"]   = col2.number_input("Prix Achat", value=float(bot["buy_price"]), format="%.5f", key=f"b{i}")
-    bot["sell_price"]  = col3.number_input("Prix Vente", value=float(bot["sell_price"]), format="%.5f", key=f"s{i}")
+    # INPUTS
+    bot["target_usdc"] = col1.number_input("Montant (USDC)", value=float(bot["target_usdc"]), min_value=0.0, key=f"u{i}")
+    bot["buy_price"]   = col2.number_input("Prix Achat", value=float(bot["buy_price"]), min_value=0.0, format="%.5f", key=f"b{i}")
+    bot["sell_price"]  = col3.number_input("Prix Vente", value=float(bot["sell_price"]), min_value=0.0, format="%.5f", key=f"s{i}")
     bot["snowball"]    = col4.checkbox("Snowball ♻️", value=bot["snowball"], key=f"sn{i}")
 
     colA, colB, colC, colDel = st.columns([2,2,2,1])
@@ -147,13 +149,13 @@ for i, bot in enumerate(st.session_state.bots):
     if bot["enabled"]:
         if colC.button("Stop", key=f"stop{i}"):
             bot["enabled"] = False
-            bot["mode"] = "WAIT_BUY"
+            bot["mode"] = "CONFIG"
             save_bots()
             st.rerun()
     else:
         if colC.button("Start", key=f"start{i}"):
             bot["enabled"] = True
-            bot["mode"] = "WAIT_BUY"
+            bot["mode"] = "CONFIG"
             save_bots()
             st.rerun()
 
@@ -163,7 +165,6 @@ for i, bot in enumerate(st.session_state.bots):
         st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 # ----------------------------------------------------
 # TRADING LOOP
@@ -186,7 +187,18 @@ if now - st.session_state.last_run > 2:
             continue
 
         # ----------------------------------------------------
-        # WAIT_BUY → attendre que prix <= buy_price
+        # MODE CONFIG → attendre que l’utilisateur remplisse tout
+        # ----------------------------------------------------
+        if bot["mode"] == "CONFIG":
+
+            if bot["target_usdc"] > 0 and bot["buy_price"] > 0 and bot["sell_price"] > 0:
+                bot["mode"] = "WAIT_BUY"
+                save_bots()
+
+            continue
+
+        # ----------------------------------------------------
+        # WAIT_BUY → acheter seulement si prix <= buy_price
         # ----------------------------------------------------
         if bot["mode"] == "WAIT_BUY":
 
@@ -207,9 +219,12 @@ if now - st.session_state.last_run > 2:
             continue
 
         # ----------------------------------------------------
-        # SELL → Vente LIMIT
+        # SELL → vendre seulement si prix >= sell_price
         # ----------------------------------------------------
         if bot["mode"] == "SELL":
+
+            if prix < bot["sell_price"]:
+                continue  # <-- IMPORTANT : PAS DE VENTE !
 
             qty = round(xrp, 6)
             if qty < 5:
@@ -228,7 +243,6 @@ if now - st.session_state.last_run > 2:
                 bot["gain"] += gain
                 bot["cycles"] += 1
 
-                # Snowball ?
                 if bot["snowball"]:
                     bot["mode"] = "WAIT_BUY"
                 else:
