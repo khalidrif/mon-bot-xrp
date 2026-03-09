@@ -43,8 +43,8 @@ if "bots" not in st.session_state:
 # MIGRATION — évite KeyError
 # ----------------------------------------------------
 for bot in st.session_state.bots:
-    bot.setdefault("enabled", True)
-    bot.setdefault("mode", "CONFIG")  # <-- IMPORTANT
+    bot.setdefault("enabled", False)   # <-- Désactivé par défaut
+    bot.setdefault("mode", "CONFIG")
     bot.setdefault("target_usdc", 0.0)
     bot.setdefault("buy_price", 0.0)
     bot.setdefault("sell_price", 0.0)
@@ -100,12 +100,12 @@ colBal1.metric("USDC Disponible", f"{usdc:.3f}")
 colBal2.metric("XRP Disponible", f"{xrp:.3f}")
 
 # ----------------------------------------------------
-# AJOUT BOT — NE FAIT RIEN AUTOMATIQUEMENT !!
+# AJOUT BOT = désactivé + CONFIG (aucune action)
 # ----------------------------------------------------
 if st.button("➕ Ajouter Bot"):
     st.session_state.bots.append({
-        "enabled": True,
-        "mode": "CONFIG",      # <-- MODE PAR DÉFAUT, PAS D'ACTION AUTOMATIQUE
+        "enabled": False,      # <-- IMPORTANT
+        "mode": "CONFIG",      # <-- attend que tu configures
         "target_usdc": 0.0,
         "buy_price": 0.0,
         "sell_price": 0.0,
@@ -126,14 +126,14 @@ for i, bot in enumerate(st.session_state.bots):
 
     col0, col1, col2, col3, col4 = st.columns([1,3,3,3,2])
 
-    # STATUS
+    # STATUS ICONS
     if bot["mode"] == "CONFIG":
         col0.write("⚙️")
     elif bot["mode"] == "WAIT_BUY":
         col0.write("🟡")
     elif bot["mode"] == "BUY":
         col0.write("🟢")
-    else:
+    elif bot["mode"] == "SELL":
         col0.write("🔴")
 
     # INPUTS
@@ -146,19 +146,21 @@ for i, bot in enumerate(st.session_state.bots):
     colA.metric("Gain total", f"{bot['gain']:.4f}")
     colB.metric("Cycles", bot["cycles"])
 
-    if bot["enabled"]:
-        if colC.button("Stop", key=f"stop{i}"):
-            bot["enabled"] = False
-            bot["mode"] = "CONFIG"
+    # START / STOP LOGIC FIXED
+    if not bot["enabled"]:
+        if colC.button("Start", key=f"start{i}"):
+            bot["enabled"] = True
+            bot["mode"] = "CONFIG"   # attend paramètres
             save_bots()
             st.rerun()
     else:
-        if colC.button("Start", key=f"start{i}"):
-            bot["enabled"] = True
-            bot["mode"] = "CONFIG"
+        if colC.button("Stop", key=f"stop{i}"):
+            bot["enabled"] = False
+            bot["mode"] = "CONFIG"   # reset propre
             save_bots()
             st.rerun()
 
+    # DELETE
     if colDel.button("🗑️", key=f"del{i}"):
         del st.session_state.bots[i]
         save_bots()
@@ -186,20 +188,16 @@ if now - st.session_state.last_run > 2:
         if not bot["enabled"]:
             continue
 
-        # ----------------------------------------------------
-        # MODE CONFIG → attendre que l’utilisateur remplisse tout
-        # ----------------------------------------------------
+        # CONFIG — attend que tu remplisses toi-même les paramètres
         if bot["mode"] == "CONFIG":
 
             if bot["target_usdc"] > 0 and bot["buy_price"] > 0 and bot["sell_price"] > 0:
                 bot["mode"] = "WAIT_BUY"
-                save_bots()
 
+            save_bots()
             continue
 
-        # ----------------------------------------------------
-        # WAIT_BUY → acheter seulement si prix <= buy_price
-        # ----------------------------------------------------
+        # WAIT_BUY — acheter si prix <= buy_price
         if bot["mode"] == "WAIT_BUY":
 
             if prix <= bot["buy_price"] and usdc >= bot["target_usdc"]:
@@ -211,20 +209,25 @@ if now - st.session_state.last_run > 2:
                 try:
                     order = exchange.create_limit_buy_order("XRP/USDC", qty, bot["buy_price"])
                     bot["xrp_qty"] = qty
-                    bot["mode"] = "SELL"
+                    bot["mode"] = "BUY"
                 except:
                     continue
 
             save_bots()
             continue
 
-        # ----------------------------------------------------
-        # SELL → vendre seulement si prix >= sell_price
-        # ----------------------------------------------------
+        # BUY → Achat exécuté, prêt à vendre
+        if bot["mode"] == "BUY":
+            if prix >= bot["sell_price"]:
+                bot["mode"] = "SELL"
+            save_bots()
+            continue
+
+        # SELL — vendre si prix ≥ sell_price
         if bot["mode"] == "SELL":
 
             if prix < bot["sell_price"]:
-                continue  # <-- IMPORTANT : PAS DE VENTE !
+                continue
 
             qty = round(xrp, 6)
             if qty < 5:
@@ -239,8 +242,7 @@ if now - st.session_state.last_run > 2:
             o = exchange.fetch_order(oid, "XRP/USDC")
             if o["status"] == "closed":
 
-                gain = (bot["sell_price"] - bot["buy_price"]) * qty
-                bot["gain"] += gain
+                bot["gain"] += (bot["sell_price"] - bot["buy_price"]) * qty
                 bot["cycles"] += 1
 
                 if bot["snowball"]:
