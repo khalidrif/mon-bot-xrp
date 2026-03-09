@@ -1,109 +1,107 @@
-import streamlit as st
-import pandas as pd
+import customtkinter as ctk
 import ccxt
-from config import get_kraken_connection
+import threading
 import time
-import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# 1. STYLE VISUEL BLEU PRO
-st.set_page_config(page_title="XRP Auto-Bot Pro", layout="wide")
+class TripleBotXRP(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("DASHBOARD MULTI-STRATÉGIE XRP")
+        self.geometry("1000x850")
+        self.configure(fg_color="#0b0e11")
 
-st.markdown("""
-    <style>
-    [data-testid="stMetric"] {
-        background-color: #0E2F56; 
-        border: 2px solid #007BFF; 
-        padding: 20px;
-        border-radius: 15px;
-    }
-    [data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 18px !important; }
-    [data-testid="stMetricValue"] { color: #00FFCC !important; font-size: 35px !important; }
-    </style>
-    """, unsafe_allow_html=True)
+        # --- DONNÉES ---
+        self.pair = "XRP/USDC"
+        self.strats = {
+            "Agressif (0.5%)": {"ecart": 0.005, "color": "#e74c3c", "orders": []},
+            "Modéré (1.5%)": {"ecart": 0.015, "color": "#f1c40f", "orders": []},
+            "Prudent (3.0%)": {"ecart": 0.030, "color": "#3498db", "orders": []}
+        }
+        self.historique_prix = []
+        self.bot_actif = False
 
-# Connexion via ton fichier config.py
-kraken = get_kraken_connection()
-
-# Initialisation de la mémoire du bot (Session State)
-if 'last_balance_update' not in st.session_state:
-    st.session_state.last_balance_update = 0
-    st.session_state.cached_balance = {}
-
-# --- BARRE LATÉRALE ---
-with st.sidebar:
-    st.header("🤖 Robot de Trading")
-    bot_actif = st.toggle("ACTIVER LE BOT", value=False)
-    st.divider()
-    seuil_achat = st.number_input("Acheter si <", value=1.3000, format="%.4f")
-    seuil_vente = st.number_input("Vendre si >", value=1.5500, format="%.4f")
-    budget_usdc = st.number_input("Budget Achat (USDC)", min_value=25.0, value=30.0)
-
-st.title("📈 Terminal XRP - Flux Sécurisé")
-
-# Zone de rafraîchissement
-zone_live = st.empty()
-
-while True:
-    try:
-        # 1. LECTURE DU PRIX (Toutes les 10s)
-        ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        prix_bid = ob['bids'][0][0]
-        prix_ask = ob['asks'][0][0]
-        prix_reel = (prix_bid + prix_ask) / 2
+        # --- INTERFACE ---
+        # 1. Graphique Central
+        self.frame_graph = ctk.CTkFrame(self, fg_color="#1c1d22")
+        self.frame_graph.pack(pady=10, padx=10, fill="both", expand=True)
         
-        # 2. LECTURE DU SOLDE (Toutes les 30s pour éviter le BAN)
-        maintenant = time.time()
-        if maintenant - st.session_state.last_balance_update > 30:
-            st.session_state.cached_balance = kraken.fetch_balance()
-            st.session_state.last_balance_update = maintenant # <-- CORRIGÉ : signe = ajouté
+        self.fig, self.ax = plt.subplots(figsize=(5, 4), facecolor='#1c1d22')
+        self.ax.set_facecolor('#1c1d22')
+        self.ax.tick_params(colors='white')
+        self.line_prix, = self.ax.plot([], [], color='#2ecc71', linewidth=2, label="Prix Live")
         
-        balance = st.session_state.cached_balance
-        usdc_libre = balance.get('free', {}).get('USDC', 0)
-        xrp_libre = balance.get('free', {}).get('XRP', 0)
-        
-        with zone_live.container():
-            c1, c2, c3 = st.columns(3)
-            c1.metric("PORTFOLIO USDC", f"{usdc_libre:,.2f} $")
-            c2.metric("STOCK XRP", f"{xrp_libre:,.2f}")
-            c3.metric("PRIX XRP LIVE", f"{prix_reel:.4f} $")
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame_graph)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
-            st.write(f"⏱️ Flux Kraken : **{datetime.datetime.now().strftime('%H:%M:%S')}**")
-            
-            # --- LOGIQUE DU BOT ---
-            if bot_actif:
-                st.warning(f"🕵️ Surveillance : ACHAT < {seuil_achat}$ | VENTE > {seuil_vente}$")
-                
-                # ACHAT
-                if prix_reel <= seuil_achat and usdc_libre >= budget_usdc:
-                    st.toast("🚀 ACHAT DÉCLENCHÉ !")
-                    qty = budget_usdc / prix_ask
-                    res = kraken.create_order('XRP/USDC', 'market', 'buy', qty)
-                    st.success(f"✅ BOT : Achat réussi (ID: {res['id']})")
-                    st.session_state.last_balance_update = 0 # Force refresh solde au prochain tour
-                    time.sleep(15)
-                
-                # VENTE
-                elif prix_reel >= seuil_vente and xrp_libre >= 15:
-                    st.toast("💰 VENTE DÉCLENCHÉE !")
-                    res = kraken.create_order('XRP/USDC', 'market', 'sell', xrp_libre)
-                    st.success(f"✅ BOT : Vente réussie (ID: {res['id']})")
-                    st.session_state.last_balance_update = 0 # Force refresh solde
-                    time.sleep(15)
-                else:
-                    st.info("⌛ En attente du bon prix...")
+        # 2. Zone de Contrôle (3 colonnes pour les 3 bots)
+        self.frame_bots = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_bots.pack(fill="x", padx=10, pady=10)
 
-            st.divider()
-            st.subheader("📝 Mes Avoirs")
-            df = pd.DataFrame(balance.get('total', {}).items(), columns=['Actif', 'Total'])
-            st.table(df[df['Total'] > 0].reset_index(drop=True))
+        self.labels_prix = {}
+        for name, config in self.strats.items():
+            f = ctk.CTkFrame(self.frame_bots, fg_color="#1e2329", border_color=config['color'], border_width=1)
+            f.pack(side="left", padx=5, expand=True, fill="both")
+            ctk.CTkLabel(f, text=name, text_color=config['color'], font=("Arial", 14, "bold")).pack(pady=5)
+            self.labels_prix[name] = ctk.CTkLabel(f, text="Attente...", font=("Arial", 16))
+            self.labels_prix[name].pack(pady=10)
 
-    except Exception as e:
-        if "Rate limit exceeded" in str(e):
-            st.error("⚠️ Kraken saturé ! Pause de 30 secondes...")
-            time.sleep(30)
+        # 3. Bouton Global
+        self.btn_run = ctk.CTkButton(self, text="LANCER LES 3 STRATÉGIES", fg_color="#00c087", command=self.basculer_bots)
+        self.btn_run.pack(pady=15)
+
+    def basculer_bots(self):
+        if not self.bot_actif:
+            self.bot_actif = True
+            self.btn_run.configure(text="STOP TOUT", fg_color="#e74c3c")
+            threading.Thread(target=self.moteur_triple, daemon=True).start()
         else:
-            st.error(f"Erreur : {e}")
-            time.sleep(10)
+            self.bot_actif = False
+            self.btn_run.configure(text="LANCER LES 3 STRATÉGIES", fg_color="#00c087")
 
-    # Pause de sécurité (10 secondes recommandée)
-    time.sleep(10)
+    def moteur_triple(self):
+        exchange = ccxt.kraken()
+        ticker = exchange.fetch_ticker(self.pair)
+        prix_depart = ticker['last']
+
+        # Initialisation des ordres pour chaque bot
+        for name, config in self.strats.items():
+            config['orders'] = [
+                {"side": "buy", "price": round(prix_depart * (1 - config['ecart']), 4)},
+                {"side": "sell", "price": round(prix_depart * (1 + config['ecart']), 4)}
+            ]
+
+        while self.bot_actif:
+            try:
+                ticker = exchange.fetch_ticker(self.pair)
+                prix = ticker['last']
+                self.historique_prix.append(prix)
+                if len(self.historique_prix) > 50: self.historique_prix.pop(0)
+                
+                self.after(0, self.maj_ui, prix)
+                time.sleep(2)
+            except:
+                time.sleep(5)
+
+    def maj_ui(self, prix):
+        # Update du texte
+        for name in self.strats:
+            self.labels_prix[name].configure(text=f"{prix} $")
+        
+        # Update du Graphique
+        self.line_prix.set_data(range(len(self.historique_prix)), self.historique_prix)
+        self.ax.relim()
+        self.ax.autoscale_view()
+
+        # Effacer et Redessiner les lignes d'ordres des 3 bots
+        for line in self.ax.get_lines()[1:]: line.remove()
+        for name, config in self.strats.items():
+            for o in config['orders']:
+                self.ax.axhline(y=o['price'], color=config['color'], linestyle='--', alpha=0.5, linewidth=1)
+        
+        self.canvas.draw()
+
+if __name__ == "__main__":
+    app = TripleBotXRP()
+    app.mainloop()
