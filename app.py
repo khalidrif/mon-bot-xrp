@@ -29,8 +29,12 @@ body { zoom: 92%; }
 def load_bots():
     if not os.path.exists(SAVE_FILE):
         return []
-    with open(SAVE_FILE, "r") as f:
-        return json.load(f)
+
+    try:
+        with open(SAVE_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []  # JSON cassé → reset automatique
 
 def save_bots():
     with open(SAVE_FILE, "w") as f:
@@ -100,7 +104,7 @@ colBal1.metric("USDC Disponible", f"{usdc:.3f}")
 colBal2.metric("XRP Disponible", f"{xrp:.3f}")
 
 # ----------------------------------------------------
-# AJOUT BOT — DÉSACTIVÉ PAR DÉFAUT
+# BOUTON AJOUT BOT
 # ----------------------------------------------------
 if st.button("➕ Ajouter Bot"):
     st.session_state.bots.append({
@@ -118,6 +122,26 @@ if st.button("➕ Ajouter Bot"):
     st.rerun()
 
 # ----------------------------------------------------
+# RESET BOTS — anti double clic
+# ----------------------------------------------------
+if "reset_lock" not in st.session_state:
+    st.session_state.reset_lock = False
+
+if st.button("🧹 Reset Bots (vider tous les bots)") and not st.session_state.reset_lock:
+    st.session_state.reset_lock = True
+
+    st.session_state.bots = []
+
+    with open(SAVE_FILE, "w") as f:
+        f.write("[]")
+
+    st.success("Tous les bots ont été réinitialisés.")
+    time.sleep(0.4)
+
+    st.session_state.reset_lock = False
+    st.rerun()
+
+# ----------------------------------------------------
 # DISPLAY BOTS
 # ----------------------------------------------------
 for i, bot in enumerate(st.session_state.bots):
@@ -129,12 +153,12 @@ for i, bot in enumerate(st.session_state.bots):
     # STATUS ICONS
     if bot["mode"] == "CONFIG":
         col0.write("⚙️")
-    elif bot["mode"] == "WAIT_BUY":
-        col0.write("🟡")
     elif bot["mode"] == "BUY":
         col0.write("🟢")
     elif bot["mode"] == "SELL":
         col0.write("🔴")
+    elif bot["mode"] == "WAIT_BUY":
+        col0.write("🟡")
 
     # INPUTS
     bot["target_usdc"] = col1.number_input("Montant (USDC)", value=float(bot["target_usdc"]), min_value=0.0, key=f"u{i}")
@@ -154,16 +178,18 @@ for i, bot in enumerate(st.session_state.bots):
 
             bot["enabled"] = True
 
-            # 🔥 ENVOI DIRECT LIMIT BUY
             try:
                 qty = round(bot["target_usdc"] / bot["buy_price"], 6)
+
                 order = exchange.create_limit_buy_order(
                     "XRP/USDC",
                     qty,
                     bot["buy_price"]
                 )
+
                 bot["xrp_qty"] = qty
-                bot["mode"] = "BUY"  # Attente exécution achat
+                bot["mode"] = "BUY"
+
             except:
                 bot["enabled"] = False
                 bot["mode"] = "CONFIG"
@@ -197,26 +223,20 @@ if now - st.session_state.last_run > 2:
     if prix is None:
         st.stop()
 
-    bal = exchange.fetch_balance()
-    usdc = bal["free"].get("USDC", 0.0)
-    xrp = bal["free"].get("XRP", 0.0)
-
     for bot in st.session_state.bots:
 
         if not bot["enabled"]:
             continue
 
-        # MODE BUY → vérifier si achat exécuté
+        # 1) BUY = vérifier si ordre d'achat est exécuté
         if bot["mode"] == "BUY":
-            # Vérifier les ordres ouverts
             open_orders = exchange.fetch_open_orders("XRP/USDC")
             if len(open_orders) == 0:
-                # Achat exécuté
                 bot["mode"] = "SELL"
                 save_bots()
             continue
 
-        # MODE SELL → envoyer LIMIT SELL quand prix >= sell_price
+        # 2) SELL = envoyer LIMIT SELL quand prix atteint
         if bot["mode"] == "SELL":
 
             if prix < bot["sell_price"]:
@@ -232,7 +252,6 @@ if now - st.session_state.last_run > 2:
             except:
                 continue
 
-            # Vérifier la vente
             o = exchange.fetch_order(oid, "XRP/USDC")
             if o["status"] == "closed":
 
@@ -240,15 +259,14 @@ if now - st.session_state.last_run > 2:
                 bot["cycles"] += 1
 
                 if bot["snowball"]:
-                    # Acheter encore avec LIMIT BUY
-                    qty2 = round(bot["target_usdc"] / bot["buy_price"], 6)
                     try:
+                        qty2 = round(bot["target_usdc"] / bot["buy_price"], 6)
                         exchange.create_limit_buy_order("XRP/USDC", qty2, bot["buy_price"])
                         bot["xrp_qty"] = qty2
                         bot["mode"] = "BUY"
                     except:
-                        bot["mode"] = "CONFIG"
                         bot["enabled"] = False
+                        bot["mode"] = "CONFIG"
                 else:
                     bot["enabled"] = False
                     bot["mode"] = "CONFIG"
