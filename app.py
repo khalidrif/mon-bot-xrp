@@ -6,35 +6,14 @@ st.set_page_config(page_title="Snowball XRP/USDC", page_icon="❄️", layout="w
 
 SAVE_FILE = "bots.json"
 
-# ----------------------------------------------------
-# STYLE
-# ----------------------------------------------------
-st.markdown("""
-<style>
-body { zoom: 92%; }
-.bot {
-    border: 1px solid #cccccc55;
-    border-radius: 8px;
-    padding: 8px;
-    margin-bottom: 10px;
-    background: #fafafa;
-    font-size: 13px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ----------------------------------------------------
-# LOAD / SAVE
-# ----------------------------------------------------
 def load_bots():
     if not os.path.exists(SAVE_FILE):
         return []
-
     try:
         with open(SAVE_FILE, "r") as f:
             return json.load(f)
     except:
-        return []  # JSON cassé → reset automatique
+        return []
 
 def save_bots():
     with open(SAVE_FILE, "w") as f:
@@ -43,9 +22,6 @@ def save_bots():
 if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
-# ----------------------------------------------------
-# MIGRATION — évite KeyError
-# ----------------------------------------------------
 for bot in st.session_state.bots:
     bot.setdefault("enabled", False)
     bot.setdefault("mode", "CONFIG")
@@ -62,9 +38,6 @@ save_bots()
 if "last_run" not in st.session_state:
     st.session_state.last_run = 0
 
-# ----------------------------------------------------
-# CONNECT KRAKEN
-# ----------------------------------------------------
 try:
     exchange = ccxt.kraken({
         "apiKey": st.secrets["KRAKEN_KEY"],
@@ -75,9 +48,6 @@ except:
     st.error("Erreur API Kraken")
     st.stop()
 
-# ----------------------------------------------------
-# PRICE
-# ----------------------------------------------------
 def get_price():
     try:
         return exchange.fetch_ticker("XRP/USDC")["last"]
@@ -86,26 +56,19 @@ def get_price():
 
 prix = get_price()
 if prix is None:
-    st.error("Impossible d'obtenir le prix.")
+    st.error("Erreur prix.")
     st.stop()
 
 st.title("❄️ Bot Snowball XRP/USDC")
 st.metric("Prix XRP/USDC", f"{prix:.5f}")
 
-# ----------------------------------------------------
-# BALANCES
-# ----------------------------------------------------
 bal = exchange.fetch_balance()
 usdc = bal["free"].get("USDC", 0.0)
 xrp = bal["free"].get("XRP", 0.0)
 
-colBal1, colBal2 = st.columns(2)
-colBal1.metric("USDC Disponible", f"{usdc:.3f}")
-colBal2.metric("XRP Disponible", f"{xrp:.3f}")
+st.metric("USDC Disponible", f"{usdc:.3f}")
+st.metric("XRP Disponible", f"{xrp:.3f}")
 
-# ----------------------------------------------------
-# BOUTON AJOUT BOT
-# ----------------------------------------------------
 if st.button("➕ Ajouter Bot"):
     st.session_state.bots.append({
         "enabled": False,
@@ -121,61 +84,40 @@ if st.button("➕ Ajouter Bot"):
     save_bots()
     st.rerun()
 
-# ----------------------------------------------------
-# RESET BOTS — anti double clic
-# ----------------------------------------------------
 if "reset_lock" not in st.session_state:
     st.session_state.reset_lock = False
 
-if st.button("🧹 Reset Bots (vider tous les bots)") and not st.session_state.reset_lock:
+if st.button("🧹 Reset Bots") and not st.session_state.reset_lock:
     st.session_state.reset_lock = True
-
     st.session_state.bots = []
-
     with open(SAVE_FILE, "w") as f:
         f.write("[]")
-
-    st.success("Tous les bots ont été réinitialisés.")
-    time.sleep(0.4)
-
+    st.success("Réinitialisé.")
+    time.sleep(0.3)
     st.session_state.reset_lock = False
     st.rerun()
 
-# ----------------------------------------------------
-# DISPLAY BOTS
-# ----------------------------------------------------
 for i, bot in enumerate(st.session_state.bots):
 
-    st.markdown("<div class='bot'>", unsafe_allow_html=True)
+    st.write("——————————————")
 
-    col0, col1, col2, col3, col4 = st.columns([1,3,3,3,2])
-
-    # STATUS ICONS
     if bot["mode"] == "CONFIG":
-        col0.write("⚙️")
+        st.write("⚙️ Configuration")
     elif bot["mode"] == "BUY":
-        col0.write("🟢")
+        st.write("🟢 Achat en attente/exécution")
     elif bot["mode"] == "SELL":
-        col0.write("🔴")
-    elif bot["mode"] == "WAIT_BUY":
-        col0.write("🟡")
+        st.write("🔴 Vente en attente/exécution")
 
-    # INPUTS
-    bot["target_usdc"] = col1.number_input("Montant (USDC)", value=float(bot["target_usdc"]), min_value=0.0, key=f"u{i}")
-    bot["buy_price"]   = col2.number_input("Prix Achat", value=float(bot["buy_price"]), min_value=0.0, format="%.5f", key=f"b{i}")
-    bot["sell_price"]  = col3.number_input("Prix Vente", value=float(bot["sell_price"]), min_value=0.0, format="%.5f", key=f"s{i}")
-    bot["snowball"]    = col4.checkbox("Snowball ♻️", value=bot["snowball"], key=f"sn{i}")
+    bot["target_usdc"] = st.number_input(f"Montant USDC bot {i}", value=float(bot["target_usdc"]), key=f"u{i}")
+    bot["buy_price"]   = st.number_input(f"Prix achat bot {i}", value=float(bot["buy_price"]), min_value=0.0, format="%.5f", key=f"b{i}")
+    bot["sell_price"]  = st.number_input(f"Prix vente bot {i}", value=float(bot["sell_price"]), min_value=0.0, format="%.5f", key=f"s{i}")
+    bot["snowball"]    = st.checkbox(f"Snowball bot {i}", value=bot["snowball"], key=f"sn{i}")
 
-    colA, colB, colC, colDel = st.columns([2,2,2,1])
-    colA.metric("Gain total", f"{bot['gain']:.4f}")
-    colB.metric("Cycles", bot["cycles"])
+    st.metric(f"Gain bot {i}", f"{bot['gain']:.4f}")
+    st.metric(f"Cycles bot {i}", bot["cycles"])
 
-    # ----------------------------------------------------
-    # START = LIMIT BUY IMMÉDIAT
-    # ----------------------------------------------------
     if not bot["enabled"]:
-        if colC.button("Start", key=f"start{i}"):
-
+        if st.button(f"Start bot {i}"):
             bot["enabled"] = True
 
             try:
@@ -198,23 +140,17 @@ for i, bot in enumerate(st.session_state.bots):
             st.rerun()
 
     else:
-        if colC.button("Stop", key=f"stop{i}"):
+        if st.button(f"Stop bot {i}"):
             bot["enabled"] = False
             bot["mode"] = "CONFIG"
             save_bots()
             st.rerun()
 
-    # DELETE
-    if colDel.button("🗑️", key=f"del{i}"):
+    if st.button(f"Supprimer bot {i}"):
         del st.session_state.bots[i]
         save_bots()
         st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ----------------------------------------------------
-# TRADING LOOP
-# ----------------------------------------------------
 now = time.time()
 if now - st.session_state.last_run > 2:
 
@@ -228,15 +164,14 @@ if now - st.session_state.last_run > 2:
         if not bot["enabled"]:
             continue
 
-        # 1) BUY = vérifier si ordre d'achat est exécuté
         if bot["mode"] == "BUY":
+
             open_orders = exchange.fetch_open_orders("XRP/USDC")
             if len(open_orders) == 0:
                 bot["mode"] = "SELL"
                 save_bots()
             continue
 
-        # 2) SELL = envoyer LIMIT SELL quand prix atteint
         if bot["mode"] == "SELL":
 
             if prix < bot["sell_price"]:
