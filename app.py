@@ -1,107 +1,122 @@
-import customtkinter as ctk
+import streamlit as st
+import pandas as pd
 import ccxt
-import threading
+from config import get_kraken_connection
 import time
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import datetime
 
-class TripleBotXRP(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        self.title("DASHBOARD MULTI-STRATÉGIE XRP")
-        self.geometry("1000x850")
-        self.configure(fg_color="#0b0e11")
+# 1. CONFIGURATION ET STYLE
+st.set_page_config(page_title="Kraken Loop Bot Pro", layout="wide")
 
-        # --- DONNÉES ---
-        self.pair = "XRP/USDC"
-        self.strats = {
-            "Agressif (0.5%)": {"ecart": 0.005, "color": "#e74c3c", "orders": []},
-            "Modéré (1.5%)": {"ecart": 0.015, "color": "#f1c40f", "orders": []},
-            "Prudent (3.0%)": {"ecart": 0.030, "color": "#3498db", "orders": []}
-        }
-        self.historique_prix = []
-        self.bot_actif = False
+st.markdown("""
+    <style>
+    [data-testid="stMetric"] { background-color: #0E2F56; border: 2px solid #007BFF; padding: 20px; border-radius: 15px; }
+    [data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 18px !important; }
+    [data-testid="stMetricValue"] { color: #00FFCC !important; font-size: 35px !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
-        # --- INTERFACE ---
-        # 1. Graphique Central
-        self.frame_graph = ctk.CTkFrame(self, fg_color="#1c1d22")
-        self.frame_graph.pack(pady=10, padx=10, fill="both", expand=True)
+# --- MÉMOIRE DU BOT (Session State) ---
+if 'etape_bot' not in st.session_state:
+    st.session_state.etape_bot = "ATTENTE_ACHAT" 
+if 'last_balance_update' not in st.session_state:
+    st.session_state.last_balance_update = 0
+    st.session_state.cached_balance = {}
+
+# Connexion via ton fichier config.py
+kraken = get_kraken_connection()
+
+# --- BARRE LATÉRALE (RÉGLAGES) ---
+with st.sidebar:
+    st.header("🤖 Contrôle du Cycle")
+    bot_actif = st.toggle("ACTIVER LE BOT", value=False)
+    mode_reel = st.toggle("💰 PASSER EN ARGENT RÉEL", value=False)
+    
+    st.divider()
+    p_achat = st.number_input("1. Prix d'Achat Cible ($)", value=1.3500, format="%.4f")
+    p_vente = st.number_input("2. Prix de Vente Cible ($)", value=1.5000, format="%.4f")
+    budget = st.number_input("Budget par achat (USDC)", min_value=25.0, value=30.0)
+
+    if st.button("Réinitialiser Cycle (vers Achat)"):
+        st.session_state.etape_bot = "ATTENTE_ACHAT"
+        st.rerun()
+
+st.title("📈 Terminal de Trading : Cycle Achat/Vente")
+
+zone_live = st.empty()
+
+# --- BOUCLE DE TRADING ---
+while True:
+    try:
+        # 1. RÉCUPÉRATION DU PRIX (Correction cruciale [0][0])
+        ob = kraken.fetch_order_book('XRP/USDC', limit=1)
         
-        self.fig, self.ax = plt.subplots(figsize=(5, 4), facecolor='#1c1d22')
-        self.ax.set_facecolor('#1c1d22')
-        self.ax.tick_params(colors='white')
-        self.line_prix, = self.ax.plot([], [], color='#2ecc71', linewidth=2, label="Prix Live")
+        # On extrait le PREMIER PRIX de la PREMIÈRE OFFRE
+        prix_ask = float(ob['asks'][0][0])  # Prix pour acheter
+        prix_bid = float(ob['bids'][0][0])  # Prix pour vendre
+        prix_reel = (prix_ask + prix_bid) / 2
         
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame_graph)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        # 2. RÉCUPÉRATION DU SOLDE (Toutes les 30s)
+        maintenant = time.time()
+        if maintenant - st.session_state.last_balance_update > 30:
+            st.session_state.cached_balance = kraken.fetch_balance()
+            st.session_state.last_balance_update = maintenant
+        
+        balance = st.session_state.cached_balance
+        usdc_libre = balance.get('free', {}).get('USDC', 0)
+        xrp_libre = balance.get('free', {}).get('XRP', 0)
 
-        # 2. Zone de Contrôle (3 colonnes pour les 3 bots)
-        self.frame_bots = ctk.CTkFrame(self, fg_color="transparent")
-        self.frame_bots.pack(fill="x", padx=10, pady=10)
+        with zone_live.container():
+            # Affichage du statut du cycle
+            couleur_etat = "blue" if st.session_state.etape_bot == "ATTENTE_ACHAT" else "orange"
+            st.subheader(f"🔄 État du Bot : :{couleur_etat}[{st.session_state.etape_bot}]")
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("USDC DISPO", f"{usdc_libre:,.2f} $")
+            c2.metric("XRP DISPO", f"{xrp_libre:,.2f}")
+            c3.metric("PRIX XRP (MOYEN)", f"{prix_reel:.4f} $")
 
-        self.labels_prix = {}
-        for name, config in self.strats.items():
-            f = ctk.CTkFrame(self.frame_bots, fg_color="#1e2329", border_color=config['color'], border_width=1)
-            f.pack(side="left", padx=5, expand=True, fill="both")
-            ctk.CTkLabel(f, text=name, text_color=config['color'], font=("Arial", 14, "bold")).pack(pady=5)
-            self.labels_prix[name] = ctk.CTkLabel(f, text="Attente...", font=("Arial", 16))
-            self.labels_prix[name].pack(pady=10)
-
-        # 3. Bouton Global
-        self.btn_run = ctk.CTkButton(self, text="LANCER LES 3 STRATÉGIES", fg_color="#00c087", command=self.basculer_bots)
-        self.btn_run.pack(pady=15)
-
-    def basculer_bots(self):
-        if not self.bot_actif:
-            self.bot_actif = True
-            self.btn_run.configure(text="STOP TOUT", fg_color="#e74c3c")
-            threading.Thread(target=self.moteur_triple, daemon=True).start()
-        else:
-            self.bot_actif = False
-            self.btn_run.configure(text="LANCER LES 3 STRATÉGIES", fg_color="#00c087")
-
-    def moteur_triple(self):
-        exchange = ccxt.kraken()
-        ticker = exchange.fetch_ticker(self.pair)
-        prix_depart = ticker['last']
-
-        # Initialisation des ordres pour chaque bot
-        for name, config in self.strats.items():
-            config['orders'] = [
-                {"side": "buy", "price": round(prix_depart * (1 - config['ecart']), 4)},
-                {"side": "sell", "price": round(prix_depart * (1 + config['ecart']), 4)}
-            ]
-
-        while self.bot_actif:
-            try:
-                ticker = exchange.fetch_ticker(self.pair)
-                prix = ticker['last']
-                self.historique_prix.append(prix)
-                if len(self.historique_prix) > 50: self.historique_prix.pop(0)
+            if bot_actif:
+                if not mode_reel:
+                    st.info("🧪 Mode Simulation : Les ordres ne sont pas réellement exécutés.")
                 
-                self.after(0, self.maj_ui, prix)
-                time.sleep(2)
-            except:
-                time.sleep(5)
+                # --- ÉTAPE 1 : CHERCHE À ACHETER ---
+                if st.session_state.etape_bot == "ATTENTE_ACHAT":
+                    if prix_reel <= p_achat and usdc_libre >= budget:
+                        qty = budget / prix_ask 
+                        st.toast("🚀 Condition d'achat remplie !")
+                        
+                        # EXECUTION (validate: True si mode_reel est False)
+                        kraken.create_order('XRP/USDC', 'market', 'buy', qty, params={'validate': not mode_reel})
+                        
+                        st.success(f"✅ ACHAT EFFECTUÉ ({qty:.2f} XRP) ! Passage à la vente...")
+                        st.session_state.etape_bot = "ATTENTE_VENTE"
+                        st.session_state.last_balance_update = 0 # Force refresh balance
+                        time.sleep(15)
+                
+                # --- ÉTAPE 2 : CHERCHE À VENDRE ---
+                elif st.session_state.etape_bot == "ATTENTE_VENTE":
+                    # On vend si le prix monte ET qu'on a au moins 15 XRP (Minimum Kraken)
+                    if prix_reel >= p_vente and xrp_libre >= 15:
+                        st.toast("💰 Condition de vente remplie !")
+                        
+                        # EXECUTION
+                        kraken.create_order('XRP/USDC', 'market', 'sell', xrp_libre, params={'validate': not mode_reel})
+                        
+                        st.success(f"✅ VENTE EFFECTUÉE ({xrp_libre:.2f} XRP) ! Retour à l'achat...")
+                        st.session_state.etape_bot = "ATTENTE_ACHAT"
+                        st.session_state.last_balance_update = 0
+                        time.sleep(15)
+                
+                else:
+                    st.write("⌛ Le bot guette le marché pour l'étape en cours...")
 
-    def maj_ui(self, prix):
-        # Update du texte
-        for name in self.strats:
-            self.labels_prix[name].configure(text=f"{prix} $")
-        
-        # Update du Graphique
-        self.line_prix.set_data(range(len(self.historique_prix)), self.historique_prix)
-        self.ax.relim()
-        self.ax.autoscale_view()
+            st.divider()
+            st.write(f"⏱️ Dernière mise à jour Kraken : {datetime.datetime.now().strftime('%H:%M:%S')}")
 
-        # Effacer et Redessiner les lignes d'ordres des 3 bots
-        for line in self.ax.get_lines()[1:]: line.remove()
-        for name, config in self.strats.items():
-            for o in config['orders']:
-                self.ax.axhline(y=o['price'], color=config['color'], linestyle='--', alpha=0.5, linewidth=1)
-        
-        self.canvas.draw()
+    except Exception as e:
+        st.error(f"Erreur flux : {e}")
+        time.sleep(10)
 
-if __name__ == "__main__":
-    app = TripleBotXRP()
-    app.mainloop()
+    # Pause de 10 secondes pour éviter le blocage API (Rate Limit)
+    time.sleep(10)
