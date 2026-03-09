@@ -3,28 +3,27 @@ import ccxt
 import time
 
 # 1. CONFIGURATION ET SECRETS
-st.set_page_config(page_title="XRP Real Trading Bot", layout="wide")
-st.title("🚀 Bot de Trading XRP/USDC - LIVE")
+st.set_page_config(page_title="XRP Live Trader", layout="wide")
+st.title("🚀 Bot XRP/USDC - Suivi des Objectifs")
 
-# Connexion Kraken via Secrets
+# Connexion Kraken
 try:
     exchange = ccxt.kraken({
         'apiKey': st.secrets["KRAKEN_API_KEY"],
         'secret': st.secrets["KRAKEN_API_SECRET"],
-        'enableRateLimit': True,
-        'options': {'defaultType': 'spot'}
+        'enableRateLimit': True
     })
-except Exception as e:
-    st.error("Erreur de connexion API. Vérifiez vos Secrets Streamlit.")
+except:
+    st.error("Erreur API. Vérifiez vos Secrets.")
     st.stop()
 
-# 2. SAISIE DES PARAMÈTRES (Sidebar)
+# 2. RÉGLAGES (Sidebar)
 with st.sidebar:
-    st.header("⚙️ Réglages")
+    st.header("⚙️ Paramètres")
     symbol = st.text_input("Paire", value="XRP/USDC")
-    stake_amount = st.number_input("Montant d'achat (USDC)", min_value=10.0, value=20.0)
+    stake_amount = st.number_input("Mise (USDC)", min_value=10.0, value=20.0)
     profit_target = st.slider("Objectif Profit (%)", 0.5, 10.0, 2.0) / 100
-    dip_threshold = st.slider("Rachat si baisse de (%)", 0.5, 10.0, 1.5) / 100
+    dip_threshold = st.slider("Rachat si baisse (%)", 0.5, 10.0, 1.5) / 100
 
 # 3. ÉTAT DU BOT
 if 'bot_actif' not in st.session_state:
@@ -34,7 +33,7 @@ if 'last_buy_price' not in st.session_state:
 
 # 4. CONTRÔLES
 c1, c2 = st.columns(2)
-if c1.button("🚀 DÉMARRER LE TRADING RÉEL", type="primary", use_container_width=True):
+if c1.button("🚀 DÉMARRER", type="primary", use_container_width=True):
     st.session_state.bot_actif = True
 if c2.button("🛑 ARRÊTER", use_container_width=True):
     st.session_state.bot_actif = False
@@ -44,53 +43,54 @@ st.divider()
 # 5. BOUCLE DE TRADING LIVE
 if st.session_state.bot_actif:
     try:
-        # Infos Marché & Compte
         ticker = exchange.fetch_ticker(symbol)
         price = ticker['last']
         bal = exchange.fetch_balance()
         xrp_bal = bal['free'].get('XRP', 0.0)
-        usdc_bal = bal['free'].get('USDC', 0.0)
 
-        # Affichage Métriques
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Prix XRP", f"{price} USDC")
-        m2.metric("Solde XRP", f"{xrp_bal:.2f}")
-        m3.metric("Solde USDC", f"{usdc_bal:.2f}")
-
-        # Initialisation du premier prix d'achat si vide
+        # Si c'est le premier lancement, on prend le prix actuel comme référence
         if st.session_state.last_buy_price == 0.0:
             st.session_state.last_buy_price = price
 
-        # CALCULS DE STRATÉGIE
+        # --- CALCUL DES PRIX CIBLES ---
+        prix_vente_cible = st.session_state.last_buy_price * (1 + profit_target)
+        prix_achat_suivant = st.session_state.last_buy_price * (1 - dip_threshold)
         diff_pct = (price - st.session_state.last_buy_price) / st.session_state.last_buy_price
 
-        # --- CONDITION DE VENTE (PROFIT) ---
-        if diff_pct >= profit_target and xrp_bal > 5:
-            st.balloons()
-            st.success(f"💰 VENTE : Profit de {diff_pct:.2%} atteint !")
-            # ORDRE RÉEL DE VENTE
-            exchange.create_market_sell_order(symbol, xrp_bal)
-            st.session_state.last_buy_price = price # Reset pour prochain cycle
-            time.sleep(5)
+        # --- AFFICHAGE DES MÉTRIQUES ---
+        st.subheader("📊 État du Marché")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Prix Actuel XRP", f"{price:.4f} USDC", f"{diff_pct:.2%}")
+        m2.metric("🎯 Prochaine VENTE à", f"{prix_vente_cible:.4f} USDC", f"+{profit_target:.1%}")
+        m3.metric("📉 Prochain ACHAT à", f"{prix_achat_suivant:.4f} USDC", f"-{dip_threshold:.1%}")
 
-        # --- CONDITION D'ACHAT (BAISSE / BOULE DE NEIGE) ---
-        elif diff_pct <= -dip_threshold and usdc_bal >= stake_amount:
-            st.warning(f"📉 ACHAT : Baisse de {diff_pct:.2%} détectée. Accumulation !")
-            # ORDRE RÉEL D'ACHAT
+        st.divider()
+        
+        st.info(f"Prix de référence (dernier achat) : **{st.session_state.last_buy_price:.4f} USDC**")
+
+        # --- LOGIQUE D'EXÉCUTION ---
+        if price >= prix_vente_cible and xrp_bal > 5:
+            st.success("💰 VENTE EXÉCUTÉE !")
+            exchange.create_market_sell_order(symbol, xrp_bal)
+            st.session_state.last_buy_price = price 
+            time.sleep(5)
+            st.rerun()
+
+        elif price <= prix_achat_suivant:
+            st.warning("❄️ ACHAT BOULE DE NEIGE EXÉCUTÉ !")
             quantity = stake_amount / price
             exchange.create_market_buy_order(symbol, quantity)
-            st.session_state.last_buy_price = price # Nouveau prix moyen
+            st.session_state.last_buy_price = price
             time.sleep(5)
+            st.rerun()
 
-        st.info(f"Dernière vérification : {time.strftime('%H:%M:%S')} | Écart : {diff_pct:.2%}")
-        
         # Rafraîchissement automatique
         time.sleep(30)
         st.rerun()
 
     except Exception as e:
-        st.error(f"Erreur Trading : {e}")
-        time.sleep(20)
+        st.error(f"Erreur : {e}")
+        time.sleep(10)
         st.rerun()
 else:
-    st.info("Le bot est en attente. Cliquez sur DÉMARRER pour activer les ordres réels.")
+    st.info("Bot à l'arrêt. Les prix cibles s'afficheront au démarrage.")
