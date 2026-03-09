@@ -39,6 +39,27 @@ def save_bots():
 if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
+# ----------------------------------------------------
+# MIGRATION AUTOMATIQUE (évite KeyError)
+# ----------------------------------------------------
+for bot in st.session_state.bots:
+    if "enabled" not in bot:
+        bot["enabled"] = True
+    if "mode" not in bot:
+        bot["mode"] = "WAIT_AMOUNT"
+    if "target_usdc" not in bot:
+        bot["target_usdc"] = 100.0
+    if "sell_price" not in bot:
+        bot["sell_price"] = 0.5
+    if "xrp_qty" not in bot:
+        bot["xrp_qty"] = 0.0
+    if "gain" not in bot:
+        bot["gain"] = 0.0
+    if "cycles" not in bot:
+        bot["cycles"] = 0
+
+save_bots()
+
 if "last_run" not in st.session_state:
     st.session_state.last_run = 0
 
@@ -88,8 +109,8 @@ st.metric("XRP Disponible", f"{xrp:.3f}")
 if st.button("➕ Ajouter Bot Montant-Cible"):
     st.session_state.bots.append({
         "enabled": True,
-        "mode": "WAIT_AMOUNT",          # WAIT_AMOUNT → SELL → BUY → LOOP
-        "target_usdc": 100.0,           # montant cible
+        "mode": "WAIT_AMOUNT",
+        "target_usdc": 100.0,
         "sell_price": round(prix * 1.01, 5),
         "xrp_qty": 0.0,
         "gain": 0.0,
@@ -177,7 +198,7 @@ if now - st.session_state.last_run > 2:
             continue
 
         # ----------------------------------------------------
-        # 1) MODE WAIT_AMOUNT → attendre que USDC >= montant cible
+        # WAIT_AMOUNT
         # ----------------------------------------------------
         if bot["mode"] == "WAIT_AMOUNT":
 
@@ -188,18 +209,16 @@ if now - st.session_state.last_run > 2:
             continue
 
         # ----------------------------------------------------
-        # 2) MODE SELL → Vente LIMIT au prix choisi
+        # SELL
         # ----------------------------------------------------
         if bot["mode"] == "SELL":
 
-            # quantité XRP réelle pour éviter erreurs
             sell_qty = round(xrp, 6)
             if sell_qty < 5:
                 continue
 
             sell_price = round(bot["sell_price"], 5)
 
-            # Coût minimum kraken 5$
             if sell_qty * sell_price < 5:
                 continue
 
@@ -209,7 +228,6 @@ if now - st.session_state.last_run > 2:
             except:
                 continue
 
-            # vérifier exécution
             o = exchange.fetch_order(oid, "XRP/USDC")
             if o["status"] == "closed":
 
@@ -221,7 +239,7 @@ if now - st.session_state.last_run > 2:
                 save_bots()
 
         # ----------------------------------------------------
-        # 3) MODE BUY → acheter tout en MARKET
+        # BUY
         # ----------------------------------------------------
         elif bot["mode"] == "BUY":
 
