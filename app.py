@@ -6,10 +6,9 @@ import os
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="XRP Multi-Grid 50", layout="wide")
-
 DB_FILE = "config_bots_xrp.json"
 
-# --- FONCTIONS DE SAUVEGARDE (IMMORTALITÉ) ---
+# --- FONCTIONS DE SAUVEGARDE ---
 def save_config(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f)
@@ -21,7 +20,7 @@ def load_config():
             return {int(k): v for k, v in data.items()}
     return None
 
-# --- INITIALISATION DES 50 BOTS ---
+# --- INITIALISATION ---
 if 'bots' not in st.session_state:
     saved = load_config()
     if saved:
@@ -58,9 +57,17 @@ with st.sidebar:
         b_cfg["p_vente"] = st.number_input("Prix VENTE", value=b_cfg["p_vente"], format="%.4f", key=f"ve_{id_bot}")
         b_cfg["mise"] = st.number_input("Mise USDC", value=b_cfg["mise"], key=f"mi_{id_bot}")
         
-        if st.button("💾 SAUVEGARDER RÉGLAGES", use_container_width=True):
+        col_btn1, col_btn2 = st.columns(2)
+        if col_btn1.button("💾 SAUVEGARDER", use_container_width=True):
             save_config(st.session_state.bots)
-            st.toast("Configuration enregistrée !")
+            st.toast("Enregistré !")
+        
+        # --- NOUVEAU BOUTON : SUPPRIMER / RESET ---
+        if col_btn2.button("🗑️ SUPPRIMER", use_container_width=True, type="secondary"):
+            st.session_state.bots[id_bot] = {"p_achat": 1.35, "p_vente": 1.38, "mise": 10.0, "etape": "ATTENTE_ACHAT", "actif": False}
+            save_config(st.session_state.bots)
+            st.toast(f"Bot {id_bot} réinitialisé !")
+            st.rerun()
 
     st.divider()
     if st.button("🚀 DÉMARRER TOUT", type="primary", use_container_width=True): st.session_state.run = True
@@ -81,8 +88,8 @@ try:
 
     st.divider()
 
-    # --- HEADER DU TABLEAU ---
-    h1, h2, h3, h4, h5, h6 = st.columns([0.5, 1, 1, 1, 1, 1])
+    # --- TABLEAU DES BOTS ACTIFS ---
+    h1, h2, h3, h4, h5, h6 = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8])
     h1.write("**N°**")
     h2.write("**État**")
     h3.write("**Cible Achat**")
@@ -90,51 +97,47 @@ try:
     h5.write("**Mise**")
     h6.write("**Statut**")
 
-    # --- LIGNES DES BOTS ---
     for i, bot in st.session_state.bots.items():
         if bot["actif"]:
             with st.container(border=True):
-                c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1, 1, 1, 1, 1])
+                c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8])
                 c1.write(f"#{i}")
                 
-                # Colonne État
                 if bot["etape"] == "ATTENTE_ACHAT":
-                    c2.warning("⏳ ACHAT")
+                    c2.warning("⏳ ATTENTE ACHAT")
                 else:
-                    c2.success("💰 VENTE")
+                    c2.success("💰 ATTENTE VENTE")
                 
                 c3.write(f"{bot['p_achat']:.4f}")
                 c4.write(f"{bot['p_vente']:.4f}")
-                c5.write(f"{bot['mise']} $")
+                c5.write(f"{bot['mise']}$")
                 
-                # Colonne Statut (Distance)
-                dist = abs(price - (bot['p_achat'] if bot['etape'] == "ATTENTE_ACHAT" else bot['p_vente']))
-                c6.write("🎯 Proche" if dist < 0.005 else "---")
+                # Proximité
+                cible = bot['p_achat'] if bot['etape'] == "ATTENTE_ACHAT" else bot['p_vente']
+                dist = abs(price - cible)
+                c6.write("🎯 Proche" if dist < 0.003 else "---")
 
-                # --- LOGIQUE DE TRADING ---
+                # --- LOGIQUE ---
                 if st.session_state.run:
-                    # ACHAT
                     if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
                         if usdc_bal >= bot["mise"]:
                             q = float(exchange.amount_to_precision(symbol, bot["mise"] / bot["p_achat"]))
                             p = float(exchange.price_to_precision(symbol, bot["p_achat"]))
                             exchange.create_limit_buy_order(symbol, q, p)
                             bot["etape"] = "ATTENTE_VENTE"
-                            save_config(st.session_state.bots) # Sauvegarde le changement d'état
+                            save_config(st.session_state.bots)
                             st.rerun()
-                    # VENTE
                     elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
-                        # Calcul quantité basée sur l'achat estimé
                         q_v = float(exchange.amount_to_precision(symbol, (bot["mise"] / bot["p_achat"]) * 0.995))
                         p_v = float(exchange.price_to_precision(symbol, bot["p_vente"]))
                         exchange.create_limit_sell_order(symbol, q_v, p_v)
                         bot["etape"] = "ATTENTE_ACHAT"
-                        save_config(st.session_state.bots) # Sauvegarde le retour à l'achat
+                        save_config(st.session_state.bots)
                         st.balloons()
                         st.rerun()
 
 except Exception as e:
-    st.error(f"Erreur API : {e}")
+    st.error(f"Erreur : {e}")
 
 time.sleep(20)
 st.rerun()
