@@ -1,39 +1,36 @@
 import ccxt
 import time
+from datetime import datetime
 
-# --- CONFIGURATION ---
-exchange = ccxt.kraken()
+# 1. CONNEXION (Remplace par tes vraies clés dans les Secrets)
+import os
+exchange = ccxt.kraken({
+    'apiKey': os.getenv('KRAKEN_API_KEY'),
+    'secret': os.getenv('KRAKEN_API_SECRET'),
+})
+
 symbol = 'XRP/USDC'
 
-# 1. ENTRE TES DONNÉES ICI
-prix_mon_achat = 2.40  # Le prix auquel tu as acheté tes XRP
-quantite_detenue = 50  # Le nombre de XRP que tu as dans ton portefeuille
+print(f"--- Mode Lecture Seule activé pour {symbol} ---")
 
-print(f"--- Surveillance du Profit pour {symbol} ---")
-print(f"Prix d'achat : {prix_mon_achat} USDC | Quantité : {quantite_detenue}")
-
-# --- LA BOUCLE DE SURVEILLANCE ---
+# --- LA BOUCLE DE LECTURE ---
 while True:
     try:
-        # 2. RÉCUPÈRE LE PRIX RÉEL
+        # 2. LIRE LE PRIX DU MARCHÉ
         ticker = exchange.fetch_ticker(symbol)
         prix_actuel = ticker['last']
         
-        # 3. CALCULE LA VALEUR ACTUELLE ET LE PROFIT
-        valeur_totale = prix_actuel * quantite_detenue
-        profit_perte = valeur_totale - (prix_mon_achat * quantite_detenue)
+        # 3. LIRE TES SOLDES RÉELS
+        balance = exchange.fetch_balance()
+        mon_usdc = balance['free'].get('USDC', 0.0)
+        mon_xrp = balance['free'].get('XRP', 0.0)
         
-        # 4. AFFICHE LE RÉSULTAT
-        print(f"\nPrix Marché : {prix_actuel} USDC")
-        print(f"Valeur actuelle de ton stock : {valeur_totale:.2f} USDC")
-        
-        if profit_perte > 0:
-            print(f"✅ PROFIT : +{profit_perte:.2f} USDC 🚀")
-        else:
-            print(f"❌ PERTE : {profit_perte:.2f} USDC 📉")
-            
-    except Exception as e:
-        print(f"Erreur : {e}")
+        # 4. AFFICHER LE RÉSULTAT
+        heure = datetime.now().strftime("%H:%M:%S")
+        print(f"[{heure}] Prix : {prix_actuel} USDC | Portefeuille : {mon_usdc:.2f} USDC / {mon_xrp:.2f} XRP")
 
-    # 5. ATTENDS 10 SECONDES
+    except Exception as e:
+        print(f"Erreur de lecture : {e}")
+
+    # 5. PAUSE DE 10 SECONDES
     time.sleep(10)
