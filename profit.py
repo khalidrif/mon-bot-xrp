@@ -10,6 +10,15 @@ exchange = ccxt.kraken({
 
 st.title("⚡ Bot Flash XRP")
 cible = 1.30
+# 1. Récupération des soldes réels
+balance = exchange.fetch_balance()
+solde_usdc = balance['free'].get('USDC', 0.0)
+solde_xrp = balance['free'].get('XRP', 0.0)
+
+# 2. Affichage visuel (en colonnes)
+col1, col2 = st.columns(2)
+col1.metric(label="Portefeuille USDC", value=f"{solde_usdc:.2f} $")
+col2.metric(label="Stock XRP", value=f"{solde_xrp:.2f} XRP")
 
 # 2. LA MINI BOUCLE
 while True:
