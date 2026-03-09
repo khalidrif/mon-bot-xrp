@@ -1,122 +1,169 @@
-import streamlit as st
-import pandas as pd
+import customtkinter as ctk
 import ccxt
-from config import get_kraken_connection
+import threading
 import time
-import datetime
+import json
+import os
 
-# 1. CONFIGURATION ET STYLE
-st.set_page_config(page_title="Kraken Loop Bot Pro", layout="wide")
+# --- CONFIGURATION STYLE ---
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
-st.markdown("""
-    <style>
-    [data-testid="stMetric"] { background-color: #0E2F56; border: 2px solid #007BFF; padding: 20px; border-radius: 15px; }
-    [data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 18px !important; }
-    [data-testid="stMetricValue"] { color: #00FFCC !important; font-size: 35px !important; }
-    </style>
-    """, unsafe_allow_html=True)
+# Paramètres techniques
+FRAIS_KRAKEN = 0.0026 
+SAVE_FILE = "empire_save.json"
 
-# --- MÉMOIRE DU BOT (Session State) ---
-if 'etape_bot' not in st.session_state:
-    st.session_state.etape_bot = "ATTENTE_ACHAT" 
-if 'last_balance_update' not in st.session_state:
-    st.session_state.last_balance_update = 0
-    st.session_state.cached_balance = {}
-
-# Connexion via ton fichier config.py
-kraken = get_kraken_connection()
-
-# --- BARRE LATÉRALE (RÉGLAGES) ---
-with st.sidebar:
-    st.header("🤖 Contrôle du Cycle")
-    bot_actif = st.toggle("ACTIVER LE BOT", value=False)
-    mode_reel = st.toggle("💰 PASSER EN ARGENT RÉEL", value=False)
-    
-    st.divider()
-    p_achat = st.number_input("1. Prix d'Achat Cible ($)", value=1.3500, format="%.4f")
-    p_vente = st.number_input("2. Prix de Vente Cible ($)", value=1.5000, format="%.4f")
-    budget = st.number_input("Budget par achat (USDC)", min_value=25.0, value=30.0)
-
-    if st.button("Réinitialiser Cycle (vers Achat)"):
-        st.session_state.etape_bot = "ATTENTE_ACHAT"
-        st.rerun()
-
-st.title("📈 Terminal de Trading : Cycle Achat/Vente")
-
-zone_live = st.empty()
-
-# --- BOUCLE DE TRADING ---
-while True:
-    try:
-        # 1. RÉCUPÉRATION DU PRIX (Correction cruciale [0][0])
-        ob = kraken.fetch_order_book('XRP/USDC', limit=1)
+class LigneBotPro(ctk.CTkFrame):
+    def __init__(self, master, index, ecart, callback_harvest, **kwargs):
+        super().__init__(master, fg_color="#1a1c22", height=50, corner_radius=8, **kwargs)
         
-        # On extrait le PREMIER PRIX de la PREMIÈRE OFFRE
-        prix_ask = float(ob['asks'][0][0])  # Prix pour acheter
-        prix_bid = float(ob['bids'][0][0])  # Prix pour vendre
-        prix_reel = (prix_ask + prix_bid) / 2
+        self.index = index
+        self.ecart = ecart
+        self.callback_harvest = callback_harvest
+        self.actif = False
+        self.c_achat = 0
+        self.c_vente = 0
+        self.profit_bot = 0.0
+
+        # UI : Bouton On/Off
+        self.btn = ctk.CTkButton(self, text=f"STRAT {index+1}", width=90, height=30, 
+                                 fg_color="#333333", font=("Arial", 11, "bold"), command=self.basculer)
+        self.btn.pack(side="left", padx=15)
+
+        # UI : Info Ecart et Prix
+        self.lbl_ecart = ctk.CTkLabel(self, text=f"Grid: {round(ecart*100,2)}%", text_color="#848e9c", width=80)
+        self.lbl_ecart.pack(side="left")
+
+        self.lbl_prix = ctk.CTkLabel(self, text="---", font=("Consolas", 18, "bold"), text_color="#f0b90b", width=120)
+        self.lbl_prix.pack(side="left", padx=10)
+
+        # UI : Bouton Harvest
+        self.btn_harvest = ctk.CTkButton(self, text="💰", width=35, fg_color="#2ecc71", 
+                                         hover_color="#27ae60", command=self.recolter)
+        self.btn_harvest.pack(side="right", padx=15)
+
+        # UI : Zone Profit
+        self.pnl_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.pnl_frame.pack(side="right", padx=10)
+        self.lbl_pnl_val = ctk.CTkLabel(self.pnl_frame, text="+0.00$", text_color="#2ecc71", font=("Arial", 12, "bold"))
+        self.lbl_pnl_val.pack()
+        self.lbl_pnl_perc = ctk.CTkLabel(self.pnl_frame, text=f"Net: {round((ecart-(FRAIS_KRAKEN*2))*100,2)}%", text_color="#5dade2", font=("Arial", 10))
+        self.lbl_pnl_perc.pack()
+
+    def basculer(self, force_state=None):
+        if force_state is not None: self.actif = force_state
+        else: self.actif = not self.actif
+        self.btn.configure(fg_color="#00c087" if self.actif else "#333333")
+        if not self.actif: self.c_achat = 0
+
+    def recolter(self):
+        if self.profit_bot > 0:
+            self.callback_harvest(self.profit_bot)
+            self.profit_bot = 0.0
+            self.flash_color("#2ecc71")
+
+    def flash_color(self, color):
+        orig = "#1a1c22"
+        self.configure(fg_color=color)
+        self.after(300, lambda: self.configure(fg_color=orig))
+
+    def update_logic(self, prix, tendance_color):
+        if not self.actif: return
         
-        # 2. RÉCUPÉRATION DU SOLDE (Toutes les 30s)
-        maintenant = time.time()
-        if maintenant - st.session_state.last_balance_update > 30:
-            st.session_state.cached_balance = kraken.fetch_balance()
-            st.session_state.last_balance_update = maintenant
+        if self.c_achat == 0:
+            self.c_achat = round(prix * (1 - self.ecart), 4)
+            self.c_vente = round(prix * (1 + self.ecart), 4)
+
+        if prix >= self.c_vente:
+            gain = 10 * (self.ecart - (FRAIS_KRAKEN * 2))
+            if gain > 0: 
+                self.profit_bot += gain
+                self.flash_color("#f1c40f")
+            self.c_achat = round(prix * (1 - self.ecart), 4)
+            self.c_vente = round(prix * (1 + self.ecart), 4)
+
+        self.lbl_prix.configure(text=f"{prix}$", text_color=tendance_color)
+        self.lbl_pnl_val.configure(text=f"+{round(self.profit_bot, 2)}$")
+
+class EmpireTerminal(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("EMPIRE 2032 - ULTIMATE")
+        self.geometry("950x850")
+        self.configure(fg_color="#0b0e11")
         
-        balance = st.session_state.cached_balance
-        usdc_libre = balance.get('free', {}).get('USDC', 0)
-        xrp_libre = balance.get('free', {}).get('XRP', 0)
+        self.dernier_prix = 0
+        self.coffre_fort = self.charger_sauvegarde()
 
-        with zone_live.container():
-            # Affichage du statut du cycle
-            couleur_etat = "blue" if st.session_state.etape_bot == "ATTENTE_ACHAT" else "orange"
-            st.subheader(f"🔄 État du Bot : :{couleur_etat}[{st.session_state.etape_bot}]")
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("USDC DISPO", f"{usdc_libre:,.2f} $")
-            c2.metric("XRP DISPO", f"{xrp_libre:,.2f}")
-            c3.metric("PRIX XRP (MOYEN)", f"{prix_reel:.4f} $")
+        # --- HEADER ---
+        self.header = ctk.CTkFrame(self, fg_color="#1e2329", height=120)
+        self.header.pack(fill="x", padx=20, pady=20)
+        
+        title_frame = ctk.CTkFrame(self.header, fg_color="transparent")
+        title_frame.pack(side="left", padx=30)
+        ctk.CTkLabel(title_frame, text="🏛️ EMPIRE 2032", font=("Orbitron", 22, "bold"), text_color="#f0b90b").pack()
+        self.lbl_coffre = ctk.CTkLabel(title_frame, text=f"COFFRE-FORT: {round(self.coffre_fort, 2)}$", font=("Arial", 14, "bold"), text_color="#2ecc71")
+        self.lbl_coffre.pack()
 
-            if bot_actif:
-                if not mode_reel:
-                    st.info("🧪 Mode Simulation : Les ordres ne sont pas réellement exécutés.")
-                
-                # --- ÉTAPE 1 : CHERCHE À ACHETER ---
-                if st.session_state.etape_bot == "ATTENTE_ACHAT":
-                    if prix_reel <= p_achat and usdc_libre >= budget:
-                        qty = budget / prix_ask 
-                        st.toast("🚀 Condition d'achat remplie !")
-                        
-                        # EXECUTION (validate: True si mode_reel est False)
-                        kraken.create_order('XRP/USDC', 'market', 'buy', qty, params={'validate': not mode_reel})
-                        
-                        st.success(f"✅ ACHAT EFFECTUÉ ({qty:.2f} XRP) ! Passage à la vente...")
-                        st.session_state.etape_bot = "ATTENTE_VENTE"
-                        st.session_state.last_balance_update = 0 # Force refresh balance
-                        time.sleep(15)
-                
-                # --- ÉTAPE 2 : CHERCHE À VENDRE ---
-                elif st.session_state.etape_bot == "ATTENTE_VENTE":
-                    # On vend si le prix monte ET qu'on a au moins 15 XRP (Minimum Kraken)
-                    if prix_reel >= p_vente and xrp_libre >= 15:
-                        st.toast("💰 Condition de vente remplie !")
-                        
-                        # EXECUTION
-                        kraken.create_order('XRP/USDC', 'market', 'sell', xrp_libre, params={'validate': not mode_reel})
-                        
-                        st.success(f"✅ VENTE EFFECTUÉE ({xrp_libre:.2f} XRP) ! Retour à l'achat...")
-                        st.session_state.etape_bot = "ATTENTE_ACHAT"
-                        st.session_state.last_balance_update = 0
-                        time.sleep(15)
-                
-                else:
-                    st.write("⌛ Le bot guette le marché pour l'étape en cours...")
+        # Boutons Header
+        self.btn_harvest_all = ctk.CTkButton(self.header, text="TOUT RÉCOLTER 💰", width=120, fg_color="#2ecc71", command=self.recolter_tout)
+        self.btn_harvest_all.pack(side="right", padx=10)
 
-            st.divider()
-            st.write(f"⏱️ Dernière mise à jour Kraken : {datetime.datetime.now().strftime('%H:%M:%S')}")
+        self.btn_all = ctk.CTkButton(self.header, text="RUN ALL", width=100, fg_color="#3498db", command=lambda: self.mass_action(True))
+        self.btn_all.pack(side="right", padx=5)
+        
+        self.btn_stop = ctk.CTkButton(self.header, text="STOP ALL", width=100, fg_color="#f6465d", command=lambda: self.mass_action(False))
+        self.btn_stop.pack(side="right", padx=5)
 
-    except Exception as e:
-        st.error(f"Erreur flux : {e}")
-        time.sleep(10)
+        # --- LISTE DES BOTS ---
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="both", expand=True, padx=20, pady=10)
 
-    # Pause de 10 secondes pour éviter le blocage API (Rate Limit)
-    time.sleep(10)
+        self.bots = []
+        for i in range(20):
+            ecart = 0.006 + (i * 0.002)
+            bot = LigneBotPro(self.scroll, i, ecart, self.ajouter_au_coffre)
+            bot.pack(pady=5, fill="x")
+            self.bots.append(bot)
+
+        threading.Thread(target=self.moteur_master, daemon=True).start()
+
+    def charger_sauvegarde(self):
+        if os.path.exists(SAVE_FILE):
+            with open(SAVE_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get("coffre", 0.0)
+        return 0.0
+
+    def sauvegarder_donnees(self):
+        with open(SAVE_FILE, 'w') as f:
+            json.dump({"coffre": self.coffre_fort}, f)
+
+    def ajouter_au_coffre(self, montant):
+        self.coffre_fort += montant
+        self.lbl_coffre.configure(text=f"COFFRE-FORT: {round(self.coffre_fort, 2)}$")
+        self.sauvegarder_donnees()
+
+    def recolter_tout(self):
+        for bot in self.bots:
+            bot.recolter()
+
+    def mass_action(self, state):
+        for bot in self.bots: bot.basculer(force_state=state)
+
+    def moteur_master(self):
+        exchange = ccxt.kraken()
+        while True:
+            try:
+                ticker = exchange.fetch_ticker('XRP/USDC')
+                prix = ticker['last']
+                color = "#2ecc71" if prix >= self.dernier_prix else "#f6465d"
+                self.dernier_prix = prix
+                for bot in self.bots:
+                    self.after(0, bot.update_logic, prix, color)
+                time.sleep(1)
+            except: time.sleep(5)
+
+if __name__ == "__main__":
+    app = EmpireTerminal()
+    app.mainloop()
