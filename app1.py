@@ -1,109 +1,134 @@
 import streamlit as st
 import pandas as pd
 import ccxt
-from config import get_kraken_connection
-import time
 import datetime
+import time
+import plotly.graph_objects as go
+from config import get_kraken_connection
 
-# 1. STYLE VISUEL BLEU PRO
-st.set_page_config(page_title="XRP Auto-Bot Pro", layout="wide")
+# 1. CONFIGURATION PRO 2026
+st.set_page_config(page_title="XRP QUANTUM BOT", layout="wide", page_icon="⚡")
 
+# Style CSS pour le look "Terminal de Trading"
 st.markdown("""
     <style>
-    [data-testid="stMetric"] {
-        background-color: #0E2F56; 
-        border: 2px solid #007BFF; 
-        padding: 20px;
-        border-radius: 15px;
+    .main { background-color: #0e1117; }
+    div[data-testid="stMetric"] {
+        background-color: #1f2630;
+        border: 1px solid #31333f;
+        padding: 15px;
+        border-radius: 10px;
     }
-    [data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 18px !important; }
-    [data-testid="stMetricValue"] { color: #00FFCC !important; font-size: 35px !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# Connexion via ton fichier config.py
-kraken = get_kraken_connection()
+# Connexion via config.py
+try:
+    kraken = get_kraken_connection()
+except Exception as e:
+    st.error(f"Erreur de configuration : {e}")
+    st.stop()
 
-# Initialisation de la mémoire du bot (Session State)
-if 'last_balance_update' not in st.session_state:
-    st.session_state.last_balance_update = 0
-    st.session_state.cached_balance = {}
-
-# --- BARRE LATÉRALE ---
+# --- SIDEBAR : RÉGLAGES DE LA GRILLE ---
 with st.sidebar:
-    st.header("🤖 Robot de Trading")
-    bot_actif = st.toggle("ACTIVER LE BOT", value=False)
+    st.header("⚙️ Configuration Grille")
+    bot_on = st.toggle("🤖 ACTIVER LE BOT", value=False)
+    
     st.divider()
-    seuil_achat = st.number_input("Acheter si <", value=1.3000, format="%.4f")
-    seuil_vente = st.number_input("Vendre si >", value=1.5500, format="%.4f")
-    budget_usdc = st.number_input("Budget Achat (USDC)", min_value=25.0, value=30.0)
+    grid_center = st.number_input("Prix Pivot ($)", value=1.4000, format="%.4f")
+    grid_levels = st.slider("Nombre de paliers (Achat & Vente)", 2, 10, 5)
+    grid_step = st.number_input("Écart entre paliers ($)", value=0.02, format="%.3f")
+    budget_per_step = st.number_input("Budget par palier (USDC)", min_value=25.0, value=30.0)
 
-st.title("📈 Terminal XRP - Flux Sécurisé")
+# --- CORPS DE L'INTERFACE ---
+st.title("⚡ XRP Quantum Terminal")
 
-# Zone de rafraîchissement
-zone_live = st.empty()
+# Zone dynamique pour le rafraîchissement
+live_area = st.empty()
 
 while True:
     try:
-        # 1. LECTURE DU PRIX (Toutes les 10s)
-        ob = kraken.fetch_order_book('XRP/USDC', limit=1)
-        prix_bid = ob['bids'][0][0]
-        prix_ask = ob['asks'][0][0]
-        prix_reel = (prix_bid + prix_ask) / 2
-        
-        # 2. LECTURE DU SOLDE (Toutes les 30s pour éviter le BAN)
-        maintenant = time.time()
-        if maintenant - st.session_state.last_balance_update > 30:
-            st.session_state.cached_balance = kraken.fetch_balance()
-            st.session_state.last_balance_update = maintenant # <-- CORRIGÉ : signe = ajouté
-        
-        balance = st.session_state.cached_balance
-        usdc_libre = balance.get('free', {}).get('USDC', 0)
-        xrp_libre = balance.get('free', {}).get('XRP', 0)
-        
-        with zone_live.container():
-            c1, c2, c3 = st.columns(3)
-            c1.metric("PORTFOLIO USDC", f"{usdc_libre:,.2f} $")
-            c2.metric("STOCK XRP", f"{xrp_libre:,.2f}")
-            c3.metric("PRIX XRP LIVE", f"{prix_reel:.4f} $")
+        # Récupération des données fraîches
+        ticker = kraken.fetch_ticker('XRP/USDC')
+        prix_actuel = ticker['last']
+        balance = kraken.fetch_balance()
+        usdc_free = balance.get('free', {}).get('USDC', 0)
+        xrp_free = balance.get('free', {}).get('XRP', 0)
 
-            st.write(f"⏱️ Flux Kraken : **{datetime.datetime.now().strftime('%H:%M:%S')}**")
-            
-            # --- LOGIQUE DU BOT ---
-            if bot_actif:
-                st.warning(f"🕵️ Surveillance : ACHAT < {seuil_achat}$ | VENTE > {seuil_vente}$")
-                
-                # ACHAT
-                if prix_reel <= seuil_achat and usdc_libre >= budget_usdc:
-                    st.toast("🚀 ACHAT DÉCLENCHÉ !")
-                    qty = budget_usdc / prix_ask
-                    res = kraken.create_order('XRP/USDC', 'market', 'buy', qty)
-                    st.success(f"✅ BOT : Achat réussi (ID: {res['id']})")
-                    st.session_state.last_balance_update = 0 # Force refresh solde au prochain tour
-                    time.sleep(15)
-                
-                # VENTE
-                elif prix_reel >= seuil_vente and xrp_libre >= 15:
-                    st.toast("💰 VENTE DÉCLENCHÉE !")
-                    res = kraken.create_order('XRP/USDC', 'market', 'sell', xrp_libre)
-                    st.success(f"✅ BOT : Vente réussie (ID: {res['id']})")
-                    st.session_state.last_balance_update = 0 # Force refresh solde
-                    time.sleep(15)
-                else:
-                    st.info("⌛ En attente du bon prix...")
+        with live_area.container():
+            # 1. BARRE DE MÉTRIQUES
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("PORTFOLIO USDC", f"{usdc_free:,.2f} $")
+            m2.metric("STOCK XRP", f"{xrp_free:,.2f}")
+            m3.metric("PRIX XRP (LAST)", f"{prix_actuel} $", f"{ticker.get('percentage', 0):+.2f}%")
+            m4.metric("VALEUR TOTALE", f"{(xrp_free * prix_actuel) + usdc_free:,.2f} $")
 
             st.divider()
-            st.subheader("📝 Mes Avoirs")
-            df = pd.DataFrame(balance.get('total', {}).items(), columns=['Actif', 'Total'])
-            st.table(df[df['Total'] > 0].reset_index(drop=True))
+
+            # 2. GRAPHIQUE + TABLEAU DE LA GRILLE
+            col_chart, col_table = st.columns([2, 1])
+            
+            # Calcul des paliers (Acheter sous le pivot, Vendre au-dessus)
+            paliers_vente = [grid_center + (i * grid_step) for i in range(1, grid_levels + 1)]
+            paliers_achat = [grid_center - (i * grid_step) for i in range(1, grid_levels + 1)]
+            tous_les_paliers = paliers_achat + [grid_center] + paliers_vente
+
+            with col_chart:
+                fig = go.Figure()
+                
+                # --- LIGNE DU PRIX ACTUEL EN BLANC ÉCLATANT ---
+                fig.add_hline(
+                    y=prix_actuel, 
+                    line_dash="dash", 
+                    line_color="#FFFFFF", 
+                    line_width=3,
+                    annotation_text=f" PRIX LIVE: {prix_actuel}$", 
+                    annotation_font_color="#FFFFFF"
+                )
+
+                # Dessin des lignes de la grille
+                for p in tous_les_paliers:
+                    color = "#FF4B4B" if p > prix_actuel else "#00FF00"
+                    fig.add_hline(y=p, line_width=1, line_color=color, opacity=0.4)
+                
+                # Réglages visuels Plotly
+                fig.update_layout(
+                    title="Visualisation de la Grille XRP/USDC",
+                    height=450,
+                    template="plotly_dark",
+                    paper_bgcolor="#0e1117",
+                    plot_bgcolor="#0e1117",
+                    xaxis=dict(tickfont=dict(color="white")),
+                    yaxis=dict(tickfont=dict(color="white")),
+                    margin=dict(l=0, r=0, t=40, b=0)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col_table:
+                st.subheader("📋 Paliers de Trading")
+                data_grid = []
+                for p in sorted(tous_les_paliers, reverse=True):
+                    action = "🔴 VENDRE" if p > prix_actuel else "🟢 ACHETER"
+                    if abs(p - grid_center) < 0.0001: action = "⚪ PIVOT"
+                    data_grid.append({"Prix": f"{p:.4f} $", "Action": action})
+                
+                st.table(pd.DataFrame(data_grid))
+
+            # 3. STATUT DU BOT
+            if bot_on:
+                st.success(f"🤖 BOT EN MARCHE : Surveillance de {len(tous_les_paliers)} niveaux.")
+                # Ici on pourrait ajouter la logique d'envoi d'ordres réels
+            else:
+                st.warning("⏸️ BOT EN PAUSE : Configurez vos paliers et activez le bouton dans la barre latérale.")
+
+            # 4. INVENTAIRE KRAKEN
+            with st.expander("🔍 Voir tous mes avoirs détaillés"):
+                df_bal = pd.DataFrame(balance['total'].items(), columns=['Actif', 'Quantité'])
+                st.dataframe(df_bal[df_bal['Quantité'] > 0], width='stretch')
 
     except Exception as e:
-        if "Rate limit exceeded" in str(e):
-            st.error("⚠️ Kraken saturé ! Pause de 30 secondes...")
-            time.sleep(30)
-        else:
-            st.error(f"Erreur : {e}")
-            time.sleep(10)
+        st.error(f"Flux interrompu : {e}")
 
-    # Pause de sécurité (10 secondes recommandée)
-    time.sleep(10)
+    # Pause de 5 secondes pour le rafraîchissement
+    time.sleep(5)
+
