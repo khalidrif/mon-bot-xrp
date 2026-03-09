@@ -1,46 +1,55 @@
 import streamlit as st
 import ccxt
 import time
+from datetime import datetime
 
-# 1. Connexion (Secrets)
-exchange = ccxt.kraken({
-    'apiKey': st.secrets["KRAKEN_API_KEY"],
-    'secret': st.secrets["KRAKEN_API_SECRET"]
-})
+# 1. CONFIGURATION DE LA PAGE
+st.set_page_config(page_title="XRP Monitor", page_icon="📊")
+st.title("📊 Tableau de Bord XRP/USDC")
 
-st.title("📊 Mon Tableau de Bord XRP")
+# 2. CONNEXION KRAKEN (Lecture seule)
+# Utilise tes Secrets Streamlit pour la sécurité
+try:
+    exchange = ccxt.kraken({
+        'apiKey': st.secrets["KRAKEN_API_KEY"],
+        'secret': st.secrets["KRAKEN_API_SECRET"],
+        'enableRateLimit': True,
+    })
+except Exception as e:
+    st.error(f"Erreur de connexion : {e}")
+    st.stop()
 
-# 2. LA BOUCLE
+# 3. ZONE DE RAFRAÎCHISSEMENT
+placeholder = st.empty()
+
 while True:
-    # On crée une zone propre qui s'efface à chaque fois
-    with st.container():
+    with placeholder.container():
         try:
-            # --- ÉTAPE A : RÉCUPÉRER LES DONNÉES ---
+            # --- RÉCUPÉRATION DES DONNÉES ---
             ticker = exchange.fetch_ticker('XRP/USDC')
             prix_actuel = ticker['last']
             
             balance = exchange.fetch_balance()
             solde_usdc = balance['free'].get('USDC', 0.0)
             solde_xrp = balance['free'].get('XRP', 0.0)
-
-            # --- ÉTAPE B : AFFICHER (C'EST ICI !) ---
+            
+            # --- AFFICHAGE VISUEL ---
             st.subheader("💰 Mon Portefeuille")
             col1, col2 = st.columns(2)
             col1.metric("Solde USDC", f"{solde_usdc:.2f} $")
             col2.metric("Stock XRP", f"{solde_xrp:.2f} XRP")
             
-            st.divider() # Petite ligne de séparation
-            st.metric("Prix XRP Direct", f"{prix_actuel} USDC")
-
-            # --- ÉTAPE C : LOGIQUE DE TRADING ---
-            # Exemple : Si prix < 1.30 -> Acheter
-            if prix_actuel <= 1.30 and solde_usdc >= 20:
-                st.write("🚀 Achat en cours...")
-                # ... (ton code d'achat ici)
+            st.divider()
+            
+            st.subheader("📈 Marché en Direct")
+            st.metric("Prix XRP", f"{prix_actuel:.4f} USDC")
+            
+            # Heure de mise à jour
+            st.caption(f"Dernière mise à jour : {datetime.now().strftime('%H:%M:%S')}")
 
         except Exception as e:
-            st.error(f"Erreur : {e}")
+            st.error(f"Erreur lors de la lecture : {e}")
 
-    # --- ÉTAPE D : ATTENDRE ET RECOMMENCER ---
-    time.sleep(20)
-    st.rerun()
+    # --- PAUSE ET RELANCE ---
+    time.sleep(20) # Attend 20 secondes
+    st.rerun()    # Rafraîchit la page pour mettre les chiffres à jour
