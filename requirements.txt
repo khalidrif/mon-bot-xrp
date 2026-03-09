@@ -1,4 +1,2 @@
 streamlit
 ccxt
-pandas<2.0.0
-pandas_ta
