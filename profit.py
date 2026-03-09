@@ -2,41 +2,45 @@ import streamlit as st
 import ccxt
 import time
 
-# 1. Connexion ultra-rapide
+# 1. Connexion (Secrets)
 exchange = ccxt.kraken({
     'apiKey': st.secrets["KRAKEN_API_KEY"],
     'secret': st.secrets["KRAKEN_API_SECRET"]
 })
 
-st.title("⚡ Bot Flash XRP")
-cible = 1.30
-# 1. Récupération des soldes réels
-balance = exchange.fetch_balance()
-solde_usdc = balance['free'].get('USDC', 0.0)
-solde_xrp = balance['free'].get('XRP', 0.0)
+st.title("📊 Mon Tableau de Bord XRP")
 
-# 2. Affichage visuel (en colonnes)
-col1, col2 = st.columns(2)
-col1.metric(label="Portefeuille USDC", value=f"{solde_usdc:.2f} $")
-col2.metric(label="Stock XRP", value=f"{solde_xrp:.2f} XRP")
-
-# 2. LA MINI BOUCLE
+# 2. LA BOUCLE
 while True:
-    try:
-        # Lire le prix
-        prix = exchange.fetch_ticker('XRP/USDC')['last']
-        st.write(f"🔍 Prix : {prix} | Cible : {cible}")
+    # On crée une zone propre qui s'efface à chaque fois
+    with st.container():
+        try:
+            # --- ÉTAPE A : RÉCUPÉRER LES DONNÉES ---
+            ticker = exchange.fetch_ticker('XRP/USDC')
+            prix_actuel = ticker['last']
+            
+            balance = exchange.fetch_balance()
+            solde_usdc = balance['free'].get('USDC', 0.0)
+            solde_xrp = balance['free'].get('XRP', 0.0)
 
-        # Condition d'achat
-        if prix <= cible:
-            st.success("🚀 ACHAT DÉCLENCHÉ !")
-            qty = float(exchange.amount_to_precision('XRP/USDC', 20 / prix))
-            exchange.create_market_buy_order('XRP/USDC', qty)
-            st.stop() # On arrête tout après l'achat
+            # --- ÉTAPE B : AFFICHER (C'EST ICI !) ---
+            st.subheader("💰 Mon Portefeuille")
+            col1, col2 = st.columns(2)
+            col1.metric("Solde USDC", f"{solde_usdc:.2f} $")
+            col2.metric("Stock XRP", f"{solde_xrp:.2f} XRP")
+            
+            st.divider() # Petite ligne de séparation
+            st.metric("Prix XRP Direct", f"{prix_actuel} USDC")
 
-    except Exception as e:
-        st.error(f"Erreur : {e}")
+            # --- ÉTAPE C : LOGIQUE DE TRADING ---
+            # Exemple : Si prix < 1.30 -> Acheter
+            if prix_actuel <= 1.30 and solde_usdc >= 20:
+                st.write("🚀 Achat en cours...")
+                # ... (ton code d'achat ici)
 
-    # Pause courte (10 secondes) et relance
-    time.sleep(10)
+        except Exception as e:
+            st.error(f"Erreur : {e}")
+
+    # --- ÉTAPE D : ATTENDRE ET RECOMMENCER ---
+    time.sleep(20)
     st.rerun()
