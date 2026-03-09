@@ -6,9 +6,9 @@ st.set_page_config(page_title="Snowball XRP", page_icon="❄️", layout="wide")
 
 SAVE_FILE="bots.json"
 
-# ----------------------
+# -----------------------
 # LOAD SAVE
-# ----------------------
+# -----------------------
 
 def load_bots():
     if not os.path.exists(SAVE_FILE):
@@ -26,9 +26,9 @@ def save_bots():
 if "bots" not in st.session_state:
     st.session_state.bots=load_bots()
 
-# ----------------------
+# -----------------------
 # MIGRATION
-# ----------------------
+# -----------------------
 
 for bot in st.session_state.bots:
 
@@ -47,9 +47,9 @@ for bot in st.session_state.bots:
 
 save_bots()
 
-# ----------------------
+# -----------------------
 # CONNECT KRAKEN
-# ----------------------
+# -----------------------
 
 exchange=ccxt.kraken({
 "apiKey":st.secrets["KRAKEN_KEY"],
@@ -57,9 +57,9 @@ exchange=ccxt.kraken({
 "enableRateLimit":True
 })
 
-# ----------------------
+# -----------------------
 # PRICE
-# ----------------------
+# -----------------------
 
 def get_price():
     for p in ["XRP/USDC","XRP/USDT","XRP/USD"]:
@@ -72,23 +72,25 @@ def get_price():
 prix=get_price()
 
 st.title("❄️ Snowball XRP Bot")
-st.metric("Prix XRP",f"{prix:.5f}")
 
-# ----------------------
+if prix:
+    st.metric("Prix XRP",f"{prix:.5f}")
+
+# -----------------------
 # BALANCE
-# ----------------------
+# -----------------------
 
 bal=exchange.fetch_balance()
 
 usd=bal["free"].get("USDC",0)+bal["free"].get("USDT",0)+bal["free"].get("USD",0)
 xrp=bal["free"].get("XRP",0)
 
-st.metric("USD",f"{usd:.2f}")
-st.metric("XRP",f"{xrp:.2f}")
+st.metric("USD Disponible",f"{usd:.2f}")
+st.metric("XRP Disponible",f"{xrp:.2f}")
 
-# ----------------------
+# -----------------------
 # ADD BOT
-# ----------------------
+# -----------------------
 
 if st.button("➕ Ajouter Bot"):
 
@@ -110,11 +112,11 @@ if st.button("➕ Ajouter Bot"):
     save_bots()
     st.rerun()
 
-# ----------------------
+# -----------------------
 # DISPLAY BOTS
-# ----------------------
+# -----------------------
 
-st.subheader("Bots")
+st.subheader("Bots actifs")
 
 for i,bot in enumerate(st.session_state.bots):
 
@@ -166,9 +168,9 @@ for i,bot in enumerate(st.session_state.bots):
             save_bots()
             st.rerun()
 
-# ----------------------
+# -----------------------
 # TRADING LOOP
-# ----------------------
+# -----------------------
 
 for bot in st.session_state.bots:
 
@@ -223,14 +225,32 @@ for bot in st.session_state.bots:
             if bot["snowball"]:
                 bot["target_usdc"]+=gain
 
-            bot["mode"]="CONFIG"
-            bot["xrp_qty"]=0
+            # NEW BUY (snowball loop)
+
+            try:
+
+                qty=round(bot["target_usdc"]/bot["buy_price"],4)
+
+                buy=exchange.create_limit_buy_order(
+                    bot["pair"],
+                    qty,
+                    bot["buy_price"]
+                )
+
+                bot["buy_id"]=buy["id"]
+                bot["xrp_qty"]=qty
+                bot["mode"]="BUY"
+
+                time.sleep(1)
+
+            except:
+                bot["mode"]="CONFIG"
 
             save_bots()
 
-# ----------------------
+# -----------------------
 # AUTO LOOP
-# ----------------------
+# -----------------------
 
 time.sleep(2)
 st.rerun()
