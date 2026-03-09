@@ -3,12 +3,15 @@ import ccxt
 import os
 import time
 
-# --- CONFIGURATION DE LA PAGE ---
+# --- CONFIGURATION ---
 st.set_page_config(page_title="XRP Snowball Bot", layout="wide")
-st.title("🤖 Bot XRP/USDC - Kraken (Boule de Neige)")
+st.title("🤖 Bot XRP/USDC - Contrôle Live")
+
+# Initialisation de l'état du bot (ON/OFF)
+if 'bot_running' not in st.session_state:
+    st.session_state.bot_running = False
 
 # --- RÉCUPÉRATION DES SECRETS ---
-# Sur Streamlit Cloud : Settings > Secrets
 API_KEY = st.secrets.get("KRAKEN_API_KEY")
 API_SECRET = st.secrets.get("KRAKEN_API_SECRET")
 
@@ -16,68 +19,69 @@ if not API_KEY or not API_SECRET:
     st.error("⚠️ Clés API Kraken manquantes dans les Secrets Streamlit !")
     st.stop()
 
-# --- INITIALISATION KRAKEN ---
+# Connexion Kraken
 exchange = ccxt.kraken({
     'apiKey': API_KEY,
     'secret': API_SECRET,
-    'enableRateLimit': True,
-    'options': {'defaultType': 'spot'}
+    'enableRateLimit': True
 })
 
-# --- PARAMÈTRES DU BOT ---
+# --- PARAMÈTRES ---
 SYMBOL = 'XRP/USDC'
-STAKE_AMOUNT = 20.0    # Premier achat en USDC
-MULTIPLIER = 1.5       # Facteur boule de neige
-DIP_THRESHOLD = 0.02   # Rachat si baisse de 2%
-PROFIT_TARGET = 0.03   # Vente à +3%
+PROFIT_TARGET = 0.03  # +3%
+DIP_THRESHOLD = 0.02   # -2%
 
-# --- FONCTIONS UTILES ---
-def get_status():
-    try:
-        ticker = exchange.fetch_ticker(SYMBOL)
-        balance = exchange.fetch_balance()
-        return ticker['last'], balance['free'].get('XRP', 0), balance['free'].get('USDC', 0)
-    except Exception as e:
-        st.error(f"Erreur Kraken : {e}")
-        return None, None, None
+# --- INTERFACE DE CONTRÔLE ---
+col_start, col_stop = st.columns(2)
 
-# --- INTERFACE UTILISATEUR ---
-col1, col2, col3 = st.columns(3)
+if col_start.button("🚀 DÉMARRER LE BOT", use_container_width=True):
+    st.session_state.bot_running = True
+    st.success("Le bot vient d'être activé.")
 
-price, xrp_bal, usdc_bal = get_status()
-
-if price:
-    col1.metric("Prix XRP", f"{price} USDC")
-    col2.metric("Solde XRP", f"{xrp_bal:.2f}")
-    col3.metric("Solde USDC", f"{usdc_bal:.2f}")
+if col_stop.button("🛑 ARRÊTER LE BOT", use_container_width=True):
+    st.session_state.bot_running = False
+    st.warning("Arrêt demandé... Le bot s'arrêtera au prochain cycle.")
 
 st.divider()
 
-# --- LOGIQUE DE TRADING (BOULE DE NEIGE) ---
-if st.button("Démarrer la surveillance (Live)"):
-    st.info("Le bot est en mode surveillance...")
-    
-    # Simulation d'état (Dans une app réelle, utilisez une base de données)
-    last_buy_price = price
-    
-    status_placeholder = st.empty()
-    
-    while True:
-        current_price, xrp_bal, usdc_bal = get_status()
-        profit_pct = (current_price - last_buy_price) / last_buy_price
+# --- AFFICHAGE DES DONNÉES ---
+status_box = st.empty()
+metrics_container = st.container()
+
+def update_ui():
+    try:
+        ticker = exchange.fetch_ticker(SYMBOL)
+        bal = exchange.fetch_balance()
+        price = ticker['last']
+        xrp = bal['free'].get('XRP', 0)
+        usdc = bal['free'].get('USDC', 0)
         
-        status_placeholder.write(f"⏱️ Analyse... Profit actuel : {profit_pct:.2%}")
+        with metrics_container:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Prix XRP", f"{price} USDC")
+            c2.metric("Solde XRP", f"{xrp:.2f}")
+            c3.metric("Solde USDC", f"{usdc:.2f}")
+        return price, xrp, usdc
+    except:
+        return None, None, None
 
-        # VENTE (Take Profit)
-        if profit_pct >= PROFIT_TARGET and xrp_bal > 5:
-            st.success(f"🚀 Vente détectée à {current_price} !")
-            # exchange.create_market_sell_order(SYMBOL, xrp_bal)
-            break
-
-        # ACHAT (Boule de neige)
-        elif profit_pct <= -DIP_THRESHOLD and usdc_bal > 10:
-            st.warning(f"❄️ Effet Boule de neige : Achat supplémentaire !")
-            # exchange.create_market_buy_order(SYMBOL, STAKE_AMOUNT / current_price)
-            last_buy_price = current_price # Nouveau prix moyen
-            
-        time.sleep(60) # Attendre 1 minute
+# --- BOUCLE DE TRADING ---
+if st.session_state.bot_running:
+    last_price, xrp_bal, usdc_bal = update_ui()
+    
+    # Message d'état dynamique
+    status_box.info("✅ LE BOT TOURNE ACTUELLEMENT...")
+    
+    # Simulation de la boucle de surveillance
+    # Note: Streamlit relance le script, donc on affiche un message
+    # Pour une boucle réelle sans bloquer l'UI, on utilise souvent un rafraîchissement auto
+    st.write(f"Dernière analyse à {time.strftime('%H:%M:%S')}")
+    
+    # --- LOGIQUE SIMPLIFIÉE ---
+    # Ici, le bot ferait ses calculs d'achat/vente
+    
+    # Auto-refresh de la page toutes les 60 secondes pour simuler la boucle
+    time.sleep(60)
+    st.rerun() 
+else:
+    status_box.error("❌ LE BOT EST À L'ARRÊT.")
