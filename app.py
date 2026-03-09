@@ -3,48 +3,81 @@ import ccxt
 import os
 import time
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="XRP Snowball Bot", layout="wide")
-st.title("🤖 Bot XRP/USDC - Kraken")
+st.title("🤖 Bot XRP/USDC - Kraken (Boule de Neige)")
 
-# Récupération des Secrets GitHub/Streamlit
-API_KEY = os.getenv('KRAKEN_API_KEY')
-API_SECRET = os.getenv('KRAKEN_API_SECRET')
+# --- RÉCUPÉRATION DES SECRETS ---
+# Sur Streamlit Cloud : Settings > Secrets
+API_KEY = st.secrets.get("KRAKEN_API_KEY")
+API_SECRET = st.secrets.get("KRAKEN_API_SECRET")
 
-if not API_KEY:
-    st.error("Clés API manquantes. Configurez les 'Secrets' dans Streamlit.")
+if not API_KEY or not API_SECRET:
+    st.error("⚠️ Clés API Kraken manquantes dans les Secrets Streamlit !")
     st.stop()
 
-# Connexion Kraken
+# --- INITIALISATION KRAKEN ---
 exchange = ccxt.kraken({
     'apiKey': API_KEY,
     'secret': API_SECRET,
-    'enableRateLimit': True
+    'enableRateLimit': True,
+    'options': {'defaultType': 'spot'}
 })
 
-# --- FONCTION DE CALCUL RSI (SANS PANDAS_TA) ---
-def calculate_rsi(prices, period=14):
-    if len(prices) < period: return 50
-    deltas = [prices[i+1] - prices[i] for i in range(len(prices)-1)]
-    gains = [d if d > 0 else 0 for d in deltas]
-    losses = [-d if d < 0 else 0 for d in deltas]
-    avg_gain = sum(gains[-period:]) / period
-    avg_loss = sum(losses[-period:]) / period
-    if avg_loss == 0: return 100
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 = rs))
+# --- PARAMÈTRES DU BOT ---
+SYMBOL = 'XRP/USDC'
+STAKE_AMOUNT = 20.0    # Premier achat en USDC
+MULTIPLIER = 1.5       # Facteur boule de neige
+DIP_THRESHOLD = 0.02   # Rachat si baisse de 2%
+PROFIT_TARGET = 0.03   # Vente à +3%
 
-# --- INTERFACE ET LOGIQUE ---
-st.write("Surveillance du marché en cours...")
+# --- FONCTIONS UTILES ---
+def get_status():
+    try:
+        ticker = exchange.fetch_ticker(SYMBOL)
+        balance = exchange.fetch_balance()
+        return ticker['last'], balance['free'].get('XRP', 0), balance['free'].get('USDC', 0)
+    except Exception as e:
+        st.error(f"Erreur Kraken : {e}")
+        return None, None, None
 
-try:
-    ticker = exchange.fetch_ticker('XRP/USDC')
-    price = ticker['last']
-    st.metric("Prix XRP/USDC", f"{price} USDC")
+# --- INTERFACE UTILISATEUR ---
+col1, col2, col3 = st.columns(3)
+
+price, xrp_bal, usdc_bal = get_status()
+
+if price:
+    col1.metric("Prix XRP", f"{price} USDC")
+    col2.metric("Solde XRP", f"{xrp_bal:.2f}")
+    col3.metric("Solde USDC", f"{usdc_bal:.2f}")
+
+st.divider()
+
+# --- LOGIQUE DE TRADING (BOULE DE NEIGE) ---
+if st.button("Démarrer la surveillance (Live)"):
+    st.info("Le bot est en mode surveillance...")
     
-    # Simulation d'achat/vente simplifiée
-    if st.button("Lancer un cycle manuel"):
-        st.info(f"Tentative d'achat au prix de {price}...")
-        # L'ordre réel se placerait ici
-except Exception as e:
-    st.error(f"Erreur de connexion : {e}")
+    # Simulation d'état (Dans une app réelle, utilisez une base de données)
+    last_buy_price = price
+    
+    status_placeholder = st.empty()
+    
+    while True:
+        current_price, xrp_bal, usdc_bal = get_status()
+        profit_pct = (current_price - last_buy_price) / last_buy_price
+        
+        status_placeholder.write(f"⏱️ Analyse... Profit actuel : {profit_pct:.2%}")
+
+        # VENTE (Take Profit)
+        if profit_pct >= PROFIT_TARGET and xrp_bal > 5:
+            st.success(f"🚀 Vente détectée à {current_price} !")
+            # exchange.create_market_sell_order(SYMBOL, xrp_bal)
+            break
+
+        # ACHAT (Boule de neige)
+        elif profit_pct <= -DIP_THRESHOLD and usdc_bal > 10:
+            st.warning(f"❄️ Effet Boule de neige : Achat supplémentaire !")
+            # exchange.create_market_buy_order(SYMBOL, STAKE_AMOUNT / current_price)
+            last_buy_price = current_price # Nouveau prix moyen
+            
+        time.sleep(60) # Attendre 1 minute
