@@ -39,6 +39,7 @@ for bot in st.session_state.bots:
     bot.setdefault("snowball", True)
     bot.setdefault("gain", 0.0)
     bot.setdefault("cycles", 0)
+    bot.setdefault("last_usdc_value", 0.0)
 
 save_bots()
 
@@ -69,7 +70,7 @@ def get_price():
 
 prix = get_price()
 if prix is None:
-    st.error("Erreur de récupération du prix.")
+    st.error("Erreur prix.")
     st.stop()
 
 st.title("❄️ Bot Snowball XRP/USDC")
@@ -114,13 +115,14 @@ if st.button("➕ Ajouter Bot"):
         "xrp_qty": 0.0,
         "snowball": True,
         "gain": 0.0,
-        "cycles": 0
+        "cycles": 0,
+        "last_usdc_value": 0.0
     })
     save_bots()
     st.rerun()
 
 # ----------------------------------------------------
-# DISPLAY BOTS  (HORIZONTAL + GAIN + COLORS)
+# DISPLAY BOTS — HORIZONTAL
 # ----------------------------------------------------
 st.subheader("🤖 Vos Bots")
 
@@ -140,7 +142,7 @@ for i, bot in enumerate(st.session_state.bots):
     else:
         colStatus.write("🟡")
 
-    # Inputs
+    # INPUTS
     bot["target_usdc"] = colUSDC.number_input("", value=float(bot["target_usdc"]), key=f"u{i}", label_visibility="collapsed")
     colUSDC.caption("Montant")
 
@@ -152,14 +154,28 @@ for i, bot in enumerate(st.session_state.bots):
 
     bot["snowball"] = colSnow.checkbox("Snowball", value=bot["snowball"], key=f"sn{i}")
 
-    # Gain / Cycles (petits)
+    # SMALL METRICS
     colGain.markdown(f"<div style='font-size:14px;'><b>Gain</b><br>{bot['gain']:.4f}</div>", unsafe_allow_html=True)
     colCycles.markdown(f"<div style='font-size:14px;'><b>Cycles</b><br>{bot['cycles']}</div>", unsafe_allow_html=True)
 
-    # XRP Quantity (instead of Market Price)
-    colQty.markdown(f"<div style='font-size:14px;'><b>Quantité</b><br>{bot['xrp_qty']}</div>", unsafe_allow_html=True)
+    # USDC VALUE + COLOR
+    usdc_value = bot["xrp_qty"] * prix
 
-    # Start / Stop
+    if usdc_value > bot["last_usdc_value"]:
+        usdc_color = "green"
+    elif usdc_value < bot["last_usdc_value"]:
+        usdc_color = "red"
+    else:
+        usdc_color = "white"
+
+    colQty.markdown(
+        f"<div style='font-size:14px;color:{usdc_color};'><b>USDC</b><br>{usdc_value:.4f}</div>",
+        unsafe_allow_html=True
+    )
+
+    bot["last_usdc_value"] = usdc_value
+
+    # START / STOP
     if not bot["enabled"]:
         if colStart.button("Start", key=f"start{i}"):
             bot["enabled"] = True
@@ -180,7 +196,6 @@ for i, bot in enumerate(st.session_state.bots):
             save_bots()
             st.rerun()
 
-    # Delete bot
     if colDelete.button("🗑️", key=f"del{i}"):
         del st.session_state.bots[i]
         save_bots()
@@ -195,10 +210,11 @@ if now - st.session_state.last_run > 2:
     prix = get_price()
 
     for bot in st.session_state.bots:
+
         if not bot["enabled"]:
             continue
 
-        # BUY waiting execution
+        # BUY
         if bot["mode"] == "BUY":
             open_orders = exchange.fetch_open_orders("XRP/USDC")
             if len(open_orders) == 0:
@@ -206,7 +222,7 @@ if now - st.session_state.last_run > 2:
                 save_bots()
             continue
 
-        # SELL execution check
+        # SELL
         if bot["mode"] == "SELL":
             if prix < bot["sell_price"]:
                 continue
@@ -240,7 +256,7 @@ try:
     open_orders = exchange.fetch_open_orders("XRP/USDC")
     closed_orders = exchange.fetch_closed_orders("XRP/USDC")
 except:
-    st.error("Impossible d'obtenir les ordres.")
+    st.error("Erreur récupération ordres.")
     open_orders, closed_orders = [], []
 
 st.subheader("🟡 Ordres en attente")
