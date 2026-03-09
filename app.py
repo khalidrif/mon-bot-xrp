@@ -2,73 +2,69 @@ import streamlit as st
 import ccxt
 import time
 
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="XRP Custom Bot", layout="wide")
+# 1. CONFIGURATION ET SECRETS
+st.set_page_config(page_title="XRP Snowball Bot", layout="centered")
+st.title("🤖 Bot XRP/USDC - Kraken")
 
-# --- BARRE LATÉRALE : SAISIE DES PARAMÈTRES ---
-with st.sidebar:
-    st.header("🔑 Configuration API")
-    # Utilisation du type "password" pour masquer les clés à l'écran
-    api_key = st.text_input("Kraken API Key", type="password")
-    api_secret = st.text_input("Kraken API Secret", type="password")
+# Lecture automatique des secrets que tu as configurés
+try:
+    API_KEY = st.secrets["KRAKEN_API_KEY"]
+    API_SECRET = st.secrets["KRAKEN_API_SECRET"]
     
-    st.header("⚙️ Paramètres de Stratégie")
-    symbol = st.text_input("Paire de trading", value="XRP/USDC")
-    stake_amount = st.number_input("Mise initiale (USDC)", min_value=10.0, value=20.0, step=5.0)
-    multiplier = st.number_input("Multiplicateur (Boule de neige)", min_value=1.0, value=1.5, step=0.1)
-    
-    st.header("📈 Seuils d'Exécution")
-    profit_target = st.slider("Objectif de profit (%)", 0.5, 10.0, 3.0) / 100
-    dip_threshold = st.slider("Rachat si baisse de (%)", 0.5, 10.0, 2.0) / 100
+    exchange = ccxt.kraken({
+        'apiKey': API_KEY,
+        'secret': API_SECRET,
+        'enableRateLimit': True
+    })
+except Exception as e:
+    st.error("⚠️ Erreur : Vérifie tes Secrets Streamlit (Noms des clés).")
+    st.stop()
 
-# --- ÉTAT DU BOT ---
-if 'bot_running' not in st.session_state:
-    st.session_state.bot_running = False
+# 2. ÉTAT DU BOT
+if 'actif' not in st.session_state:
+    st.session_state.actif = False
 
-# --- LOGIQUE PRINCIPALE ---
-st.title("🤖 Tableau de Bord Bot XRP")
+# 3. INTERFACE DE CONTRÔLE
+col1, col2 = st.columns(2)
+if col1.button("🚀 DÉMARRER LE BOT", type="primary", use_container_width=True):
+    st.session_state.actif = True
 
-col_start, col_stop = st.columns(2)
-if col_start.button("🚀 DÉMARRER", use_container_width=True, type="primary"):
-    if not api_key or not api_secret:
-        st.error("Veuillez saisir vos clés API dans la barre latérale.")
-    else:
-        st.session_state.bot_running = True
-
-if col_stop.button("🛑 ARRÊTER", use_container_width=True):
-    st.session_state.bot_running = False
+if col2.button("🛑 ARRÊTER LE BOT", use_container_width=True):
+    st.session_state.actif = False
 
 st.divider()
 
-# --- CONNEXION ET AFFICHAGE ---
-if st.session_state.bot_running:
+# 4. BOUCLE DE TRADING
+if st.session_state.actif:
     try:
-        # Initialisation avec les saisies utilisateur
-        exchange = ccxt.kraken({
-            'apiKey': api_key,
-            'secret': api_secret,
-            'enableRateLimit': True
-        })
-        
-        # Récupération des données en direct
-        ticker = exchange.fetch_ticker(symbol)
+        # Récupération des données
+        ticker = exchange.fetch_ticker('XRP/USDC')
         price = ticker['last']
         bal = exchange.fetch_balance()
-        
-        # Affichage des indicateurs
+        xrp = bal['free'].get('XRP', 0)
+        usdc = bal['free'].get('USDC', 0)
+
+        # Affichage
+        st.success("✅ SURVEILLANCE EN COURS...")
         c1, c2, c3 = st.columns(3)
-        c1.metric(f"Prix {symbol}", f"{price} USDC")
-        c2.metric("Solde XRP", f"{bal['free'].get('XRP', 0):.2f}")
-        c3.metric("Solde USDC", f"{bal['free'].get('USDC', 0):.2f}")
+        c1.metric("Prix XRP", f"{price} USDC")
+        c2.metric("Solde XRP", f"{xrp:.2f}")
+        c3.metric("Solde USDC", f"{usdc:.2f}")
+
+        # --- LOGIQUE BOULE DE NEIGE (DCA) ---
+        # Si le prix baisse de 2%, le bot pourrait acheter ici
+        # Si le prix monte de 3%, le bot pourrait vendre ici
         
-        st.info(f"Analyse en cours... Cible de vente : {price * (1 + profit_target):.4f}")
+        st.info(f"Dernière analyse : {time.strftime('%H:%M:%S')}")
         
-        # Relance automatique toutes les 30 secondes
+        # Pause de 30 secondes avant de relancer tout seul
         time.sleep(30)
         st.rerun()
-        
+
     except Exception as e:
-        st.error(f"Erreur : {e}")
-        st.session_state.bot_running = False
+        st.error(f"Erreur réseau : {e}")
+        time.sleep(10)
+        st.rerun()
 else:
-    st.write("Le bot est actuellement en attente. Configurez vos paramètres à gauche et cliquez sur DÉMARRER.")
+    st.warning("❌ LE BOT EST À L'ARRÊT.")
+    st.info("Clique sur DÉMARRER pour lancer l'automate.")
