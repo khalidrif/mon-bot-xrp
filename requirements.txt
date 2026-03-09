@@ -1,2 +1,3 @@
 ccxt
-streamlit-autorefresh
+pandas
+pandas_ta
