@@ -27,7 +27,26 @@ if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
 # ----------------------------------------------------
-# KRACKEN CONNECTION
+# MIGRATION
+# ----------------------------------------------------
+for bot in st.session_state.bots:
+    bot.setdefault("enabled", False)
+    bot.setdefault("mode", "CONFIG")
+    bot.setdefault("target_usdc", 0.0)
+    bot.setdefault("buy_price", 0.0)
+    bot.setdefault("sell_price", 0.0)
+    bot.setdefault("xrp_qty", 0.0)
+    bot.setdefault("snowball", True)
+    bot.setdefault("gain", 0.0)
+    bot.setdefault("cycles", 0)
+
+save_bots()
+
+if "last_run" not in st.session_state:
+    st.session_state.last_run = 0
+
+# ----------------------------------------------------
+# CONNECT KRAKEN
 # ----------------------------------------------------
 try:
     exchange = ccxt.kraken({
@@ -50,7 +69,7 @@ def get_price():
 
 prix = get_price()
 if prix is None:
-    st.error("Impossible d'obtenir le prix actuel.")
+    st.error("Erreur prix.")
     st.stop()
 
 st.title("❄️ Bot Snowball XRP/USDC")
@@ -67,23 +86,7 @@ st.metric("USDC Disponible", f"{usdc:.3f}")
 st.metric("XRP Disponible", f"{xrp:.3f}")
 
 # ----------------------------------------------------
-# MIGRATION SÉCURITÉ
-# ----------------------------------------------------
-for bot in st.session_state.bots:
-    bot.setdefault("enabled", False)
-    bot.setdefault("mode", "CONFIG")
-    bot.setdefault("target_usdc", 0.0)
-    bot.setdefault("buy_price", 0.0)
-    bot.setdefault("sell_price", 0.0)
-    bot.setdefault("xrp_qty", 0.0)
-    bot.setdefault("snowball", True)
-    bot.setdefault("gain", 0.0)
-    bot.setdefault("cycles", 0)
-
-save_bots()
-
-# ----------------------------------------------------
-# RESET BOTS
+# RESET
 # ----------------------------------------------------
 if "reset_lock" not in st.session_state:
     st.session_state.reset_lock = False
@@ -117,7 +120,7 @@ if st.button("➕ Ajouter Bot"):
     st.rerun()
 
 # ----------------------------------------------------
-# DISPLAY BOTS — HORIZONTAL
+# DISPLAY BOTS — HORIZONTAL VERSION
 # ----------------------------------------------------
 st.subheader("🤖 Vos Bots")
 
@@ -125,33 +128,47 @@ for i, bot in enumerate(st.session_state.bots):
 
     st.markdown("---")
 
-    col0, col1, col2, col3, col4, col5, col6 = st.columns([1,3,3,3,2,2,1])
+    colStatus, colUSDC, colBuy, colSell, colSnow, colGain, colCycles, colMarket, colStart, colDelete = st.columns([1,3,3,3,2,2,2,2,2,1])
 
-    # STATUS ICON
+    # Status icon
     if bot["mode"] == "CONFIG":
-        col0.write("⚙️")
+        colStatus.write("⚙️")
     elif bot["mode"] == "BUY":
-        col0.write("🟢")
+        colStatus.write("🟢")
     elif bot["mode"] == "SELL":
-        col0.write("🔴")
+        colStatus.write("🔴")
     else:
-        col0.write("🟡")
+        colStatus.write("🟡")
 
-    # INPUTS
-    bot["target_usdc"] = col1.number_input("", value=float(bot["target_usdc"]), key=f"u{i}", label_visibility="collapsed")
-    col1.caption("Montant USDC")
+    # Inputs
+    bot["target_usdc"] = colUSDC.number_input("", value=float(bot["target_usdc"]), key=f"u{i}", label_visibility="collapsed")
+    colUSDC.caption("Montant")
 
-    bot["buy_price"] = col2.number_input("", value=float(bot["buy_price"]), format="%.5f", key=f"b{i}", label_visibility="collapsed")
-    col2.caption("Prix Achat")
+    bot["buy_price"] = colBuy.number_input("", value=float(bot["buy_price"]), format="%.5f", key=f"b{i}", label_visibility="collapsed")
+    colBuy.caption("Achat")
 
-    bot["sell_price"] = col3.number_input("", value=float(bot["sell_price"]), format="%.5f", key=f"s{i}", label_visibility="collapsed")
-    col3.caption("Prix Vente")
+    bot["sell_price"] = colSell.number_input("", value=float(bot["sell_price"]), format="%.5f", key=f"s{i}", label_visibility="collapsed")
+    colSell.caption("Vente")
 
-    bot["snowball"] = col4.checkbox("Snowball", value=bot["snowball"], key=f"sn{i}")
+    bot["snowball"] = colSnow.checkbox("Snowball", value=bot["snowball"], key=f"sn{i}")
 
-    # START
+    colGain.metric("Gain", f"{bot['gain']:.4f}")
+    colCycles.metric("Cycles", bot["cycles"])
+
+    # dynamic price colors
+    if prix < bot["buy_price"]:
+        color = "red"
+    elif prix > bot["sell_price"]:
+        color = "green"
+    else:
+        color = "orange"
+
+    colMarket.markdown(f"<div style='text-align:center;color:{color};font-weight:bold;font-size:20px'>{prix:.5f}</div>", unsafe_allow_html=True)
+    colMarket.caption("Marché")
+
+    # Start/Stop
     if not bot["enabled"]:
-        if col5.button("Start", key=f"start{i}"):
+        if colStart.button("Start", key=f"start{i}"):
             bot["enabled"] = True
             try:
                 qty = round(bot["target_usdc"] / bot["buy_price"], 6)
@@ -164,31 +181,17 @@ for i, bot in enumerate(st.session_state.bots):
             save_bots()
             st.rerun()
     else:
-        if col5.button("Stop", key=f"stop{i}"):
+        if colStart.button("Stop", key=f"stop{i}"):
             bot["enabled"] = False
             bot["mode"] = "CONFIG"
             save_bots()
             st.rerun()
 
-    # DELETE
-    if col6.button("🗑️", key=f"del{i}"):
+    # Delete
+    if colDelete.button("🗑️", key=f"del{i}"):
         del st.session_state.bots[i]
         save_bots()
         st.rerun()
-
-    # ----------------------------------------------------
-    # INFO LINE : Gain | Cycles | Achat | Vente | Spread | Prix marché
-    # ----------------------------------------------------
-    spread = (bot["sell_price"] - bot["buy_price"]) / bot["buy_price"] * 100 if bot["buy_price"] else 0
-
-    colI1, colI2, colI3, colI4, colI5, colI6 = st.columns(6)
-
-    colI1.metric("Gain", f"{bot['gain']:.4f}")
-    colI2.metric("Cycles", bot["cycles"])
-    colI3.metric("Achat", f"{bot['buy_price']:.5f}")
-    colI4.metric("Vente", f"{bot['sell_price']:.5f}")
-    colI5.metric("Spread %", f"{spread:.3f}")
-    colI6.metric("Marché", f"{prix:.5f}")
 
 # ----------------------------------------------------
 # TRADING LOOP
@@ -197,13 +200,12 @@ now = time.time()
 if now - st.session_state.last_run > 2:
     st.session_state.last_run = now
     prix = get_price()
-    if prix is None:
-        st.stop()
 
     for bot in st.session_state.bots:
         if not bot["enabled"]:
             continue
 
+        # BUY waiting execution
         if bot["mode"] == "BUY":
             open_orders = exchange.fetch_open_orders("XRP/USDC")
             if len(open_orders) == 0:
@@ -211,6 +213,7 @@ if now - st.session_state.last_run > 2:
                 save_bots()
             continue
 
+        # SELL
         if bot["mode"] == "SELL":
             if prix < bot["sell_price"]:
                 continue
@@ -236,7 +239,7 @@ if now - st.session_state.last_run > 2:
             save_bots()
 
 # ----------------------------------------------------
-# KRAKEN ORDERS VIEW
+# ORDERS
 # ----------------------------------------------------
 st.header("📑 Ordres Kraken")
 
