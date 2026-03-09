@@ -7,8 +7,7 @@ import ccxt
 
 # --- Configuration ---
 SAVE_FILE = "bots.json"
-PAIR = "XRP/USDC"        # adapter si nécessaire (XRP/USDT, XRP/USD)
-POLL_INTERVAL = 5       # secondes entre vérifications
+POLL_INTERVAL = 5  # secondes entre vérifications
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # --- CCXT Exchange ---
@@ -22,6 +21,28 @@ exchange = ccxt.kraken({
     "secret": api_secret,
     "enableRateLimit": True,
 })
+
+# Load markets and pick pair (prefer XRP/USDC)
+try:
+    exchange.load_markets()
+except Exception as e:
+    logging.warning(f"Impossible de charger les markets: {e}")
+
+PAIR = None
+for p in ("XRP/USDC", "XRP/USDT", "XRP/USD", "XRP/USD:USD"):
+    if p in exchange.markets:
+        PAIR = p
+        break
+if PAIR is None:
+    # try case-insensitive search
+    for m in exchange.markets:
+        if m.upper().startswith("XRP/"):
+            PAIR = m
+            break
+if PAIR is None:
+    raise SystemExit("Aucune paire XRP disponible sur cet échange")
+
+logging.info(f"Using market pair: {PAIR}")
 
 # --- State persistence ---
 _state_lock = threading.Lock()
@@ -43,7 +64,6 @@ def save_state(bots):
 # --- Helpers ---
 def amount_precision(symbol, amount):
     try:
-        market = exchange.markets.get(symbol)
         return float(exchange.amount_to_precision(symbol, amount))
     except Exception:
         return round(amount, 4)
@@ -61,7 +81,7 @@ def is_order_filled(order):
     remaining = float(order.get("remaining", 1) or 1)
     return status == "closed" or (amount > 0 and abs(filled - amount) < 1e-9) or remaining == 0
 
-# --- Example bot structure
+# --- Example bot structure ---
 # {
 #   "enabled": True/False,
 #   "target_usdc": float,
@@ -71,9 +91,10 @@ def is_order_filled(order):
 #   "snowball": True/False,
 #   "gain": float,
 #   "cycles": int,
-#   "pair": "XRP/USDC",
+#   "pair": "<PAIR>",
 #   "buy_id": "",
-#   "sell_id": ""
+#   "sell_id": "",
+#   "mode": "CONFIG"/"BUY"/"SELL"
 # }
 
 # --- Load or create example bot if none ---
@@ -82,50 +103,31 @@ if not bots:
     bots = [{
         "enabled": False,
         "target_usdc": 10.0,
-        "buy_price": 0.25,    # exemple
-        "sell_price": 0.27,   # exemple
+        "buy_price": 0.25,
+        "sell_price": 0.27,
         "xrp_qty": 0.0,
         "snowball": True,
         "gain": 0.0,
         "cycles": 0,
         "pair": PAIR,
         "buy_id": "",
-        "sell_id": ""
+        "sell_id": "",
+        "mode": "CONFIG"
     }]
     save_state(bots)
     logging.info("Fichier bots.json créé. Édite-le pour configurer et active le bot en mettant 'enabled': true.")
-
-# Preload markets
-try:
-    exchange.load_markets()
-except Exception as e:
-    logging.warning(f"Impossible de charger les markets: {e}")
 
 # --- Trading loop ---
 def trading_loop():
     while True:
         for bot in bots:
-            if not bot.get("enabled"):
-                continue
-            pair = bot.get("pair", PAIR)
+            try:
+                if not bot.get("enabled"):
+                    continue
+                pair = bot.get("pair", PAIR)
 
-            # --- BUY waiting: check buy order filled and place sell ---
-            if bot.get("mode") == "BUY" or bot.get("buy_id"):
-                buy_id = bot.get("buy_id")
-                if buy_id:
+                # BUY waiting: check buy order filled and place sell
+                if bot.get("mode") == "BUY" and bot.get("buy_id"):
+                    buy_id = bot.get("buy_id")
                     try:
-                        order = exchange.fetch_order(buy_id, pair)
-                    except Exception as e:
-                        logging.debug(f"fetch_order buy failed: {e}")
-                        continue
-                    if is_order_filled(order):
-                        # place sell
-                        qty = bot.get("xrp_qty", 0)
-                        sell_qty = amount_precision(pair, qty)
-                        sell_price = price_precision(pair, bot.get("sell_price", 0))
-                        try:
-                            sell_order = exchange.create_limit_sell_order(pair, sell_qty, sell_price)
-                            bot["sell_id"] = sell_order.get("id", "")
-                            bot["buy_id"] = ""
-                            bot["mode"] = "SELL"
-                            logging.info(f
+                        order = exchange.fetch
