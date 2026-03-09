@@ -29,12 +29,11 @@ except Exception as e:
     logging.warning(f"Impossible de charger les markets: {e}")
 
 PAIR = None
-for p in ("XRP/USDC", "XRP/USDT", "XRP/USD", "XRP/USD:USD"):
+for p in ("XRP/USDC", "XRP/USDT", "XRP/USD"):
     if p in exchange.markets:
         PAIR = p
         break
 if PAIR is None:
-    # try case-insensitive search
     for m in exchange.markets:
         if m.upper().startswith("XRP/"):
             PAIR = m
@@ -130,4 +129,38 @@ def trading_loop():
                 if bot.get("mode") == "BUY" and bot.get("buy_id"):
                     buy_id = bot.get("buy_id")
                     try:
-                        order = exchange.fetch
+                        order = exchange.fetch_order(buy_id, pair)
+                    except Exception as e:
+                        logging.debug(f"fetch_order buy failed: {e}")
+                        continue
+                    if is_order_filled(order):
+                        qty = bot.get("xrp_qty", 0)
+                        sell_qty = amount_precision(pair, qty)
+                        sell_price = price_precision(pair, bot.get("sell_price", 0))
+                        try:
+                            sell_order = exchange.create_limit_sell_order(pair, sell_qty, sell_price)
+                            bot["sell_id"] = sell_order.get("id", "")
+                            bot["buy_id"] = ""
+                            bot["mode"] = "SELL"
+                            logging.info(f"Buy filled. Placed SELL {sell_qty}@{sell_price} id={bot['sell_id']}")
+                            save_state(bots)
+                        except Exception as e:
+                            logging.error(f"Erreur création SELL: {e}")
+                    continue
+
+                # Place initial buy if in CONFIG mode
+                if bot.get("mode") in (None, "CONFIG") and bot.get("enabled"):
+                    try:
+                        bp = float(bot.get("buy_price", 0))
+                        tp = float(bot.get("target_usdc", 0))
+                        if bp <= 0 or tp <= 0:
+                            logging.debug("buy_price ou target_usdc invalide, skipping")
+                        else:
+                            qty = tp / bp
+                            qty = amount_precision(pair, qty)
+                            buy_price = price_precision(pair, bp)
+                            order = exchange.create_limit_buy_order(pair, qty, buy_price)
+                            bot["buy_id"] = order.get("id", "")
+                            bot["xrp_qty"] = qty
+                            bot["mode"] = "BUY"
+                            logging.info(f"Placed BUY {qty}@{buy_price} id={bot['buy_id']}")
