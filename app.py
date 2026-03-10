@@ -29,7 +29,7 @@ def auto_refresh():
             }, 2000);
         </script>
     """, unsafe_allow_html=True)
-    st.button("refresh", key="refresh_button")
+    st.button("refresh", key="refresh_button", help="Bouton de rafraîchissement automatique")
 
 # ------------------------------------------------------------
 # GESTION DU CONFIG JSON
@@ -97,8 +97,8 @@ def run_cycle():
         ticker = exchange.fetch_ticker(symbol)
         price = ticker["last"]
         bal = exchange.fetch_balance()
-        usdc = bal["free"].get("USDC", 0)
-        xrp = bal["free"].get("XRP", 0)
+        usdc = bal["total"].get("USDC", 0) # 'total' est plus fiable que 'free' pour l'UI
+        xrp = bal["total"].get("XRP", 0)
         
         st.session_state.price = price
         st.session_state.usdc = usdc
@@ -110,24 +110,27 @@ def run_cycle():
 
                 # ACHAT
                 if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
-                    if usdc >= bot["mise"]:
+                    # On vérifie le solde USDC réel avant
+                    if bal["free"].get("USDC", 0) >= bot["mise"]:
                         qty = float(exchange.amount_to_precision(symbol, (bot["mise"] * 0.98) / price))
                         exchange.create_market_buy_order(symbol, qty)
                         bot["qty"] = qty
                         bot["etape"] = "ATTENTE_VENTE"
                         save_config(st.session_state.bots)
-                        log(f"Bot {i} : ACHAT effectué")
+                        log(f"Bot {i} : ACHAT {qty} XRP à {price}")
 
                 # VENTE
                 elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
-                    qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.99))
-                    exchange.create_market_sell_order(symbol, qty_sell)
-                    bot["gain_cumule"] += (bot["p_vente"] - bot["p_achat"]) * bot["qty"]
-                    bot["cycles"] += 1
-                    bot["qty"] = 0
-                    bot["etape"] = "ATTENTE_ACHAT"
-                    save_config(st.session_state.bots)
-                    log(f"Bot {i} : VENTE effectuée")
+                    if bot["qty"] > 0:
+                        qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.99))
+                        exchange.create_market_sell_order(symbol, qty_sell)
+                        gain = (bot["p_vente"] - bot["p_achat"]) * bot["qty"]
+                        bot["gain_cumule"] += gain
+                        bot["cycles"] += 1
+                        bot["qty"] = 0
+                        bot["etape"] = "ATTENTE_ACHAT"
+                        save_config(st.session_state.bots)
+                        log(f"Bot {i} : VENTE effectuée | Gain: {gain:.2f}")
     except Exception as e:
         log(f"Erreur API : {e}")
 
@@ -136,10 +139,10 @@ run_cycle()
 # ------------------------------------------------------------
 # INTERFACE (UI)
 # ------------------------------------------------------------
+# INDICATEUR BOULE VERTE/GRISE
 is_running = st.session_state.run and any(b["actif"] for b in st.session_state.bots.values())
 status_color = "#00FF00" if is_running else "#444444"
 
-# TITRE AVEC BOULE LUMINEUSE
 st.markdown(f"""
     <div style="display: flex; align-items: center;">
         <h1 style="margin: 0;">🚀 XRP Sniper Pro</h1>
@@ -154,47 +157,60 @@ with st.sidebar:
     bot = st.session_state.bots[id_bot]
     
     bot["actif"] = st.toggle("Activer Bot", bot["actif"])
-    bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
-    bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f")
-    bot["mise"] = st.number_input("Mise USDC", value=bot["mise"])
+    bot["p_achat"] = st.number_input("Prix Achat", value=float(bot["p_achat"]), format="%.4f")
+    bot["p_vente"] = st.number_input("Prix Vente", value=float(bot["p_vente"]), format="%.4f")
+    bot["mise"] = st.number_input("Mise USDC", value=float(bot["mise"]))
 
     if st.button("💾 Sauvegarder Config"):
         save_config(st.session_state.bots)
-        st.success("Config enregistrée")
+        st.success(f"Bot {id_bot} enregistré")
 
     st.divider()
     if st.button("🚀 DÉMARRER TOUT", use_container_width=True):
         st.session_state.run = True
+        st.rerun()
     if st.button("🛑 STOP TOUT", use_container_width=True):
         st.session_state.run = False
+        st.rerun()
 
-# METRICS
+# METRICS PRINCIPALES
 p = st.session_state.get("price", 0)
 u = st.session_state.get("usdc", 0)
 x = st.session_state.get("xrp", 0)
-g = sum(b["gain_cumule"] for b in st.session_state.bots.values())
+g = sum(b.get("gain_cumule", 0.0) for b in st.session_state.bots.values())
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Prix XRP", f"{p:.4f} $" if p else "---")
-c2.metric("Solde USDC", f"{u:.2f} $")
-c3.metric("Solde XRP", f"{x:.2f}")
-c4.metric("Gain Total", f"{g:.2f} $")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Prix XRP", f"{p:.4f} $" if p else "---")
+m2.metric("Solde USDC", f"{u:.2f} $")
+m3.metric("Solde XRP", f"{x:.2f}")
+m4.metric("Gain Total", f"{g:.2f} $")
 
 st.divider()
 
-# TABLEAU DES BOTS ACTIFS
-cols = st.columns([0.5, 1, 1, 1, 1, 1])
-fields = ["ID", "Statut", "Achat", "Vente", "Cycles", "Gain"]
-for col, field in zip(cols, fields): col.write(f"**{field}**")
+# TABLEAU DES BOTS (CORRIGÉ SANS ATTRIBUTEERROR)
+st.subheader("🤖 État des Bots")
+t1, t2, t3, t4, t5, t6 = st.columns([0.5, 1, 1, 1, 1, 1])
+t1.write("**ID**")
+t2.write("**Statut**")
+t3.write("**Achat**")
+t4.write("**Vente**")
+t5.write("**Cycles**")
+t6.write("**Gain**")
 
 for i, b in st.session_state.bots.items():
-    if b["actif"] or b["cycles"] > 0:
-        c = st.columns([0.5, 1, 1, 1, 1, 1])
-        c.write(f"#{i}")
-        c.write("✅" if b["actif"] else "❌")
-        c.write(f"{b['p_achat']}")
-        c.write(f"{b['p_vente']}")
-        c.write(f"{b['cycles']}")
-        c.write(f"{b['gain_cumule']:.2f}")
+    if b["actif"] or b.get("cycles", 0) > 0:
+        c_id, c_st, c_ac, c_ve, c_cy, c_ga = st.columns([0.5, 1, 1, 1, 1, 1])
+        c_id.write(f"#{i}")
+        c_st.write("🟢 Actif" if b["actif"] else "⚪ Off")
+        c_ac.write(f"{b['p_achat']:.4f}")
+        c_ve.write(f"{b['p_vente']:.4f}")
+        c_cy.write(f"{b.get('cycles', 0)}")
+        c_ga.write(f"{b.get('gain_cumule', 0.0):.2f} $")
+
+# LOGS SYSTEME
+st.divider()
+with st.expander("📜 Logs du système"):
+    for l in reversed(st.session_state.logs[-15:]):
+        st.text(l)
 
 auto_refresh()
