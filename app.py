@@ -1,166 +1,254 @@
 import streamlit as st
 import ccxt
-import time
+import asyncio
 import json
 import os
+import time
+from datetime import datetime
 
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="XRP Sniper Pro 50", layout="wide")
-DB_FILE = "config_bots_xrp_final.json"
+# ------------------------------------------------------------
+# CONFIG PAGE
+# ------------------------------------------------------------
+st.set_page_config(page_title="XRP Sniper Pro Async", layout="wide")
+DB_FILE = "config_bots_xrp_async.json"
+symbol = "XRP/USDC"
 
-# --- TITRE PRINCIPAL ---
-st.title("🎯 XRP Sniper Pro 50")
-
-# --- FONCTIONS DE SAUVEGARDE (IMMORTALITÉ) ---
-def save_config(data):
+# ------------------------------------------------------------
+# SAUVEGARDE / CHARGEMENT JSON
+# ------------------------------------------------------------
+def save_config(bots):
     with open(DB_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(bots, f)
 
 def load_config():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
-                # Conversion des clés string en int pour le dictionnaire
                 return {int(k): v for k, v in data.items()}
-        except: return None
+        except:
+            return None
     return None
 
-# --- INITIALISATION DES BOTS ---
-if 'bots' not in st.session_state:
+# ------------------------------------------------------------
+# INITIALISATION DES BOTS (50)
+# ------------------------------------------------------------
+if "bots" not in st.session_state:
     saved = load_config()
     if saved:
         st.session_state.bots = saved
     else:
-        # Structure par défaut : 50 slots vides
-        st.session_state.bots = {i: {"p_achat": 1.35, "p_vente": 1.38, "mise": 15.0, "etape": "ATTENTE_ACHAT", "actif": False, "cycles": 0, "gain_cumule": 0.0} for i in range(1, 51)}
+        st.session_state.bots = {
+            i: {
+                "actif": False,
+                "p_achat": 1.35,
+                "p_vente": 1.38,
+                "mise": 15.0,
+                "etape": "ATTENTE_ACHAT",
+                "qty": 0.0,
+                "cycles": 0,
+                "gain_cumule": 0.0,
+                "last_trigger": 0
+            }
+            for i in range(1, 51)
+        }
 
-if 'run' not in st.session_state: st.session_state.run = False
+if "run" not in st.session_state:
+    st.session_state.run = False
 
-# --- CONNEXION KRAKEN ---
+if "ticker_price" not in st.session_state:
+    st.session_state.ticker_price = None
+
+if "async_started" not in st.session_state:
+    st.session_state.async_started = False
+
+# ------------------------------------------------------------
+# CONNEXION KRAKEN (clé READ+TRADE)
+# ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
     ex = ccxt.kraken({
-        'apiKey': st.secrets["KRAKEN_API_KEY"],
-        'secret': st.secrets["KRAKEN_API_SECRET"],
-        'enableRateLimit': True,
-        'options': {'nonce': 'milliseconds'}
+        "apiKey": st.secrets["KRAKEN_API_KEY"],
+        "secret": st.secrets["KRAKEN_API_SECRET"],
+        "enableRateLimit": True
     })
     ex.load_markets()
     return ex
 
 exchange = get_exchange()
-symbol = "XRP/USDC"
 
-# --- SIDEBAR (SAISIE À GAUCHE) ---
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    id_bot = st.selectbox("Sélectionner Bot n°", range(1, 51))
-    
-    with st.container(border=True):
-        b_cfg = st.session_state.bots[id_bot]
-        b_cfg["actif"] = st.toggle("Activer ce bot", value=b_cfg["actif"], key=f"tgl_{id_bot}")
-        b_cfg["p_achat"] = st.number_input("Prix ACHAT (Déclenchement)", value=b_cfg["p_achat"], format="%.4f", key=f"ac_{id_bot}")
-        b_cfg["p_vente"] = st.number_input("Prix VENTE (Déclenchement)", value=b_cfg["p_vente"], format="%.4f", key=f"ve_{id_bot}")
-        b_cfg["mise"] = st.number_input("Mise USDC", value=b_cfg["mise"], min_value=1.0, key=f"mi_{id_bot}")
-        
-        if st.button("💾 SAUVEGARDER", use_container_width=True):
-            save_config(st.session_state.bots)
-            st.toast("Configuration enregistrée !")
+# ------------------------------------------------------------
+# TICKER LOOP (ASYNCHRONE) — 1 requête par seconde
+# ------------------------------------------------------------
+async def fetch_price_loop():
+    while True:
+        try:
+            ticker = exchange.fetch_ticker(symbol)
+            st.session_state.ticker_price = ticker["last"]
+        except:
+            st.session_state.ticker_price = None
 
-    st.divider()
-    if st.button("🚀 DÉMARRER TOUT", type="primary", use_container_width=True): st.session_state.run = True
-    if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False
+        await asyncio.sleep(1)
 
-# --- DASHBOARD CENTRAL ---
-try:
-    ticker = exchange.fetch_ticker(symbol)
-    price = ticker['last']
-    bal = exchange.fetch_balance()
-    usdc_bal = bal['free'].get('USDC', 0.0)
-    xrp_bal_total = bal['free'].get('XRP', 0.0)
-    
-    total_gains = sum(b.get('gain_cumule', 0.0) for b in st.session_state.bots.values())
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Prix XRP Actuel", f"{price:.4f} USDC")
-    m2.metric("Solde USDC Libre", f"{usdc_bal:.2f} $")
-    m3.metric("Gain Total Net", f"{total_gains:.2f} $", delta=f"{total_gains:.4f}")
+# ------------------------------------------------------------
+# BOUCLE DE TRADING ASYNC PAR BOT
+# ------------------------------------------------------------
+async def bot_loop(bot_id):
 
-    st.divider()
+    while True:
+        bot = st.session_state.bots[bot_id]
 
-    # --- TABLEAU DES BOTS (CORRECTIF LIST ERROR) ---
-    cols_size = [0.5, 1.2, 1, 1, 0.8, 0.6, 1, 0.8]
-    h = st.columns(cols_size)
-    headers = ["N°", "État", "Achat", "Vente", "Mise", "Cyc.", "Gain Net", "Act."]
-    
-    # On écrit les titres un par un dans chaque colonne
-    for idx, text in enumerate(headers):
-        h[idx].write(f"**{text}**")
+        if not st.session_state.run:
+            await asyncio.sleep(1)
+            continue
 
-    for i, bot in st.session_state.bots.items():
-        if bot["actif"]:
-            with st.container(border=True):
-                c = st.columns(cols_size)
-                c[0].write(f"#{i}")
-                
-                # État visuel
-                if bot["etape"] == "ATTENTE_ACHAT":
-                    c[1].warning("⏳ ACHAT")
-                else:
-                    c[1].success("💰 VENTE")
-                
-                c[2].write(f"{bot['p_achat']:.4f}")
-                c[3].write(f"{bot['p_vente']:.4f}")
-                c[4].write(f"{bot['mise']}$")
-                c[5].write(f"{bot.get('cycles', 0)}")
-                c[6].write(f"**{bot.get('gain_cumule', 0.0):.3f}$**")
-                
-                # Bouton Supprimer
-                if c[7].button("🗑️", key=f"del_{i}"):
-                    st.session_state.bots[i] = {"p_achat": 1.35, "p_vente": 1.38, "mise": 15.0, "etape": "ATTENTE_ACHAT", "actif": False, "cycles": 0, "gain_cumule": 0.0}
+        price = st.session_state.ticker_price
+        if price is None:
+            await asyncio.sleep(1)
+            continue
+
+        now = time.time()
+
+        # anti double ordre
+        if now - bot["last_trigger"] < 1:
+            await asyncio.sleep(0.05)
+            continue
+
+        # -------------------------------------------------
+        # ACHAT
+        # -------------------------------------------------
+        if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
+
+            bal = exchange.fetch_balance()
+            usdc = bal["free"].get("USDC", 0)
+
+            if usdc >= bot["mise"]:
+
+                mise_securisee = bot["mise"] * 0.985
+                qty = float(exchange.amount_to_precision(symbol, mise_securisee / price))
+
+                try:
+                    exchange.create_market_buy_order(symbol, qty)
+
+                    bot["qty"] = qty
+                    bot["etape"] = "ATTENTE_VENTE"
+                    bot["last_trigger"] = now
                     save_config(st.session_state.bots)
-                    st.rerun()
 
-                # --- LOGIQUE DE TRADING ---
-                if st.session_state.run:
-                    # 1. ACHAT (Market pour éviter de rater l'ordre)
-                    if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
-                        # Utilise 98.5% de la mise pour couvrir les frais de marché
-                        mise_securisee = bot["mise"] * 0.985
-                        if usdc_bal >= bot["mise"]:
-                            try:
-                                q = float(exchange.amount_to_precision(symbol, mise_securisee / price))
-                                exchange.create_market_buy_order(symbol, q)
-                                bot["etape"] = "ATTENTE_VENTE"
-                                save_config(st.session_state.bots)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Erreur Achat Bot #{i}: {e}")
+                except:
+                    pass
 
-                    # 2. VENTE (Market)
-                    elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
-                        # Vérifie qu'on a bien des XRP (minimum de sécurité)
-                        if xrp_bal_total > 1.0:
-                            try:
-                                # On vend la quantité correspondant à l'achat initial (moins frais)
-                                q_v = float(exchange.amount_to_precision(symbol, (bot["mise"] / bot["p_achat"]) * 0.99))
-                                exchange.create_market_sell_order(symbol, q_v)
-                                
-                                # Calcul Gain Net (Profit - frais Taker estimés 0.6% total)
-                                gain_net = ((bot["p_vente"] - bot["p_achat"]) * (bot["mise"] / bot["p_achat"])) - (bot["mise"] * 0.006)
-                                
-                                bot["etape"] = "ATTENTE_ACHAT"
-                                bot["cycles"] = bot.get("cycles", 0) + 1
-                                bot["gain_cumule"] = bot.get("gain_cumule", 0.0) + gain_net
-                                save_config(st.session_state.bots)
-                                st.balloons()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Erreur Vente Bot #{i}: {e}")
+        # -------------------------------------------------
+        # VENTE
+        # -------------------------------------------------
+        if bot["actif"] and bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
 
-except Exception as e:
-    st.error(f"Erreur Globale : {e}")
+            qty = bot.get("qty", 0)
+            if qty > 0:
 
-time.sleep(15)
-st.rerun()
+                qty_sell = float(exchange.amount_to_precision(symbol, qty * 0.99))
+
+                try:
+                    exchange.create_market_sell_order(symbol, qty_sell)
+
+                    gain_net = ((bot["p_vente"] - bot["p_achat"]) * qty) - (bot["mise"] * 0.006)
+
+                    bot["gain_cumule"] += gain_net
+                    bot["cycles"] += 1
+                    bot["qty"] = 0
+                    bot["etape"] = "ATTENTE_ACHAT"
+                    bot["last_trigger"] = now
+                    save_config(st.session_state.bots)
+
+                except:
+                    pass
+
+        await asyncio.sleep(0.05)
+
+# ------------------------------------------------------------
+# LANCEUR GLOBAL ASYNC (1 ticker + 50 bots)
+# ------------------------------------------------------------
+async def main_async():
+    await asyncio.gather(
+        fetch_price_loop(),
+        *(bot_loop(i) for i in st.session_state.bots.keys())
+    )
+
+if not st.session_state.async_started:
+    st.session_state.async_started = True
+    asyncio.get_event_loop().create_task(main_async())
+
+# ------------------------------------------------------------
+# INTERFACE STREAMLIT
+# ------------------------------------------------------------
+
+st.title("🚀 XRP Sniper Pro 50 — Version Async")
+
+# --- SIDEBAR CONFIG ---
+with st.sidebar:
+    st.header("⚙️ Configuration Bot")
+
+    id_bot = st.selectbox("Sélectionner bot n°", range(1, 51))
+    bot = st.session_state.bots[id_bot]
+
+    bot["actif"] = st.toggle("Activer", value=bot["actif"])
+    bot["p_achat"] = st.number_input("Prix achat", value=bot["p_achat"], format="%.4f")
+    bot["p_vente"] = st.number_input("Prix vente", value=bot["p_vente"], format="%.4f")
+    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"], min_value=1.0)
+
+    if st.button("💾 Sauvegarder"):
+        save_config(st.session_state.bots)
+        st.toast("Configuration enregistrée")
+
+    st.divider()
+
+    if st.button("🚀 Démarrer"):
+        st.session_state.run = True
+
+    if st.button("🛑 Stop"):
+        st.session_state.run = False
+
+# ------------------------------------------------------------
+# DASHBOARD
+# ------------------------------------------------------------
+price = st.session_state.ticker_price
+
+try:
+    bal = exchange.fetch_balance()
+    usdc_bal = bal["free"].get("USDC", 0)
+    xrp_bal = bal["free"].get("XRP", 0)
+except:
+    usdc_bal = 0
+    xrp_bal = 0
+
+total_gain = sum(b["gain_cumule"] for b in st.session_state.bots.values())
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
+c2.metric("USDC Libre", f"{usdc_bal:.2f}")
+c3.metric("Gain total", f"{total_gain:.4f}")
+
+st.divider()
+
+# ------------------------------------------------------------
+# TABLEAU DES BOTS
+# -----------------------------------------------------------
+cols = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1])
+
+headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
+for i, text in enumerate(headers):
+    cols[i].write(f"**{text}**")
+
+for i, bot in st.session_state.bots.items():
+
+    if bot["actif"]:
+        c = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1])
+
+        c[0].write(f"#{i}")
+        c[1].write("⏳ ACHAT" if bot["etape"] == "ATTENTE_ACHAT" else "💰 VENTE")
+        c[2].write(f"{bot['p_achat']:.4f}")
+        c[3].write(f"{bot['p_vente']:.4f}")
+        c[4].write(f"{bot['mise']}$")
+        c[5].write(bot["cycles"])
+        c[6].write(f"{bot['gain_cumule']:.4f}$")
+
