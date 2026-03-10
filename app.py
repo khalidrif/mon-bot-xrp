@@ -141,9 +141,14 @@ with st.sidebar:
         st.session_state.run = False
         st.session_state.stop_clicked = True
 
-    if st.button("💾 Sauvegarder", key=f"save_{id_bot}"):
+    # --- Bouton Sauvegarder ---
+if st.button("💾 Sauvegarder", key=f"save_{id_bot}"):
     save_config(st.session_state.bots)
-    st.toast(f"Bot {id_bot} sauvegardé ✔")
+    st.toast(f"Bot {id_bot} sauvegardé ✔")
+# --- Bouton Réinitialiser ---
+if st.button("🗑 Réinitialiser le bot", key=f"reset_{id_bot}"):
+    reset_bot(id_bot)
+
     if st.button("🗑 Réinitialiser le bot"):
         reset_bot(id_bot)
     st.divider()
@@ -333,6 +338,7 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
 
 
 
