@@ -120,7 +120,7 @@ else:
 # ---- SIDEBAR : CONTRÔLES ----
 with st.sidebar:
     st.header("⚙️ CONFIG BOT")
-    id_bot = st.selectbox("Bot n°", range(1, 51))
+    id_bot = st.selectbox("Bot n°", range(1, 51), key="bot_select_sidebar")
     bot = st.session_state.bots[id_bot]
     bot["actif"] = st.toggle("Activer", bot["actif"])
     bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
@@ -311,6 +311,7 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
 
 
 
