@@ -146,16 +146,45 @@ run_cycle()
 # ------------------------------------------------------------
 # UI
 # ------------------------------------------------------------
-# LOGIQUE BOUTON VERT / GRIS
-is_active = st.session_state.run and any(b["actif"] for b in st.session_state.bots.values())
-dot_color = "#00FF00" if is_active else "#555555"
+# ... (ton code précédent : run_cycle, etc.)
+
+run_cycle()
+
+# ------------------------------------------------------------
+# UI
+# ------------------------------------------------------------
+# REMPLACE TOUT LE BLOC CI-DESSOUS :
+
+bot_en_cours = st.session_state.run and any(b["actif"] for b in st.session_state.bots.values())
+dot_color = "#00FF00" if bot_en_cours else "#555555"
+glow_effect = f"box-shadow: 0 0 15px {dot_color};" if bot_en_cours else ""
 
 st.markdown(f"""
-    <div style="display: flex; align-items: center; margin-bottom: 10px;">
-        <h1 style="margin: 0;">🚀 XRP</h1>
-        <div style="width: 18px; height: 18px; background-color: {dot_color}; border-radius: 50%; margin-left: 15px; margin-top: 10px; box-shadow: 0 0 12px {dot_color};"></div>
+    <style>
+    @keyframes pulse {{
+        0% {{ opacity: 1; }}
+        50% {{ opacity: 0.5; }}
+        100% {{ opacity: 1; }}
+    }}
+    .status-dot {{
+        width: 18px; 
+        height: 18px; 
+        background-color: {dot_color}; 
+        border-radius: 50%; 
+        margin-left: 15px; 
+        margin-top: 10px;
+        {glow_effect}
+        animation: {"pulse 2s infinite" if bot_en_cours else "none"};
+    }}
+    </style>
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+        <h1 style="margin: 0;">🚀 XRP Sniper Pro</h1>
+        <div class="status-dot"></div>
     </div>
     """, unsafe_allow_html=True)
+
+# LA SUITE DE TON CODE (avec with st.sidebar:) ...
+
 
 with st.sidebar:
     st.header("⚙️ CONFIGURATION BOT")
@@ -202,3 +231,4 @@ for i, b in st.session_state.bots.items():
         r[5].write(f"{b['etape']}")
         r[6].write(f"{b['cycles']}")
         r[7].write(f"{b['gain_cumule']:.2f}")
+
