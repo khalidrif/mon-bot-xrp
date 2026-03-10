@@ -280,8 +280,6 @@ run_cycle()
 
 st.write("✅ Bloc 2 chargé – logique du bot OK")
 
----
-
 ## 🟪 BLOC 3 / 3 – INTERFACE COMPLÈTE + CHRONO PERSISTANT
 ```python
 st.title("🚀 XRP Sniper Pro – Auto‑Correct + Boule de Neige + %")
@@ -382,3 +380,4 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
