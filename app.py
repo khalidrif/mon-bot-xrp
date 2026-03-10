@@ -5,6 +5,7 @@ import json
 import os
 import time
 import threading
+import streamlit.components.v1 as components
 
 # ------------------------------------------------------------
 # CONFIG PAGE
@@ -66,7 +67,7 @@ if "async_started" not in st.session_state:
 
 
 # ------------------------------------------------------------
-# CONNEXION KRAKEN
+# KRAKEN
 # ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
@@ -83,7 +84,7 @@ exchange = get_exchange()
 
 
 # ------------------------------------------------------------
-# LOOP PRIX ASYNC
+# ASYNC LOOP PRICE
 # ------------------------------------------------------------
 async def fetch_price_loop():
     while True:
@@ -92,12 +93,11 @@ async def fetch_price_loop():
             st.session_state.ticker_price = ticker["last"]
         except:
             st.session_state.ticker_price = None
-
         await asyncio.sleep(1)
 
 
 # ------------------------------------------------------------
-# LOOP BOT ASYNC
+# ASYNC BOT LOOP
 # ------------------------------------------------------------
 async def bot_loop(bot_id):
     while True:
@@ -113,13 +113,11 @@ async def bot_loop(bot_id):
             continue
 
         now = time.time()
-
-        # anti double ordre (1s min)
         if now - bot["last_trigger"] < 1:
             await asyncio.sleep(0.05)
             continue
 
-        # ---------------------- ACHAT ----------------------
+        # -------------- ACHAT --------------
         if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
 
             bal = exchange.fetch_balance()
@@ -141,7 +139,7 @@ async def bot_loop(bot_id):
                 except:
                     pass
 
-        # ---------------------- VENTE ----------------------
+        # -------------- VENTE --------------
         if bot["actif"] and bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
 
             qty = bot["qty"]
@@ -169,7 +167,7 @@ async def bot_loop(bot_id):
 
 
 # ------------------------------------------------------------
-# LANCEUR ASYNC (THREAD)
+# ASYNC STARTER (THREAD)
 # ------------------------------------------------------------
 async def main_async():
     await asyncio.gather(
@@ -190,12 +188,12 @@ if not st.session_state.async_started:
 
 
 # ------------------------------------------------------------
-# INTERFACE STREAMLIT
+# UI STREAMLIT
 # ------------------------------------------------------------
 st.title("🚀 XRP Sniper Pro 50 — Version Async")
 
 
-# -------------- SIDEBAR -------------------
+# ---------------- Sidebar -----------------
 with st.sidebar:
     st.header("⚙️ Configuration Bot")
 
@@ -220,7 +218,7 @@ with st.sidebar:
         st.session_state.run = False
 
 
-# -------------- DASHBOARD -------------------
+# ---------------- Dashboard -----------------
 price = st.session_state.ticker_price
 
 try:
@@ -236,10 +234,10 @@ c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
 c2.metric("USDC libre", f"{usdc:.2f}")
 c3.metric("Gain total", f"{gain_total:.4f}")
 
-
 st.divider()
 
-# -------------- TABLEAU DES BOTS -------------------
+
+# ---------------- Tableau BOTS -----------------
 cols = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1])
 headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
 
@@ -247,7 +245,6 @@ for i, h in enumerate(headers):
     cols[i].write(f"**{h}**")
 
 for i, bot in st.session_state.bots.items():
-
     if bot["actif"]:
         c = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1])
 
@@ -261,7 +258,10 @@ for i, bot in st.session_state.bots.items():
 
 
 # ------------------------------------------------------------
-# 🔁 AUTO-REFRESH (fix du prix qui reste "...")
+# 🔁 AUTO-REFRESH PROPRE (1 seconde)
 # ------------------------------------------------------------
-time.sleep(1)
-st.experimental_rerun()
+components.html("""
+    <script>
+        setTimeout(function() { window.location.reload(); }, 1000);
+    </script>
+""", height=0)
