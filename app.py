@@ -5,16 +5,16 @@ import os
 import time
 
 # ------------------------------------------------------------
-# CONFIGURATION ET STYLE
+# CONFIGURATION
 # ------------------------------------------------------------
 st.set_page_config(page_title="XRP Sniper Pro 🚀", layout="wide")
 DB_FILE = "config_bots_xrp_secure.json"
 symbol = "XRP/USDC"
 
-# Style pour masquer le bouton refresh et stabiliser l'UI
+# Masquer le bouton refresh et styliser les métriques
 st.markdown("""
     <style>
-    div[data-testid="stButton"] button[kind="secondary"] { display: none; }
+    button[kind="secondary"] { display: none !important; }
     .stMetric { background: #f0f2f6; padding: 10px; border-radius: 10px; }
     </style>
 """, unsafe_allow_html=True)
@@ -24,10 +24,10 @@ if "logs" not in st.session_state:
 
 def log(msg):
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
-    if len(st.session_state.logs) > 30: st.session_state.logs.pop(0)
+    if len(st.session_state.logs) > 20: st.session_state.logs.pop(0)
 
 # ------------------------------------------------------------
-# AUTO-REFRESH ULTRA-RAPIDE (1 SECONDE)
+# AUTO-REFRESH (1 SECONDE)
 # ------------------------------------------------------------
 def auto_refresh():
     st.markdown("""
@@ -44,7 +44,7 @@ def auto_refresh():
 auto_refresh()
 
 # ------------------------------------------------------------
-# GESTION CONFIGURATION
+# GESTION CONFIG
 # ------------------------------------------------------------
 def save_config(bots):
     try:
@@ -59,8 +59,7 @@ def load_config():
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
             return {int(k): v for k, v in data.items()}
-        except:
-            return None
+        except: return None
     return None
 
 # ------------------------------------------------------------
@@ -80,9 +79,6 @@ if "bots" not in st.session_state:
 if "run" not in st.session_state:
     st.session_state.run = False
 
-# ------------------------------------------------------------
-# EXCHANGE (KRAKEN)
-# ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
     return ccxt.kraken({
@@ -101,42 +97,35 @@ def run_cycle():
         ticker = exchange.fetch_ticker(symbol)
         price = ticker["last"]
         
-        # Calcul du mouvement pour l'affichage
-        if "old_price" not in st.session_state: st.session_state.old_price = price
-        st.session_state.diff = price - st.session_state.old_price
-        st.session_state.old_price = price
+        # Delta pour l'affichage
+        old_p = st.session_state.get("price", price)
+        st.session_state.diff = price - old_p
+        st.session_state.price = price
         
         bal = exchange.fetch_balance()
-        usdc = bal["free"].get("USDC", 0)
-        xrp = bal["free"].get("XRP", 0)
-        
-        st.session_state.price = price
-        st.session_state.usdc = usdc
-        st.session_state.xrp = xrp
+        st.session_state.usdc = bal["free"].get("USDC", 0)
+        st.session_state.xrp = bal["free"].get("XRP", 0)
 
-        if not st.session_state.run:
-            return
+        if not st.session_state.run: return
 
         for i, bot in st.session_state.bots.items():
             if not bot["actif"]: continue
 
             # ACHAT
             if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
-                if usdc >= bot["mise"]:
+                if st.session_state.usdc >= bot["mise"]:
                     qty = float(exchange.amount_to_precision(symbol, (bot["mise"] * 0.99) / price))
                     exchange.create_market_buy_order(symbol, qty)
                     bot["qty"] = qty
                     bot["etape"] = "ATTENTE_VENTE"
                     save_config(st.session_state.bots)
-                    log(f"✅ [Bot {i}] ACHAT effectué à {price}")
+                    log(f"✅ [Bot {i}] ACHAT à {price}")
 
             # VENTE
             elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
                 if bot["qty"] > 0:
                     qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
                     exchange.create_market_sell_order(symbol, qty_sell)
-                    
-                    # Correction calcul gain : (Vente - Achat)
                     profit = ((price - bot["p_achat"]) * bot["qty"]) - (bot["mise"] * 0.004)
                     bot["gain_cumule"] += profit
                     bot["cycles"] += 1
@@ -151,65 +140,59 @@ def run_cycle():
 run_cycle()
 
 # ------------------------------------------------------------
-# INTERFACE UTILISATEUR (UI)
+# INTERFACE (UI)
 # ------------------------------------------------------------
 st.title("🚀 XRP Sniper Pro")
 
-# Barre latérale
 with st.sidebar:
     st.header("⚙️ Contrôle")
     if not st.session_state.run:
-        if st.button("▶️ DÉMARRER LES BOTS", use_container_width=True):
+        if st.button("▶️ DÉMARRER", use_container_width=True):
             st.session_state.run = True
             st.rerun()
     else:
-        if st.button("🛑 STOPPER LES BOTS", use_container_width=True):
+        if st.button("🛑 STOPPER", use_container_width=True):
             st.session_state.run = False
             st.rerun()
     
     st.divider()
-    id_bot = st.selectbox("Configurer Bot #", range(1, 51))
+    id_bot = st.selectbox("Bot #", range(1, 51))
     bot = st.session_state.bots[id_bot]
-    
-    bot["actif"] = st.toggle("Activer ce bot", bot["actif"])
-    bot["p_achat"] = st.number_input("Prix Achat", value=float(bot["p_achat"]), format="%.4f")
-    bot["p_vente"] = st.number_input("Prix Vente", value=float(bot["p_vente"]), format="%.4f")
+    bot["actif"] = st.toggle("Activer", bot["actif"])
+    bot["p_achat"] = st.number_input("Achat", value=float(bot["p_achat"]), format="%.4f")
+    bot["p_vente"] = st.number_input("Vente", value=float(bot["p_vente"]), format="%.4f")
     bot["mise"] = st.number_input("Mise (USDC)", value=float(bot["mise"]))
-    
-    if st.button("💾 Sauvegarder Config"):
+    if st.button("💾 Sauver"):
         save_config(st.session_state.bots)
-        st.success("Config bot mise à jour !")
+        st.toast("Sauvegardé !")
 
-# Dashboard
+# Metrics
 p = st.session_state.get("price", 0)
-diff = st.session_state.get("diff", 0)
-gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
-
+d = st.session_state.get("diff", 0)
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Prix XRP/USDC", f"{p:.5f}", delta=f"{diff:.5f}")
-m2.metric("Solde USDC", f"{st.session_state.get('usdc', 0):.2f}")
-m3.metric("Solde XRP", f"{st.session_state.get('xrp', 0):.2f}")
-m4.metric("Profit Total", f"{gain_total:.4f} USDC")
+m1.metric("Prix XRP", f"{p:.5f}", delta=f"{d:.5f}")
+m2.metric("USDC", f"{st.session_state.get('usdc', 0):.2f}")
+m3.metric("XRP", f"{st.session_state.get('xrp', 0):.2f}")
+m4.metric("Total Profit", f"{sum(b['gain_cumule'] for b in st.session_state.bots.values()):.4f}")
 
-# Table des bots
+# Table des bots corrigée
 st.divider()
-st.subheader("🤖 État des Bots Actifs")
-cols = st.columns([0.5, 1, 1, 1, 1, 1, 1])
-fields = ["ID", "Statut", "Achat", "Vente", "Mise", "Cycles", "Gain"]
-for col, field in zip(cols, fields): col.write(f"**{field}**")
+st.subheader("🤖 Bots Actifs")
+h0, h1, h2, h3, h4, h5, h6 = st.columns([0.5, 1, 1, 1, 1, 1, 1])
+for col, text in zip([h0,h1,h2,h3,h4,h5,h6], ["ID", "Statut", "Achat", "Vente", "Mise", "Cycles", "Gain"]):
+    col.write(f"**{text}**")
 
 for i, b in st.session_state.bots.items():
-    if b["actif"]:
-        c = st.columns([0.5, 1, 1, 1, 1, 1, 1])
-        c.write(i)
-        c.write("🔵 VENTE" if b["etape"] == "ATTENTE_VENTE" else "🟢 ACHAT")
-        c.write(f"{b['p_achat']}")
-        c.write(f"{b['p_vente']}")
-        c.write(f"{b['mise']}")
-        c.write(f"{b['cycles']}")
-        c.write(f"{b['gain_cumule']:.4f}")
+    if b.get("actif"):
+        c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1, 1, 1, 1, 1, 1])
+        c0.write(str(i))
+        c1.write("🔵 VENTE" if b["etape"] == "ATTENTE_VENTE" else "🟢 ACHAT")
+        c2.write(f"{b['p_achat']:.4f}")
+        c3.write(f"{b['p_vente']:.4f}")
+        c4.write(f"{b['mise']:.2f}")
+        c5.write(str(b['cycles']))
+        c6.write(f"{b['gain_cumule']:.4f}")
 
-# Logs
 st.divider()
-st.subheader("📜 Logs d'activité")
+st.subheader("📜 Logs")
 st.code("\n".join(st.session_state.logs[::-1]))
