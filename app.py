@@ -12,7 +12,7 @@ DB_FILE = "config_bots_xrp_stable.json"
 symbol = "XRP/USDC"
 
 # ------------------------------------------------------------
-# AUTO-REFRESH 100% STREAMLIT CLOUD SAFE
+# AUTO-REFRESH CLOUD SAFE (NO BLINK, NO ERROR)
 # ------------------------------------------------------------
 def auto_refresh():
     refresh_rate = 2000  # 2 sec
@@ -78,7 +78,7 @@ if "bots" not in st.session_state:
                 "etape": "ATTENTE_ACHAT",
                 "qty": 0.0,
                 "cycles": 0,
-                "gain_cumule": 0.0,
+                "gain_cumule": 0.0
             } for i in range(1, 51)
         }
 
@@ -101,7 +101,7 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# EXECUTION D’UN CYCLE
+# RUN 1 CYCLE (BUG FIXED)
 # ------------------------------------------------------------
 def run_cycle():
     try:
@@ -122,9 +122,12 @@ def run_cycle():
     if not st.session_state.run:
         return
 
+    # IMPORTANT FIX :
+    # → supprimé tous les "return" qui empêchaient les autres bots de fonctionner
+    # → remplacés par "continue", pour que TOUS les bots soient évalués
     for i, bot in st.session_state.bots.items():
 
-        # ACHAT
+        # ---- ACHAT ----
         if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT":
             if price and price <= bot["p_achat"] and usdc >= bot["mise"]:
                 mise_net = bot["mise"] * 0.985
@@ -134,11 +137,11 @@ def run_cycle():
                     bot["qty"] = qty
                     bot["etape"] = "ATTENTE_VENTE"
                     save_config(st.session_state.bots)
-                    return
+                    continue
                 except:
-                    pass
+                    continue
 
-        # VENTE
+        # ---- VENTE ----
         if bot["actif"] and bot["etape"] == "ATTENTE_VENTE":
             if price and price >= bot["p_vente"] and bot["qty"] > 0:
                 qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.99))
@@ -150,11 +153,11 @@ def run_cycle():
                     bot["cycles"] += 1
                     bot["etape"] = "ATTENTE_ACHAT"
                     save_config(st.session_state.bots)
-                    return
+                    continue
                 except:
-                    pass
+                    continue
 
-# Run cycle
+# Run 1 cycle
 run_cycle()
 
 # ------------------------------------------------------------
@@ -162,7 +165,7 @@ run_cycle()
 # ------------------------------------------------------------
 st.title("🚀 XRP Sniper Pro 50 — Version stable (sans clignotement)")
 
-# Sidebar
+# ----- SIDEBAR -----
 with st.sidebar:
     st.header("⚙️ Configuration Bot")
 
@@ -190,7 +193,7 @@ with st.sidebar:
     if st.button("🛑 Stop"):
         st.session_state.run = False
 
-# Metrics
+# ----- Metrics -----
 price = st.session_state.get("last_price")
 usdc = st.session_state.get("usdc", 0)
 gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
@@ -202,8 +205,8 @@ c3.metric("Gain Total", f"{gain_total:.4f}")
 
 st.divider()
 
-# Tableau bots
-cols = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
+# ----- Tableau bots -----
+cols = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
 headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", ""]
 
 for col, txt in zip(cols, headers):
@@ -211,7 +214,7 @@ for col, txt in zip(cols, headers):
 
 for i, bot in st.session_state.bots.items():
     if bot["actif"]:
-        c = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
+        c = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
         c[0].write(str(i))
         c[1].write("⏳ Achat" if bot["etape"] == "ATTENTE_ACHAT" else "💰 Vente")
         c[2].write(bot["p_achat"])
