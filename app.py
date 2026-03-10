@@ -7,7 +7,7 @@ import time
 # ------------------------------------------------------------
 # CONFIG
 # ------------------------------------------------------------
-st.set_page_config(page_title="XRP", layout="wide")
+st.set_page_config(page_title="XRP Sniper Pro ", layout="wide")
 DB_FILE = "config_bots_xrp_secure.json"
 symbol = "XRP/USDC"
 
@@ -276,4 +276,5 @@ for i, bot in st.session_state.bots.items():
 st.subheader("📝 LOGS EN DIRECT")
 for line in st.session_state.logs[-40:]:
     st.write(line)
+
 
