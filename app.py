@@ -5,7 +5,7 @@ import json
 import os
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="XRP Multi-Grid Pro", layout="wide")
+st.set_page_config(page_title="XRP Multi-Grid ", layout="wide")
 DB_FILE = "config_bots_xrp_v3.json"
 
 def save_config(data):
@@ -148,3 +148,4 @@ except Exception as e:
 
 time.sleep(20)
 st.rerun()
+
