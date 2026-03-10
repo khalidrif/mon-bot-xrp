@@ -7,12 +7,19 @@ import time
 # ------------------------------------------------------------
 # CONFIG
 # ------------------------------------------------------------
-st.set_page_config(page_title="XRP Sniper Pro Stable", layout="wide")
-DB_FILE = "config_bots_xrp_stable.json"
+st.set_page_config(page_title="XRP Sniper Pro DEBUG", layout="wide")
+DB_FILE = "config_bots_xrp_debug.json"
 symbol = "XRP/USDC"
 
+# ZONE LOGS (stockée en session)
+if "logs" not in st.session_state:
+    st.session_state.logs = []
+
+def log(msg):
+    st.session_state.logs.append(f"{time.strftime('%H:%M:%S')}  |  {msg}")
+
 # ------------------------------------------------------------
-# AUTO-REFRESH CLOUD SAFE (NO BLINK, NO ERROR)
+# AUTO-REFRESH CLOUD SAFE (NO BLINK)
 # ------------------------------------------------------------
 def auto_refresh():
     refresh_rate = 2000  # 2 sec
@@ -23,7 +30,6 @@ def auto_refresh():
             }}, {refresh_rate});
         </script>
     """, unsafe_allow_html=True)
-
     st.button("Refresh", key="refresh_btn")
 
 auto_refresh()
@@ -46,7 +52,7 @@ def load_config():
     return None
 
 # ------------------------------------------------------------
-# RESET BOT (SUPPRESSION)
+# RESET BOT
 # ------------------------------------------------------------
 def reset_bot(i):
     st.session_state.bots[i] = {
@@ -60,6 +66,7 @@ def reset_bot(i):
         "gain_cumule": 0.0,
     }
     save_config(st.session_state.bots)
+    log(f"Bot #{i} réinitialisé")
 
 # ------------------------------------------------------------
 # INIT BOTS
@@ -78,7 +85,7 @@ if "bots" not in st.session_state:
                 "etape": "ATTENTE_ACHAT",
                 "qty": 0.0,
                 "cycles": 0,
-                "gain_cumule": 0.0
+                "gain_cumule": 0.0,
             } for i in range(1, 51)
         }
 
@@ -90,59 +97,74 @@ if "run" not in st.session_state:
 # ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
-    ex = ccxt.kraken({
+    return ccxt.kraken({
         "apiKey": st.secrets["KRAKEN_API_KEY"],
         "secret": st.secrets["KRAKEN_API_SECRET"],
         "enableRateLimit": True
     })
-    ex.load_markets()
-    return ex
 
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# RUN 1 CYCLE (BUG FIXED)
+# RUN CYCLE (DEBUG COMPLET)
 # ------------------------------------------------------------
 def run_cycle():
+    # TICKER
     try:
         ticker = exchange.fetch_ticker(symbol)
         price = ticker["last"]
-    except:
+        log(f"Prix XRP reçu : {price}")
+    except Exception as e:
         price = None
+        log(f"[ERREUR TICKER] {e}")
 
+    # BALANCES
     try:
         bal = exchange.fetch_balance()
         usdc = bal["free"].get("USDC", 0)
-    except:
+        xrp = bal["free"].get("XRP", 0)
+        log(f"USDC réel : {usdc}  |  XRP réel : {xrp}")
+    except Exception as e:
         usdc = 0
+        xrp = 0
+        log(f"[ERREUR BALANCE] {e}")
 
     st.session_state.last_price = price
     st.session_state.usdc = usdc
+    st.session_state.xrp = xrp
 
     if not st.session_state.run:
+        log("Bots arrêtés")
         return
 
-    # IMPORTANT FIX :
-    # → supprimé tous les "return" qui empêchaient les autres bots de fonctionner
-    # → remplacés par "continue", pour que TOUS les bots soient évalués
+    # BOUCLE DES 50 BOTS
     for i, bot in st.session_state.bots.items():
+        if not bot["actif"]:
+            continue
 
-        # ---- ACHAT ----
-        if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT":
-            if price and price <= bot["p_achat"] and usdc >= bot["mise"]:
-                mise_net = bot["mise"] * 0.985
-                qty = float(exchange.amount_to_precision(symbol, mise_net / price))
-                try:
-                    exchange.create_market_buy_order(symbol, qty)
-                    bot["qty"] = qty
-                    bot["etape"] = "ATTENTE_VENTE"
-                    save_config(st.session_state.bots)
-                    continue
-                except:
-                    continue
+        log(f"[Bot {i}]  État : {bot['etape']}  | Achat={bot['p_achat']} Vente={bot['p_vente']} Mise={bot['mise']}")
 
-        # ---- VENTE ----
-        if bot["actif"] and bot["etape"] == "ATTENTE_VENTE":
+        # ---------------- ACHAT ----------------
+        if bot["etape"] == "ATTENTE_ACHAT":
+            if price and price <= bot["p_achat"]:
+                if usdc >= bot["mise"]:
+                    mise_net = bot["mise"] * 0.985
+                    qty = float(exchange.amount_to_precision(symbol, mise_net / price))
+                    try:
+                        exchange.create_market_buy_order(symbol, qty)
+                        bot["qty"] = qty
+                        bot["etape"] = "ATTENTE_VENTE"
+                        save_config(st.session_state.bots)
+                        log(f"[Bot {i}] ACHAT OK — qty={qty}")
+                        continue
+                    except Exception as e:
+                        log(f"[Bot {i}] ERREUR ACHAT : {e}")
+                        continue
+                else:
+                    log(f"[Bot {i}] PAS ASSEZ DE USDC ({usdc} < {bot['mise']})")
+
+        # ---------------- VENTE ----------------
+        if bot["etape"] == "ATTENTE_VENTE":
             if price and price >= bot["p_vente"] and bot["qty"] > 0:
                 qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.99))
                 try:
@@ -153,76 +175,84 @@ def run_cycle():
                     bot["cycles"] += 1
                     bot["etape"] = "ATTENTE_ACHAT"
                     save_config(st.session_state.bots)
+                    log(f"[Bot {i}] VENTE OK — gain={gain}")
                     continue
-                except:
+                except Exception as e:
+                    log(f"[Bot {i}] ERREUR VENTE : {e}")
                     continue
 
-# Run 1 cycle
+# RUN CYCLE
 run_cycle()
 
 # ------------------------------------------------------------
 # UI
 # ------------------------------------------------------------
-st.title("🚀 XRP Sniper Pro 50 — Version stable (sans clignotement)")
+st.title("🧪 XRP Sniper Pro — MODE DEBUG COMPLET")
 
-# ----- SIDEBAR -----
+# SIDEBAR
 with st.sidebar:
-    st.header("⚙️ Configuration Bot")
+    st.header("⚙️ BOT")
 
     id_bot = st.selectbox("Bot n°", range(1, 51))
     bot = st.session_state.bots[id_bot]
 
-    bot["actif"] = st.toggle("Activer", value=bot["actif"])
+    bot["actif"] = st.toggle("Activer Bot", value=bot["actif"])
     bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
     bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f")
-    bot["mise"] = st.number_input("Mise USDC", value=bot["mise"], min_value=1.0)
+    bot["mise"] = st.number_input("Mise", value=bot["mise"])
 
     if st.button("💾 Sauvegarder"):
         save_config(st.session_state.bots)
-        st.toast("Sauvegardé ✔")
+        st.toast("Sauvegardé")
 
     if st.button("🗑 Supprimer ce bot"):
         reset_bot(id_bot)
-        st.toast(f"Bot #{id_bot} supprimé")
 
     st.divider()
 
     if st.button("🚀 Démarrer"):
         st.session_state.run = True
+        log("Démarrage bots")
 
     if st.button("🛑 Stop"):
         st.session_state.run = False
+        log("Arrêt bots")
 
-# ----- Metrics -----
+# METRICS
 price = st.session_state.get("last_price")
 usdc = st.session_state.get("usdc", 0)
+xrp = st.session_state.get("xrp", 0)
 gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
 
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
-c2.metric("USDC Libre", f"{usdc:.2f}")
-c3.metric("Gain Total", f"{gain_total:.4f}")
+c2.metric("USDC", f"{usdc:.2f}")
+c3.metric("XRP", f"{xrp:.4f}")
+c4.metric("Gain Total", f"{gain_total:.4f}")
 
 st.divider()
 
-# ----- Tableau bots -----
-cols = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
-headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", ""]
+# TABLE BOTS
+cols = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1])
+headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
 
 for col, txt in zip(cols, headers):
     col.write(f"**{txt}**")
 
 for i, bot in st.session_state.bots.items():
     if bot["actif"]:
-        c = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
+        c = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1])
         c[0].write(str(i))
-        c[1].write("⏳ Achat" if bot["etape"] == "ATTENTE_ACHAT" else "💰 Vente")
+        c[1].write(bot["etape"])
         c[2].write(bot["p_achat"])
         c[3].write(bot["p_vente"])
         c[4].write(bot["mise"])
         c[5].write(bot["cycles"])
         c[6].write(round(bot["gain_cumule"], 4))
 
-        if c[7].button("🗑", key=f"delete_{i}"):
-            reset_bot(i)
-            st.toast(f"Bot #{i} supprimé")
+# ------------------------------------------------------------
+# LOG PANEL
+# ------------------------------------------------------------
+st.subheader("📝 LOGS EN DIRECT")
+for line in st.session_state.logs[-30:]:
+    st.write(line)
