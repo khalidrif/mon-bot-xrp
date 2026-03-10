@@ -5,8 +5,8 @@ import json
 import os
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="XRP Multi-Grid ", layout="wide")
-DB_FILE = "config_bots_xrp_v3.json"
+st.set_page_config(page_title="XRP Sniper Pro 50", layout="wide")
+DB_FILE = "config_bots_xrp_final.json"
 
 def save_config(data):
     with open(DB_FILE, "w") as f:
@@ -46,7 +46,7 @@ def get_exchange():
 exchange = get_exchange()
 symbol = "XRP/USDC"
 
-# --- SIDEBAR ---
+# --- SIDEBAR (RÉGLAGES À GAUCHE) ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     id_bot = st.selectbox("Sélectionner Bot n°", range(1, 51))
@@ -54,19 +54,19 @@ with st.sidebar:
     with st.container(border=True):
         b_cfg = st.session_state.bots[id_bot]
         b_cfg["actif"] = st.toggle("Activer ce bot", value=b_cfg["actif"], key=f"tgl_{id_bot}")
-        b_cfg["p_achat"] = st.number_input("Prix ACHAT", value=b_cfg["p_achat"], format="%.4f", key=f"ac_{id_bot}")
-        b_cfg["p_vente"] = st.number_input("Prix VENTE", value=b_cfg["p_vente"], format="%.4f", key=f"ve_{id_bot}")
+        b_cfg["p_achat"] = st.number_input("Prix ACHAT (Déclenchement)", value=b_cfg["p_achat"], format="%.4f", key=f"ac_{id_bot}")
+        b_cfg["p_vente"] = st.number_input("Prix VENTE (Déclenchement)", value=b_cfg["p_vente"], format="%.4f", key=f"ve_{id_bot}")
         b_cfg["mise"] = st.number_input("Mise USDC", value=b_cfg["mise"], key=f"mi_{id_bot}")
         
         if st.button("💾 SAUVEGARDER", use_container_width=True):
             save_config(st.session_state.bots)
-            st.toast("Enregistré !")
+            st.toast("Configuration enregistrée !")
 
     st.divider()
     if st.button("🚀 DÉMARRER TOUT", type="primary", use_container_width=True): st.session_state.run = True
     if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False
 
-# --- DASHBOARD ---
+# --- DASHBOARD CENTRAL ---
 st.title("🛰️ Dashboard Multi-Bots XRP")
 
 try:
@@ -74,18 +74,18 @@ try:
     price = ticker['last']
     bal = exchange.fetch_balance()
     usdc_bal = bal['free'].get('USDC', 0.0)
+    xrp_bal_total = bal['free'].get('XRP', 0.0)
     
-    # Calcul Gain Total
     total_gains = sum(b.get('gain_cumule', 0.0) for b in st.session_state.bots.values())
     
     m1, m2, m3 = st.columns(3)
-    m1.metric("Prix XRP", f"{price:.4f} USDC")
-    m2.metric("Solde USDC", f"{usdc_bal:.2f}")
-    m3.metric("Gain Total Accumulé", f"{total_gains:.2f} USDC", delta=f"{total_gains:.4f}")
+    m1.metric("Prix XRP Actuel", f"{price:.4f} USDC")
+    m2.metric("Solde USDC Libre", f"{usdc_bal:.2f} $")
+    m3.metric("Gain Total Net", f"{total_gains:.2f} $", delta=f"{total_gains:.4f}")
 
     st.divider()
 
-    # --- TABLEAU ---
+    # --- TABLEAU DES BOTS ---
     cols_size = [0.4, 1, 0.8, 0.8, 0.6, 0.5, 0.8, 0.6]
     h = st.columns(cols_size)
     headers = ["N°", "État", "Achat", "Vente", "Mise", "Cyc.", "Gain Net", "Act."]
@@ -95,57 +95,64 @@ try:
         if bot["actif"]:
             with st.container(border=True):
                 c = st.columns(cols_size)
-                c[0].write(f"#{i}")
+                c.write(f"#{i}")
                 
                 if bot["etape"] == "ATTENTE_ACHAT":
-                    c[1].warning("⏳ ACHAT")
+                    c.warning("⏳ ACHAT")
                 else:
-                    c[1].success("💰 VENTE")
+                    c.success("💰 VENTE")
                 
-                c[2].write(f"{bot['p_achat']:.4f}")
-                c[3].write(f"{bot['p_vente']:.4f}")
-                c[4].write(f"{bot['mise']}$")
-                c[5].write(f"{bot.get('cycles', 0)}")
-                c[6].write(f"**{bot.get('gain_cumule', 0.0):.3f}$**")
+                c.write(f"{bot['p_achat']:.4f}")
+                c.write(f"{bot['p_vente']:.4f}")
+                c.write(f"{bot['mise']}$")
+                c.write(f"{bot.get('cycles', 0)}")
+                c.write(f"**{bot.get('gain_cumule', 0.0):.3f}$**")
                 
-                if c[7].button("🗑️", key=f"del_{i}"):
+                if c.button("🗑️", key=f"del_{i}"):
                     st.session_state.bots[i] = {"p_achat": 1.35, "p_vente": 1.38, "mise": 10.0, "etape": "ATTENTE_ACHAT", "actif": False, "cycles": 0, "gain_cumule": 0.0}
                     save_config(st.session_state.bots)
                     st.rerun()
 
-                # --- LOGIQUE ---
+                # --- LOGIQUE DE TRADING AGGRESSIVE (MARKET) ---
                 if st.session_state.run:
-                    # ACHAT
+                    # 1. ACHAT AU MARCHÉ (Dès que le prix touche ou descend sous la cible)
                     if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
                         if usdc_bal >= bot["mise"]:
-                            q = float(exchange.amount_to_precision(symbol, bot["mise"] / bot["p_achat"]))
-                            p = float(exchange.price_to_precision(symbol, bot["p_achat"]))
-                            exchange.create_limit_buy_order(symbol, q, p)
+                            # Quantité avec précision Kraken
+                            q = float(exchange.amount_to_precision(symbol, bot["mise"] / price))
+                            
+                            # ORDRE MARKET pour exécution garantie
+                            exchange.create_market_buy_order(symbol, q)
+                            
                             bot["etape"] = "ATTENTE_VENTE"
                             save_config(st.session_state.bots)
+                            st.success(f"✅ Bot #{i} : Achat exécuté !")
                             st.rerun()
-                    # VENTE
+
+                    # 2. VENTE AU MARCHÉ (Dès que le prix touche ou dépasse la cible)
                     elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
-                        q_v = float(exchange.amount_to_precision(symbol, (bot["mise"] / bot["p_achat"]) * 0.995))
-                        p_v = float(exchange.price_to_precision(symbol, bot["p_vente"]))
-                        exchange.create_limit_sell_order(symbol, q_v, p_v)
-                        
-                        # Calcul Gain : (Vente - Achat) * Quantité - Frais (estimés 0.26% x 2)
-                        profit_brut = (bot["p_vente"] - bot["p_achat"]) * (bot["mise"] / bot["p_achat"])
-                        frais = bot["mise"] * 0.0052 # 0.26% à l'achat + 0.26% à la vente
-                        gain_net = profit_brut - frais
-                        
-                        bot["etape"] = "ATTENTE_ACHAT"
-                        bot["cycles"] = bot.get("cycles", 0) + 1
-                        bot["gain_cumule"] = bot.get("gain_cumule", 0.0) + gain_net
-                        
-                        save_config(st.session_state.bots)
-                        st.balloons()
-                        st.rerun()
+                        # On vérifie qu'on a bien du XRP à vendre
+                        if xrp_bal_total > 1:
+                            q_v = float(exchange.amount_to_precision(symbol, (bot["mise"] / bot["p_achat"]) * 0.99))
+                            
+                            # ORDRE MARKET pour vente garantie
+                            exchange.create_market_sell_order(symbol, q_v)
+                            
+                            # Calcul Gain Net (Vente - Achat) * Quantité - Frais Kraken (environ 0.6% total)
+                            profit_brut = (bot["p_vente"] - bot["p_achat"]) * (bot["mise"] / bot["p_achat"])
+                            frais = bot["mise"] * 0.006 
+                            gain_net = profit_brut - frais
+                            
+                            bot["etape"] = "ATTENTE_ACHAT"
+                            bot["cycles"] = bot.get("cycles", 0) + 1
+                            bot["gain_cumule"] = bot.get("gain_cumule", 0.0) + gain_net
+                            
+                            save_config(st.session_state.bots)
+                            st.balloons()
+                            st.rerun()
 
 except Exception as e:
     st.error(f"Erreur : {e}")
 
-time.sleep(20)
+time.sleep(15) # Vérification toutes les 15 secondes
 st.rerun()
-
