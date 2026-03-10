@@ -120,13 +120,15 @@ else:
 # ---- SIDEBAR : CONTRÔLES ----
 with st.sidebar:
     st.header("⚙️ CONFIG BOT")
+
     id_bot = st.selectbox("Bot n°", range(1, 51), key="bot_select_sidebar")
     bot = st.session_state.bots[id_bot]
-    bot["actif"] = st.toggle("Activer", bot["actif"], key=f"actif_{id_bot}")
-    bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
-    bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f")
-    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"], format="%.4f")
 
+    bot["actif"] = st.toggle("Activer", bot["actif"], key=f"actif_{id_bot}")
+    bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f", key=f"p_achat_{id_bot}")
+    bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f", key=f"p_vente_{id_bot}")
+    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"], format="%.4f", key=f"mise_{id_bot}")
+   
     def start_bots():
         st.session_state.run = True
         st.session_state.stop_clicked = False
@@ -311,6 +313,7 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
 
 
 
