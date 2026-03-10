@@ -4,25 +4,16 @@ import json
 import os
 import time
 
-# ------------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------------
 st.set_page_config(page_title="XRP Sniper Pro", layout="wide")
 DB_FILE = "config_bots_xrp_secure.json"
 symbol = "XRP/USDC"
 
-# ------------------------------------------------------------
-# LOGS
-# ------------------------------------------------------------
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
 def log(msg):
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
-# ------------------------------------------------------------
-# AUTO-REFRESH
-# ------------------------------------------------------------
 def auto_refresh():
     st.markdown("""
         <script>
@@ -35,17 +26,11 @@ def auto_refresh():
 
 auto_refresh()
 
-# ------------------------------------------------------------
-# RUN PERSISTENT
-# ------------------------------------------------------------
 if "run" not in st.session_state:
     st.session_state.run = False
 
-# ------------------------------------------------------------
-# TRADE JOURNAL (PERSISTANT)
-# ------------------------------------------------------------
 if "trades" not in st.session_state:
-    st.session_state.trades = []  # list of dicts
+    st.session_state.trades = []
 
 def save_trades_json():
     with open("trades_log.json", "w") as f:
@@ -57,9 +42,6 @@ def save_trades_csv():
         for t in st.session_state.trades:
             f.write(",".join(str(x) for x in t.values()) + "\n")
 
-# ------------------------------------------------------------
-# JSON CONFIG (BOTS)
-# ------------------------------------------------------------
 def save_config(bots):
     try:
         with open("backup_config.json", "w") as bkp:
@@ -82,15 +64,11 @@ def load_config():
         try:
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
-
             if not isinstance(data, dict) or len(data) == 0:
                 raise ValueError("Config vide/corrompue")
-
             return {int(k): v for k, v in data.items()}
-
         except:
             st.warning("⚠️ Config corrompue → restauration backup…")
-
             if os.path.exists("backup_config.json"):
                 try:
                     with open("backup_config.json", "r") as f:
@@ -103,12 +81,8 @@ def load_config():
             else:
                 st.error("❌ Aucun backup trouvé")
                 return None
-    
     return None
 
-# ------------------------------------------------------------
-# RESET BOT
-# ------------------------------------------------------------
 def reset_bot(i):
     st.session_state.bots[i] = {
         "actif": False,
@@ -124,9 +98,6 @@ def reset_bot(i):
     save_config(st.session_state.bots)
     log(f"Bot #{i} réinitialisé")
 
-# ------------------------------------------------------------
-# INIT BOTS FROM CONFIG
-# ------------------------------------------------------------
 if "bots" not in st.session_state:
     cfg = load_config()
     if cfg:
@@ -144,13 +115,15 @@ if "bots" not in st.session_state:
                 "gain_cumule": 0.0,
                 "order_id": None
             }
-            for i in range(1, 51)
+            for i in range(1, 50+1)
         }
         save_config(st.session_state.bots)
 
-# ------------------------------------------------------------
-# KRAKEN INIT
-# ------------------------------------------------------------
+# Correction auto : ajouter order_id si absent
+for bot in st.session_state.bots.values():
+    if "order_id" not in bot:
+        bot["order_id"] = None
+
 @st.cache_resource
 def get_exchange():
     ex = ccxt.kraken({
@@ -210,7 +183,7 @@ def run_cycle():
         return
 
     # --------------------------------------------------------
-    # BOUCLE SUR TOUS LES BOTS
+    # BOUCLE SUR LES 50 BOTS
     # --------------------------------------------------------
     for i, bot in st.session_state.bots.items():
         if not bot["actif"]:
@@ -242,7 +215,11 @@ def run_cycle():
         # ======================================================
         if bot["etape"] == "ACHAT_EN_COURS":
             try:
-                order = exchange.fetch_order(bot["order_id"], symbol)
+                order_id = bot.get("order_id")
+                if not order_id:
+                    continue
+
+                order = exchange.fetch_order(order_id, symbol)
 
                 if order["status"] == "closed":
                     bot["qty"] = float(order["filled"])
@@ -250,7 +227,6 @@ def run_cycle():
 
                     log(f"[Bot {i}] ACHAT exécuté qty={bot['qty']}")
 
-                    # ajout au journal
                     entry = {
                         "time": time.strftime('%H:%M:%S'),
                         "bot": i,
@@ -292,7 +268,11 @@ def run_cycle():
         # ======================================================
         if bot["etape"] == "VENTE_EN_COURS":
             try:
-                order = exchange.fetch_order(bot["order_id"], symbol)
+                order_id = bot.get("order_id")
+                if not order_id:
+                    continue
+
+                order = exchange.fetch_order(order_id, symbol)
 
                 if order["status"] == "closed":
 
@@ -305,7 +285,6 @@ def run_cycle():
 
                     log(f"[Bot {i}] VENTE exécutée gain={gain}")
 
-                    # ajout au journal
                     entry = {
                         "time": time.strftime('%H:%M:%S'),
                         "bot": i,
@@ -324,7 +303,6 @@ def run_cycle():
             except Exception as e:
                 log(f"[Bot {i}] ERREUR suivi VENTE : {e}")
 
-# Lancer un cycle à chaque refresh
 run_cycle()
 # ------------------------------------------------------------
 # UI PRINCIPALE
@@ -354,7 +332,7 @@ with st.sidebar:
     st.button("🛑 Stop", on_click=lambda: st.session_state.__setitem__("run", False))
 
 # ------------------------------------------------------------
-# AFFICHAGE DES METRIQUES
+# METRIQUES
 # ------------------------------------------------------------
 price = st.session_state.get("price")
 usdc  = st.session_state.get("usdc")
@@ -362,7 +340,7 @@ xrp   = st.session_state.get("xrp")
 gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
+c1.metric("Prix XRP", f"{price:.4f}" if price else "…")
 c2.metric("USDC Total", f"{usdc:.4f}")
 c3.metric("XRP Total", f"{xrp:.4f}")
 c4.metric("Gain Total", f"{gain_total:.4f}")
@@ -373,7 +351,8 @@ st.divider()
 # TABLEAU DES BOTS
 # ------------------------------------------------------------
 cols = st.columns([0.4, 1.4, 1, 1, 0.8, 0.8, 1, 1])
-for col, txt in zip(cols, ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", "Action"]):
+labels = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", "Action"]
+for col, txt in zip(cols, labels):
     col.write(f"**{txt}**")
 
 for i, bot in st.session_state.bots.items():
@@ -387,15 +366,17 @@ for i, bot in st.session_state.bots.items():
         c[5].write(bot["cycles"])
         c[6].write(round(bot["gain_cumule"], 4))
 
-        # Bouton d’annulation d’ordre LIMIT actif
-        if bot["order_id"]:
+        # Sécurisé : get() pour éviter KeyError
+        order_id = bot.get("order_id")
+
+        if order_id:
             if c[7].button("❌ Annuler", key=f"cancel_{i}"):
                 try:
-                    exchange.cancel_order(bot["order_id"], symbol)
-                    log(f"[Bot {i}] Ordre annulé manuellement")
+                    exchange.cancel_order(order_id, symbol)
                     bot["order_id"] = None
                     bot["etape"] = "ATTENTE_ACHAT"
                     save_config(st.session_state.bots)
+                    log(f"[Bot {i}] Ordre annulé manuellement")
                 except Exception as e:
                     log(f"[Bot {i}] ERREUR annulation : {e}")
         else:
@@ -404,7 +385,7 @@ for i, bot in st.session_state.bots.items():
 st.divider()
 
 # ------------------------------------------------------------
-# TABLEAU DES ORDRES EN COURS
+# TABLEAU DES ORDRES LIMIT EN COURS
 # ------------------------------------------------------------
 st.subheader("📋 Ordres LIMIT en cours")
 
@@ -415,12 +396,16 @@ cols[2].write("Order ID")
 cols[3].write("Prix cible")
 
 for i, bot in st.session_state.bots.items():
-    if bot["order_id"]:
+    order_id = bot.get("order_id")
+    if order_id:
         c = st.columns([0.4, 1.2, 1.2, 1])
         c[0].write(i)
         c[1].write(bot["etape"])
-        c[2].write(bot["order_id"])
-        c[3].write(bot["p_achat"] if bot["etape"]=="ACHAT_EN_COURS" else bot["p_vente"])
+        c[2].write(order_id)
+        c[3].write(
+            bot["p_achat"] if bot["etape"] == "ACHAT_EN_COURS"
+            else bot["p_vente"]
+        )
 
 st.divider()
 
@@ -429,10 +414,10 @@ st.divider()
 # ------------------------------------------------------------
 st.subheader("📘 Journal des trades exécutés")
 
-for t in st.session_state.trades[-40:]:
+for t in st.session_state.trades[-50:]:
     st.write(
-        f"{t['time']} | Bot {t['bot']} | {t['type']} | qty={t['qty']} | "
-        f"price={t['price']} | gain={t['gain']}"
+        f"{t['time']} | Bot {t['bot']} | {t['type']} | "
+        f"qty={t['qty']} | price={t['price']} | gain={t['gain']}"
     )
 
 st.divider()
@@ -440,6 +425,7 @@ st.divider()
 # ------------------------------------------------------------
 # LOGS EN DIRECT
 # ------------------------------------------------------------
-st.subheader("📝 LOGS EN DIRECT")
-for line in st.session_state.logs[-50:]:
+st.subheader("📝 Logs en direct")
+
+for line in st.session_state.logs[-60:]:
     st.write(line)
