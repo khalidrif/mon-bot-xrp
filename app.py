@@ -14,7 +14,7 @@ DB_FILE = "config_bots_xrp_async.json"
 symbol = "XRP/USDC"
 
 # ------------------------------------------------------------
-# SAUVEGARDE / CHARGEMENT JSON
+# SAUVEGARDE / CHARGEMENT CONFIG
 # ------------------------------------------------------------
 def save_config(bots):
     with open(DB_FILE, "w") as f:
@@ -31,7 +31,7 @@ def load_config():
     return None
 
 # ------------------------------------------------------------
-# INITIALISATION DES BOTS (50)
+# INIT DES BOTS (50)
 # ------------------------------------------------------------
 if "bots" not in st.session_state:
     saved = load_config()
@@ -78,7 +78,7 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# TICKER LOOP (ASYNCHRONE) — 1 requête par seconde
+# LOOP TICKER ASYNC
 # ------------------------------------------------------------
 async def fetch_price_loop():
     while True:
@@ -87,14 +87,12 @@ async def fetch_price_loop():
             st.session_state.ticker_price = ticker["last"]
         except:
             st.session_state.ticker_price = None
-
         await asyncio.sleep(1)
 
 # ------------------------------------------------------------
-# BOUCLE DE TRADING ASYNC PAR BOT
+# LOOP BOT ASYNC
 # ------------------------------------------------------------
 async def bot_loop(bot_id):
-
     while True:
         bot = st.session_state.bots[bot_id]
 
@@ -109,13 +107,13 @@ async def bot_loop(bot_id):
 
         now = time.time()
 
-        # anti double ordre
+        # anti-double ordre
         if now - bot["last_trigger"] < 1:
             await asyncio.sleep(0.05)
             continue
 
         # -------------------------------------------------
-        # ACHAT
+        #  ACHAT
         # -------------------------------------------------
         if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
 
@@ -123,7 +121,6 @@ async def bot_loop(bot_id):
             usdc = bal["free"].get("USDC", 0)
 
             if usdc >= bot["mise"]:
-
                 mise_securisee = bot["mise"] * 0.985
                 qty = float(exchange.amount_to_precision(symbol, mise_securisee / price))
 
@@ -139,7 +136,7 @@ async def bot_loop(bot_id):
                     pass
 
         # -------------------------------------------------
-        # VENTE
+        #  VENTE
         # -------------------------------------------------
         if bot["actif"] and bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
 
@@ -166,7 +163,7 @@ async def bot_loop(bot_id):
         await asyncio.sleep(0.05)
 
 # ------------------------------------------------------------
-# LANCEUR GLOBAL ASYNC (1 ticker + 50 bots)
+# LANCEUR ASYNC COMPATIBLE STREAMLIT
 # ------------------------------------------------------------
 async def main_async():
     await asyncio.gather(
@@ -176,15 +173,18 @@ async def main_async():
 
 if not st.session_state.async_started:
     st.session_state.async_started = True
-    asyncio.get_event_loop().create_task(main_async())
+
+    # IMPORTANT : création loop compatible Streamlit
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.create_task(main_async())
 
 # ------------------------------------------------------------
 # INTERFACE STREAMLIT
 # ------------------------------------------------------------
-
 st.title("🚀 XRP Sniper Pro 50 — Version Async")
 
-# --- SIDEBAR CONFIG ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration Bot")
 
@@ -232,12 +232,12 @@ st.divider()
 
 # ------------------------------------------------------------
 # TABLEAU DES BOTS
-# -----------------------------------------------------------
+# ------------------------------------------------------------
 cols = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1])
-
 headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
-for i, text in enumerate(headers):
-    cols[i].write(f"**{text}**")
+
+for i, h in enumerate(headers):
+    cols[i].write(f"**{h}**")
 
 for i, bot in st.session_state.bots.items():
 
@@ -251,4 +251,3 @@ for i, bot in st.session_state.bots.items():
         c[4].write(f"{bot['mise']}$")
         c[5].write(bot["cycles"])
         c[6].write(f"{bot['gain_cumule']:.4f}$")
-
