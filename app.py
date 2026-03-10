@@ -11,7 +11,9 @@ st.set_page_config(page_title="XRP Sniper Pro ", layout="wide")
 DB_FILE = "config_bots_xrp_secure.json"
 symbol = "XRP/USDC"
 
-# LOGS POUR DEBUG
+# ------------------------------------------------------------
+# LOGS
+# ------------------------------------------------------------
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
@@ -19,7 +21,7 @@ def log(msg):
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
 # ------------------------------------------------------------
-# AUTO-REFRESH STREAMLIT CLOUD SAFE (NO ERROR, NO FLICKER)
+# AUTO-REFRESH
 # ------------------------------------------------------------
 def auto_refresh():
     st.markdown("""
@@ -34,7 +36,13 @@ def auto_refresh():
 auto_refresh()
 
 # ------------------------------------------------------------
-# JSON CONFIG AVEC BACKUP & PROTECTION
+# PERSISTENCE DU RUN
+# ------------------------------------------------------------
+if "run" not in st.session_state:
+    st.session_state.run = False    # NE SE RÉINITIALISE PLUS
+
+# ------------------------------------------------------------
+# JSON CONFIG
 # ------------------------------------------------------------
 def save_config(bots):
     try:
@@ -76,6 +84,7 @@ def load_config():
                 except:
                     st.error("❌ Backup illisible")
                     return None
+
             else:
                 st.error("❌ Aucun backup trouvé")
                 return None
@@ -122,9 +131,6 @@ if "bots" not in st.session_state:
         }
         save_config(st.session_state.bots)
 
-if "run" not in st.session_state:
-    st.session_state.run = False
-
 # ------------------------------------------------------------
 # KRAKEN
 # ------------------------------------------------------------
@@ -141,7 +147,7 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# RUN 1 CYCLE (TRADE)
+# RUN 1 CYCLE
 # ------------------------------------------------------------
 def run_cycle():
 
@@ -171,7 +177,6 @@ def run_cycle():
         log("Bots arrêtés")
         return
 
-    # Boucle des 50 bots
     for i, bot in st.session_state.bots.items():
         if not bot["actif"]:
             continue
@@ -240,8 +245,8 @@ with st.sidebar:
         reset_bot(id_bot)
 
     st.divider()
-    st.button("🚀 Démarrer", on_click=lambda: st.session_state.update(run=True))
-    st.button("🛑 Stop", on_click=lambda: st.session_state.update(run=False))
+    st.button("🚀 Démarrer", on_click=lambda: st.session_state.__setitem__("run", True))
+    st.button("🛑 Stop", on_click=lambda: st.session_state.__setitem__("run", False))
 
 price = st.session_state.get("price")
 usdc  = st.session_state.get("usdc")
@@ -276,6 +281,3 @@ for i, bot in st.session_state.bots.items():
 st.subheader("📝 LOGS EN DIRECT")
 for line in st.session_state.logs[-40:]:
     st.write(line)
-
-
-
