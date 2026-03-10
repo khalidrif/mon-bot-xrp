@@ -12,10 +12,10 @@ DB_FILE = "config_bots_xrp_stable.json"
 symbol = "XRP/USDC"
 
 # ------------------------------------------------------------
-# AUTO REFRESH CLOUD-SAFE (NO BLINK, NO ERROR)
+# AUTO-REFRESH 100% STREAMLIT CLOUD SAFE
 # ------------------------------------------------------------
 def auto_refresh():
-    refresh_rate = 2000  # 2 secondes
+    refresh_rate = 2000  # 2 sec
     st.markdown(f"""
         <script>
             setTimeout(function() {{
@@ -46,6 +46,22 @@ def load_config():
     return None
 
 # ------------------------------------------------------------
+# RESET BOT (SUPPRESSION)
+# ------------------------------------------------------------
+def reset_bot(i):
+    st.session_state.bots[i] = {
+        "actif": False,
+        "p_achat": 1.35,
+        "p_vente": 1.38,
+        "mise": 15.0,
+        "etape": "ATTENTE_ACHAT",
+        "qty": 0.0,
+        "cycles": 0,
+        "gain_cumule": 0.0,
+    }
+    save_config(st.session_state.bots)
+
+# ------------------------------------------------------------
 # INIT BOTS
 # ------------------------------------------------------------
 if "bots" not in st.session_state:
@@ -70,7 +86,7 @@ if "run" not in st.session_state:
     st.session_state.run = False
 
 # ------------------------------------------------------------
-# CONNEXION KRAKEN
+# KRAKEN
 # ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
@@ -85,7 +101,7 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# RUN 1 CYCLE TRADING
+# EXECUTION D’UN CYCLE
 # ------------------------------------------------------------
 def run_cycle():
     try:
@@ -138,15 +154,13 @@ def run_cycle():
                 except:
                     pass
 
-# ------------------------------------------------------------
-# Exécuter un cycle AVANT l'UI
-# ------------------------------------------------------------
+# Run cycle
 run_cycle()
 
 # ------------------------------------------------------------
 # UI
 # ------------------------------------------------------------
-st.title("🚀 XRP Sniper Pro 50 — Version stable (sans clignotement, 100% Cloud)")
+st.title("🚀 XRP Sniper Pro 50 — Version stable (sans clignotement)")
 
 # Sidebar
 with st.sidebar:
@@ -163,6 +177,10 @@ with st.sidebar:
     if st.button("💾 Sauvegarder"):
         save_config(st.session_state.bots)
         st.toast("Sauvegardé ✔")
+
+    if st.button("🗑 Supprimer ce bot"):
+        reset_bot(id_bot)
+        st.toast(f"Bot #{id_bot} supprimé")
 
     st.divider()
 
@@ -185,13 +203,15 @@ c3.metric("Gain Total", f"{gain_total:.4f}")
 st.divider()
 
 # Tableau bots
-cols = st.columns([0.5, 1.5, 1, 1, 0.8, 0.8, 1])
-for col, txt in zip(cols, ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]):
+cols = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
+headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", ""]
+
+for col, txt in zip(cols, headers):
     col.write(f"**{txt}**")
 
 for i, bot in st.session_state.bots.items():
     if bot["actif"]:
-        c = st.columns([0.5, 1.5, 1, 1, 0.8, 0.8, 1])
+        c = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
         c[0].write(str(i))
         c[1].write("⏳ Achat" if bot["etape"] == "ATTENTE_ACHAT" else "💰 Vente")
         c[2].write(bot["p_achat"])
@@ -199,3 +219,7 @@ for i, bot in st.session_state.bots.items():
         c[4].write(bot["mise"])
         c[5].write(bot["cycles"])
         c[6].write(round(bot["gain_cumule"], 4))
+
+        if c[7].button("🗑", key=f"delete_{i}"):
+            reset_bot(i)
+            st.toast(f"Bot #{i} supprimé")
