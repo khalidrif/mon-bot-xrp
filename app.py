@@ -219,7 +219,7 @@ run_cycle()
 # ------------------------------------------------------------
 # UI
 # ------------------------------------------------------------
-st.title("🚀 XRP Sniper Pro — Version SECURE + BACKUP + DEBUG")
+st.title("🚀 XRP")
 
 with st.sidebar:
     st.header("⚙️ CONFIGURATION BOT")
@@ -276,5 +276,6 @@ for i, bot in st.session_state.bots.items():
 st.subheader("📝 LOGS EN DIRECT")
 for line in st.session_state.logs[-40:]:
     st.write(line)
+
 
 
