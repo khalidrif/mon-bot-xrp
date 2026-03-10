@@ -8,10 +8,7 @@ import os
 st.set_page_config(page_title="XRP Sniper Pro 50", layout="wide")
 DB_FILE = "config_bots_xrp_final.json"
 
-# --- TITRE PRINCIPAL (Ce que tu as demandé) ---
-st.title("🎯 XRP Sniper Pro 50")
-
-# --- FONCTIONS DE SAUVEGARDE ---
+# --- FONCTIONS DE SAUVEGARDE (IMMORTALITÉ) ---
 def save_config(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f)
@@ -71,6 +68,8 @@ with st.sidebar:
     if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False
 
 # --- DASHBOARD CENTRAL ---
+st.title("🎯 XRP Sniper Pro 50")
+
 try:
     ticker = exchange.fetch_ticker(symbol)
     price = ticker['last']
@@ -87,11 +86,14 @@ try:
 
     st.divider()
 
-    # --- TABLEAU DES BOTS ---
-    cols_size = [0.4, 1, 0.8, 0.8, 0.6, 0.5, 0.8, 0.6]
+    # --- TABLEAU DES BOTS (CORRECTIF ICI) ---
+    cols_size = [0.5, 1.2, 1, 1, 0.8, 0.6, 1, 0.8]
     h = st.columns(cols_size)
     headers = ["N°", "État", "Achat", "Vente", "Mise", "Cyc.", "Gain Net", "Act."]
-    for col, text in zip(h, headers): col.write(f"**{text}**")
+    
+    # On écrit chaque titre dans sa colonne respective
+    for col, text in zip(h, headers):
+        col.write(f"**{text}**")
 
     for i, bot in st.session_state.bots.items():
         if bot["actif"]:
@@ -110,13 +112,15 @@ try:
                 c.write(f"{bot.get('cycles', 0)}")
                 c.write(f"**{bot.get('gain_cumule', 0.0):.3f}$**")
                 
-                if c.button("🗑️", key=f"del_{i}"):
+                # Bouton de suppression sur la ligne
+                if c[7].button("🗑️", key=f"del_{i}"):
                     st.session_state.bots[i] = {"p_achat": 1.35, "p_vente": 1.38, "mise": 10.0, "etape": "ATTENTE_ACHAT", "actif": False, "cycles": 0, "gain_cumule": 0.0}
                     save_config(st.session_state.bots)
                     st.rerun()
 
-                # --- LOGIQUE ---
+                # --- LOGIQUE DE TRADING ---
                 if st.session_state.run:
+                    # 1. ACHAT AU MARCHÉ
                     if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
                         if usdc_bal >= bot["mise"]:
                             q = float(exchange.amount_to_precision(symbol, bot["mise"] / price))
@@ -124,10 +128,12 @@ try:
                             bot["etape"] = "ATTENTE_VENTE"
                             save_config(st.session_state.bots)
                             st.rerun()
+                    # 2. VENTE AU MARCHÉ
                     elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
                         if xrp_bal_total > 1:
                             q_v = float(exchange.amount_to_precision(symbol, (bot["mise"] / bot["p_achat"]) * 0.99))
                             exchange.create_market_sell_order(symbol, q_v)
+                            # Calcul Gain (Frais 0.6% estimés)
                             gain_net = ((bot["p_vente"] - bot["p_achat"]) * (bot["mise"] / bot["p_achat"])) - (bot["mise"] * 0.006)
                             bot["etape"] = "ATTENTE_ACHAT"
                             bot["cycles"] = bot.get("cycles", 0) + 1
