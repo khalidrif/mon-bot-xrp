@@ -97,36 +97,188 @@ def get_exchange():
         "enableRateLimit":True})
     ex.load_markets(); return ex
 exchange=get_exchange()
-            if order["status"]=="closed":
-                bot["qty"]=float(order["filled"]); bot["etape"]="ATTENTE_VENTE"
-                log(f"[Bot {i}] ACHAT exécuté qty={bot['qty']}")
-                st.session_state.trades.append({"time":time.strftime("%H:%M:%S"),"bot":i,"type":"BUY","qty":bot["qty"],"price":bot["p_achat"],"gain":""})
-                st.session_state.trade_count+=1
-                save_trades_json(); save_trades_csv(); play_sound(); save_config(st.session_state.bots)
-        except Exception as e: log(f"[Bot {i}] ERREUR ACHAT : {e}")
+# ------------------------------------------------------------
+# SON "ding" pour les trades
+# ------------------------------------------------------------
+def play_sound():
+    st.markdown("""
+        <audio autoplay>
+            <source src="https://www.soundjay.com/buttons/sounds/button-3.mp3" type="audio/mpeg">
+        </audio>
+    """, unsafe_allow_html=True)
 
-    if bot["etape"]=="ATTENTE_VENTE" and bot["qty"]>0 and price and price>=bot["p_vente"]:
-        try:
-            qty_sell=float(exchange.amount_to_precision(symbol,bot["qty"]*0.99))
-            order=exchange.create_limit_sell_order(symbol,qty_sell,bot["p_vente"])
-            bot["order_id"]=order["id"]; bot["etape"]="VENTE_EN_COURS"
-            log(f"[Bot {i}] LIMIT SELL placé {bot['p_vente']} qty={qty_sell}"); save_config(st.session_state.bots)
-        except Exception as e: log(f"[Bot {i}] ERREUR SELL : {e}")
 
-    if bot["etape"]=="VENTE_EN_COURS":
-        try:
-            oid=bot.get("order_id")
-            if not oid: continue
-            order=exchange.fetch_order(oid,symbol)
-            if order["status"]=="closed":
-                gain=(bot["p_vente"]-bot["p_achat"])*bot["qty"]
-                bot["cycles"]+=1; bot["gain_cumule"]+=gain; bot["mise"]+=gain
-                bot["qty"]=0; bot["etape"]="ATTENTE_ACHAT"
-                log(f"[Bot {i}] VENTE exécutée gain={gain} | nouvelle mise={bot['mise']}")
-                st.session_state.trades.append({"time":time.strftime("%H:%M:%S"),"bot":i,"type":"SELL","qty":"","price":bot["p_vente"],"gain":round(gain,6)})
-                st.session_state.trade_count+=1
-                save_trades_json(); save_trades_csv(); play_sound(); save_config(st.session_state.bots)
-        except Exception as e: log(f"[Bot {i}] ERREUR VENTE : {e}")
+# ------------------------------------------------------------
+# FONCTION PRINCIPALE : RUN CYCLE
+# ------------------------------------------------------------
+def run_cycle():
+
+    # ----- 1. Lecture du ticker -----
+    try:
+        ticker = exchange.fetch_ticker(symbol)
+        price = ticker["last"]
+        log(f"Prix reçu : {price}")
+    except Exception as e:
+        price = None
+        log(f"[ERREUR TICKER] {e}")
+
+    # ----- 2. Lecture du solde -----
+    try:
+        bal = exchange.fetch_balance()
+        usdc = bal["free"].get("USDC", 0)
+        xrp  = bal["free"].get("XRP", 0)
+        log(f"USDC={usdc} | XRP={xrp}")
+    except Exception as e:
+        usdc = 0
+        xrp = 0
+        log(f"[ERREUR BALANCE] {e}")
+
+    st.session_state.price = price
+    st.session_state.usdc = usdc
+    st.session_state.xrp = xrp
+
+    # ----- 3. Si bots arrêtés -----
+    if not st.session_state.run:
+        log("Bots arrêtés")
+        return
+
+    # ----- 4. Boucle sur tous les bots -----
+    for i, bot in st.session_state.bots.items():
+
+        if not bot["actif"]:
+            continue
+
+        log(f"[Bot {i}] État={bot['etape']} Achat={bot['p_achat']} Vente={bot['p_vente']}")
+
+        # ===== AUTO-CORRECT : Annule l'ordre si le prix ciblé a changé =====
+        order_id = bot.get("order_id")
+        if order_id:
+            try:
+                order = exchange.fetch_order(order_id, symbol)
+                if bot["etape"] == "ACHAT_EN_COURS" and float(order["price"]) != float(bot["p_achat"]):
+                    exchange.cancel_order(order_id, symbol)
+                    bot["order_id"] = None
+                    bot["etape"] = "ATTENTE_ACHAT"
+                    log(f"[Bot {i}] Auto-correct BUY annulé")
+                    save_config(st.session_state.bots)
+                    continue
+
+                if bot["etape"] == "VENTE_EN_COURS" and float(order["price"]) != float(bot["p_vente"]):
+                    exchange.cancel_order(order_id, symbol)
+                    bot["order_id"] = None
+                    bot["etape"] = "ATTENTE_VENTE"
+                    log(f"[Bot {i}] Auto-correct SELL annulé")
+                    save_config(st.session_state.bots)
+                    continue
+
+            except Exception as e:
+                log(f"[Bot {i}] ERREUR AUTO-CORRECT : {e}")
+
+        # ===== ACHAT LIMIT =====
+        if bot["etape"] == "ATTENTE_ACHAT" and price and price <= bot["p_achat"] and usdc >= bot["mise"]:
+            try:
+                mise_net = bot["mise"] * 0.985
+                qty = float(exchange.amount_to_precision(symbol, mise_net / price))
+                order = exchange.create_limit_buy_order(symbol, qty, bot["p_achat"])
+                bot["order_id"] = order["id"]
+                bot["etape"] = "ACHAT_EN_COURS"
+                log(f"[Bot {i}] LIMIT BUY placé à {bot['p_achat']} qty={qty}")
+                save_config(st.session_state.bots)
+
+            except Exception as e:
+                log(f"[Bot {i}] ERREUR LIMIT BUY : {e}")
+
+        # ===== SUIVI D'ACHAT =====
+        if bot["etape"] == "ACHAT_EN_COURS":
+            try:
+                oid = bot.get("order_id")
+                if not oid:
+                    continue
+                order = exchange.fetch_order(oid, symbol)
+
+                if order["status"] == "closed":
+                    bot["qty"] = float(order["filled"])
+                    bot["etape"] = "ATTENTE_VENTE"
+                    log(f"[Bot {i}] ACHAT exécuté qty={bot['qty']}")
+
+                    # Journal de trade
+                    st.session_state.trades.append({
+                        "time": time.strftime("%H:%M:%S"),
+                        "bot": i,
+                        "type": "BUY",
+                        "qty": bot["qty"],
+                        "price": bot["p_achat"],
+                        "gain": ""
+                    })
+                    st.session_state.trade_count += 1
+
+                    save_trades_json()
+                    save_trades_csv()
+                    play_sound()
+                    save_config(st.session_state.bots)
+
+            except Exception as e:
+                log(f"[Bot {i}] ERREUR SUIVI ACHAT : {e}")
+
+        # ===== VENTE LIMIT =====
+        if bot["etape"] == "ATTENTE_VENTE" and bot["qty"] > 0 and price and price >= bot["p_vente"]:
+            try:
+                qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.99))
+                order = exchange.create_limit_sell_order(symbol, qty_sell, bot["p_vente"])
+                bot["order_id"] = order["id"]
+                bot["etape"] = "VENTE_EN_COURS"
+                log(f"[Bot {i}] LIMIT SELL placé à {bot['p_vente']} qty={qty_sell}")
+                save_config(st.session_state.bots)
+
+            except Exception as e:
+                log(f"[Bot {i}] ERREUR LIMIT SELL : {e}")
+
+        # ===== SUIVI DE VENTE =====
+        if bot["etape"] == "VENTE_EN_COURS":
+            try:
+                oid = bot.get("order_id")
+                if not oid:
+                    continue
+                order = exchange.fetch_order(oid, symbol)
+
+                if order["status"] == "closed":
+                    gain = (bot["p_vente"] - bot["p_achat"]) * bot["qty"]
+
+                    bot["cycles"] += 1
+                    bot["gain_cumule"] += gain
+                    bot["mise"] += gain   # effet boule de neige
+
+                    bot["qty"] = 0
+                    bot["etape"] = "ATTENTE_ACHAT"
+
+                    log(f"[Bot {i}] VENTE exécutée gain={gain} | nouvelle mise={bot['mise']}")
+
+                    # Journal de trade
+                    st.session_state.trades.append({
+                        "time": time.strftime("%H:%M:%S"),
+                        "bot": i,
+                        "type": "SELL",
+                        "qty": "",
+                        "price": bot["p_vente"],
+                        "gain": round(gain, 6)
+                    })
+                    st.session_state.trade_count += 1
+
+                    save_trades_json()
+                    save_trades_csv()
+                    play_sound()
+                    save_config(st.session_state.bots)
+
+            except Exception as e:
+                log(f"[Bot {i}] ERREUR SUIVI VENTE : {e}")
+
+    # Fin de la boucle des bots
+
+
+# Lance un cycle à chaque refresh
+run_cycle()
+
+st.write("✅ Bloc 2 chargé – logique du bot OK")
 
 ---
 
@@ -230,4 +382,3 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
-
