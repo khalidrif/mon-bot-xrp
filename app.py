@@ -3,7 +3,6 @@ import ccxt
 import json
 import os
 import time
-from streamlit_autorefresh import st_autorefresh
 
 # ------------------------------------------------------------
 # CONFIG
@@ -11,6 +10,15 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="XRP Sniper Pro Stable", layout="wide")
 DB_FILE = "config_bots_xrp_stable.json"
 symbol = "XRP/USDC"
+
+# AUTO-REFRESH INTERNE
+if "last_refresh" not in st.session_state:
+    st.session_state.last_refresh = time.time()
+
+# si 2 secondes sont passées → refresh propre
+if time.time() - st.session_state.last_refresh > 2:
+    st.session_state.last_refresh = time.time()
+    st.experimental_rerun()
 
 # ------------------------------------------------------------
 # JSON CONFIG
@@ -84,8 +92,8 @@ def run_cycle():
     except:
         usdc = 0
 
-    st.session_state["last_price"] = price
-    st.session_state["usdc"] = usdc
+    st.session_state.last_price = price
+    st.session_state.usdc = usdc
 
     if not st.session_state.run:
         return
@@ -122,11 +130,13 @@ def run_cycle():
                 except:
                     pass
 
-# Lancer un cycle
+# ------------------------------------------------------------
+# Exécuter un cycle AVANT l'UI
+# ------------------------------------------------------------
 run_cycle()
 
 # ------------------------------------------------------------
-# INTERFACE
+# UI
 # ------------------------------------------------------------
 st.title("🚀 XRP Sniper Pro 50 — Version Stable (sans clignotement)")
 
@@ -154,7 +164,7 @@ with st.sidebar:
     if st.button("🛑 Stop"):
         st.session_state.run = False
 
-# Top metrics
+# Metrics haut
 price = st.session_state.get("last_price")
 usdc = st.session_state.get("usdc", 0)
 gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
@@ -181,8 +191,3 @@ for i, bot in st.session_state.bots.items():
         c[4].write(bot["mise"])
         c[5].write(bot["cycles"])
         c[6].write(round(bot["gain_cumule"], 4))
-
-# ------------------------------------------------------------
-# AUTO REFRESH FLUIDE (sans clignotement)
-# ------------------------------------------------------------
-st_autorefresh(interval=2000, key="refresh_stable")
