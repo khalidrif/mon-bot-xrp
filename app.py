@@ -222,7 +222,7 @@ st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
 ## 🟪 BLOC 3 / 3 – INTERFACE COMPLÈTE + CHRONO PERSISTANT
-```python
+python
 st.title("🚀 XRP Sniper Pro – Auto‑Correct + Boule de Neige + %")
 # ---- EN‑TÊTE COMPACT ----
 gain_total=sum(b["gain_cumule"] for b in st.session_state.bots.values())
@@ -311,3 +311,4 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
