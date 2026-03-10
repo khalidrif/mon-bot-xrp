@@ -193,7 +193,7 @@ def run_cycle():
         log(f"[Bot {i}] État={bot['etape']} Achat={bot['p_achat']} Vente={bot['p_vente']}")
 
         # ======================================================
-        # AUTO-CORRECT : annuler un ordre si le prix cible a changé
+        # AUTO-CORRECT : annuler un ordre si le prix cible change
         # ======================================================
         order_id = bot.get("order_id")
         if order_id:
@@ -206,7 +206,7 @@ def run_cycle():
                         exchange.cancel_order(order_id, symbol)
                         bot["order_id"] = None
                         bot["etape"] = "ATTENTE_ACHAT"
-                        log(f"[Bot {i}] Auto-correct : BUY annulé (nouveau prix={bot['p_achat']})")
+                        log(f"[Bot {i}] Auto-correct BUY : prix modifié → ordre annulé")
                         save_config(st.session_state.bots)
                         continue
 
@@ -216,7 +216,7 @@ def run_cycle():
                         exchange.cancel_order(order_id, symbol)
                         bot["order_id"] = None
                         bot["etape"] = "ATTENTE_VENTE"
-                        log(f"[Bot {i}] Auto-correct : SELL annulé (nouveau prix={bot['p_vente']})")
+                        log(f"[Bot {i}] Auto-correct SELL : prix modifié → ordre annulé")
                         save_config(st.session_state.bots)
                         continue
 
@@ -259,6 +259,7 @@ def run_cycle():
 
                     log(f"[Bot {i}] ACHAT exécuté qty={bot['qty']}")
 
+                    # journal
                     entry = {
                         "time": time.strftime('%H:%M:%S'),
                         "bot": i,
@@ -271,7 +272,6 @@ def run_cycle():
                     save_trades_json()
                     save_trades_csv()
                     play_sound()
-
                     save_config(st.session_state.bots)
 
             except Exception as e:
@@ -296,7 +296,7 @@ def run_cycle():
                     log(f"[Bot {i}] ERREUR LIMIT SELL : {e}")
 
         # ======================================================
-        # 4) SUIVI LIMIT SELL
+        # 4) SUIVI LIMIT SELL (BOULE DE NEIGE ICI 👇)
         # ======================================================
         if bot["etape"] == "VENTE_EN_COURS":
             try:
@@ -312,11 +312,16 @@ def run_cycle():
 
                     bot["cycles"] += 1
                     bot["gain_cumule"] += gain
+
+                    # 🔥 EFFET BOULE DE NEIGE : la mise augmente
+                    bot["mise"] += gain
+
                     bot["qty"] = 0
                     bot["etape"] = "ATTENTE_ACHAT"
 
-                    log(f"[Bot {i}] VENTE exécutée gain={gain}")
+                    log(f"[Bot {i}] VENTE exécutée gain={gain} | Nouvelle mise={bot['mise']}")
 
+                    # journal
                     entry = {
                         "time": time.strftime('%H:%M:%S'),
                         "bot": i,
@@ -339,7 +344,7 @@ run_cycle()
 # ------------------------------------------------------------
 # UI PRINCIPALE
 # ------------------------------------------------------------
-st.title("🚀 XRP Sniper Pro – Version LIMIT + Auto-Correct")
+st.title("🚀 XRP Sniper Pro – Version LIMIT + Auto-Correct + Boule de neige")
 
 with st.sidebar:
     st.header("⚙️ CONFIGURATION BOT")
@@ -351,7 +356,7 @@ with st.sidebar:
     bot["actif"] = st.toggle("Activer", bot["actif"])
     bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
     bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f")
-    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"])
+    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"], format="%.4f")
 
     # Sauvegarde
     if st.button("💾 Sauvegarder"):
@@ -386,29 +391,29 @@ st.divider()
 # TABLEAU DES BOTS
 # ------------------------------------------------------------
 labels = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", "Action"]
-cols = st.columns([0.4, 1.4, 1, 1, 0.8, 0.8, 1, 1])
+cols = st.columns([0.4, 1.4, 1, 1, 1, 0.8, 1, 1])
 for col, txt in zip(cols, labels):
     col.write(f"**{txt}**")
 
 for i, bot in st.session_state.bots.items():
     if bot["actif"]:
-        c = st.columns([0.4, 1.4, 1, 1, 0.8, 0.8, 1, 1])
+        c = st.columns([0.4, 1.4, 1, 1, 1, 0.8, 1, 1])
         c[0].write(i)
         c[1].write(bot["etape"])
         c[2].write(bot["p_achat"])
         c[3].write(bot["p_vente"])
-        c[4].write(bot["mise"])
+        c[4].write(round(bot["mise"], 4))
         c[5].write(bot["cycles"])
         c[6].write(round(bot["gain_cumule"], 4))
 
         # Annulation d'ordre LIMIT
         order_id = bot.get("order_id")
         if order_id:
-            if c[7].button("❌ Annuler", key=f"cancel_{i}"):
+            if c[7].button("❌", key=f"cancel_{i}"):
                 try:
                     exchange.cancel_order(order_id, symbol)
                     bot["order_id"] = None
-                    # Etat correct après annulation
+                    # si qty = 0 → retour ACHAT, sinon retour VENTE
                     bot["etape"] = "ATTENTE_VENTE" if bot["qty"] > 0 else "ATTENTE_ACHAT"
                     save_config(st.session_state.bots)
                     log(f"[Bot {i}] Ordre annulé manuellement")
@@ -458,5 +463,5 @@ st.divider()
 # LOGS EN DIRECT
 # ------------------------------------------------------------
 st.subheader("📝 Logs en direct")
-for line in st.session_state.logs[-60:]:
+for line in st.session_state.logs[-80:]:
     st.write(line)
