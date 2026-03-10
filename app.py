@@ -29,6 +29,7 @@ auto_refresh()
 if "run" not in st.session_state:
     st.session_state.run = False
 
+# JOURNAL DES TRADES
 if "trades" not in st.session_state:
     st.session_state.trades = []
 
@@ -115,11 +116,11 @@ if "bots" not in st.session_state:
                 "gain_cumule": 0.0,
                 "order_id": None
             }
-            for i in range(1, 50+1)
+            for i in range(1, 51)
         }
         save_config(st.session_state.bots)
 
-# Correction auto : ajouter order_id si absent
+# Correction auto order_id manquant
 for bot in st.session_state.bots.values():
     if "order_id" not in bot:
         bot["order_id"] = None
@@ -183,13 +184,44 @@ def run_cycle():
         return
 
     # --------------------------------------------------------
-    # BOUCLE SUR LES 50 BOTS
+    # BOUCLE SUR LES BOTS
     # --------------------------------------------------------
     for i, bot in st.session_state.bots.items():
         if not bot["actif"]:
             continue
 
         log(f"[Bot {i}] État={bot['etape']} Achat={bot['p_achat']} Vente={bot['p_vente']}")
+
+        # ======================================================
+        # AUTO-CORRECT : annuler un ordre si le prix cible a changé
+        # ======================================================
+        order_id = bot.get("order_id")
+        if order_id:
+            try:
+                order = exchange.fetch_order(order_id, symbol)
+
+                # BUY → prix modifié
+                if bot["etape"] == "ACHAT_EN_COURS":
+                    if float(order["price"]) != float(bot["p_achat"]):
+                        exchange.cancel_order(order_id, symbol)
+                        bot["order_id"] = None
+                        bot["etape"] = "ATTENTE_ACHAT"
+                        log(f"[Bot {i}] Auto-correct : BUY annulé (nouveau prix={bot['p_achat']})")
+                        save_config(st.session_state.bots)
+                        continue
+
+                # SELL → prix modifié
+                if bot["etape"] == "VENTE_EN_COURS":
+                    if float(order["price"]) != float(bot["p_vente"]):
+                        exchange.cancel_order(order_id, symbol)
+                        bot["order_id"] = None
+                        bot["etape"] = "ATTENTE_VENTE"
+                        log(f"[Bot {i}] Auto-correct : SELL annulé (nouveau prix={bot['p_vente']})")
+                        save_config(st.session_state.bots)
+                        continue
+
+            except Exception as e:
+                log(f"[Bot {i}] AUTO-CORRECT erreur : {e}")
 
         # ======================================================
         # 1) LIMIT BUY
@@ -307,7 +339,7 @@ run_cycle()
 # ------------------------------------------------------------
 # UI PRINCIPALE
 # ------------------------------------------------------------
-st.title("🚀 XRP Sniper Pro – Version LIMIT")
+st.title("🚀 XRP Sniper Pro – Version LIMIT + Auto-Correct")
 
 with st.sidebar:
     st.header("⚙️ CONFIGURATION BOT")
@@ -315,16 +347,19 @@ with st.sidebar:
     id_bot = st.selectbox("Bot n°", range(1, 51))
     bot = st.session_state.bots[id_bot]
 
+    # Options du bot
     bot["actif"] = st.toggle("Activer", bot["actif"])
     bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
     bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f")
     bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"])
 
+    # Sauvegarde
     if st.button("💾 Sauvegarder"):
         save_config(st.session_state.bots)
         st.toast("Sauvegardé ✔")
 
-    if st.button("🗑 Supprimer / Reset ce bot"):
+    # Reset
+    if st.button("🗑 Reset bot"):
         reset_bot(id_bot)
 
     st.divider()
@@ -332,7 +367,7 @@ with st.sidebar:
     st.button("🛑 Stop", on_click=lambda: st.session_state.__setitem__("run", False))
 
 # ------------------------------------------------------------
-# METRIQUES
+# METRIQUES TOP
 # ------------------------------------------------------------
 price = st.session_state.get("price")
 usdc  = st.session_state.get("usdc")
@@ -350,8 +385,8 @@ st.divider()
 # ------------------------------------------------------------
 # TABLEAU DES BOTS
 # ------------------------------------------------------------
-cols = st.columns([0.4, 1.4, 1, 1, 0.8, 0.8, 1, 1])
 labels = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", "Action"]
+cols = st.columns([0.4, 1.4, 1, 1, 0.8, 0.8, 1, 1])
 for col, txt in zip(cols, labels):
     col.write(f"**{txt}**")
 
@@ -366,15 +401,15 @@ for i, bot in st.session_state.bots.items():
         c[5].write(bot["cycles"])
         c[6].write(round(bot["gain_cumule"], 4))
 
-        # Sécurisé : get() pour éviter KeyError
+        # Annulation d'ordre LIMIT
         order_id = bot.get("order_id")
-
         if order_id:
             if c[7].button("❌ Annuler", key=f"cancel_{i}"):
                 try:
                     exchange.cancel_order(order_id, symbol)
                     bot["order_id"] = None
-                    bot["etape"] = "ATTENTE_ACHAT"
+                    # Etat correct après annulation
+                    bot["etape"] = "ATTENTE_VENTE" if bot["qty"] > 0 else "ATTENTE_ACHAT"
                     save_config(st.session_state.bots)
                     log(f"[Bot {i}] Ordre annulé manuellement")
                 except Exception as e:
@@ -385,7 +420,7 @@ for i, bot in st.session_state.bots.items():
 st.divider()
 
 # ------------------------------------------------------------
-# TABLEAU DES ORDRES LIMIT EN COURS
+# ORDRES LIMIT EN COURS
 # ------------------------------------------------------------
 st.subheader("📋 Ordres LIMIT en cours")
 
@@ -402,10 +437,7 @@ for i, bot in st.session_state.bots.items():
         c[0].write(i)
         c[1].write(bot["etape"])
         c[2].write(order_id)
-        c[3].write(
-            bot["p_achat"] if bot["etape"] == "ACHAT_EN_COURS"
-            else bot["p_vente"]
-        )
+        c[3].write(bot["p_achat"] if bot["etape"] == "ACHAT_EN_COURS" else bot["p_vente"])
 
 st.divider()
 
@@ -416,8 +448,8 @@ st.subheader("📘 Journal des trades exécutés")
 
 for t in st.session_state.trades[-50:]:
     st.write(
-        f"{t['time']} | Bot {t['bot']} | {t['type']} | "
-        f"qty={t['qty']} | price={t['price']} | gain={t['gain']}"
+        f"{t['time']} | Bot {t['bot']} | {t['type']} "
+        f"| qty={t['qty']} | price={t['price']} | gain={t['gain']}"
     )
 
 st.divider()
@@ -426,6 +458,5 @@ st.divider()
 # LOGS EN DIRECT
 # ------------------------------------------------------------
 st.subheader("📝 Logs en direct")
-
 for line in st.session_state.logs[-60:]:
     st.write(line)
