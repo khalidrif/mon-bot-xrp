@@ -5,19 +5,11 @@ import os
 import time
 
 # ------------------------------------------------------------
-# CONFIGURATION
+# CONFIG
 # ------------------------------------------------------------
-st.set_page_config(page_title="XRP Sniper Pro 🚀", layout="wide")
+st.set_page_config(page_title="XRP Sniper Pro", layout="wide")
 DB_FILE = "config_bots_xrp_secure.json"
 symbol = "XRP/USDC"
-
-# Masquer le bouton refresh et styliser les métriques
-st.markdown("""
-    <style>
-    button[kind="secondary"] { display: none !important; }
-    .stMetric { background: #f0f2f6; padding: 10px; border-radius: 10px; }
-    </style>
-""", unsafe_allow_html=True)
 
 if "logs" not in st.session_state:
     st.session_state.logs = []
@@ -27,31 +19,29 @@ def log(msg):
     if len(st.session_state.logs) > 20: st.session_state.logs.pop(0)
 
 # ------------------------------------------------------------
-# AUTO-REFRESH (1 SECONDE)
+# AUTO-REFRESH (FIXÉ À 1 SECONDE)
 # ------------------------------------------------------------
 def auto_refresh():
     st.markdown("""
         <script>
             setTimeout(function() {
-                window.parent.document.querySelectorAll('button').forEach(function(btn) {
-                    if (btn.innerText === 'refresh_hidden') { btn.click(); }
-                });
+                document.getElementById('refresh_button').click();
             }, 1000);
         </script>
     """, unsafe_allow_html=True)
-    st.button("refresh_hidden", key="refresh_button")
+    st.button("refresh", key="refresh_button")
 
 auto_refresh()
 
 # ------------------------------------------------------------
-# GESTION CONFIG
+# JSON CONFIG
 # ------------------------------------------------------------
 def save_config(bots):
     try:
         with open(DB_FILE, "w") as f:
             json.dump(bots, f)
     except Exception as e:
-        st.error(f"Erreur sauvegarde: {e}")
+        st.error(f"❌ ERREUR SAUVEGARDE : {e}")
 
 def load_config():
     if os.path.exists(DB_FILE):
@@ -59,11 +49,19 @@ def load_config():
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
             return {int(k): v for k, v in data.items()}
-        except: return None
+        except:
+            return None
     return None
 
+def reset_bot(i):
+    st.session_state.bots[i] = {
+        "actif": False, "p_achat": 1.35, "p_vente": 1.38, "mise": 15.0,
+        "etape": "ATTENTE_ACHAT", "qty": 0.0, "cycles": 0, "gain_cumule": 0.0,
+    }
+    save_config(st.session_state.bots)
+
 # ------------------------------------------------------------
-# INITIALISATION
+# INIT BOTS
 # ------------------------------------------------------------
 if "bots" not in st.session_state:
     cfg = load_config()
@@ -79,6 +77,9 @@ if "bots" not in st.session_state:
 if "run" not in st.session_state:
     st.session_state.run = False
 
+# ------------------------------------------------------------
+# KRAKEN
+# ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
     return ccxt.kraken({
@@ -90,109 +91,89 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# LOGIQUE DE TRADING
+# LOGIQUE RUN
 # ------------------------------------------------------------
 def run_cycle():
     try:
         ticker = exchange.fetch_ticker(symbol)
         price = ticker["last"]
-        
-        # Delta pour l'affichage
-        old_p = st.session_state.get("price", price)
-        st.session_state.diff = price - old_p
-        st.session_state.price = price
-        
         bal = exchange.fetch_balance()
-        st.session_state.usdc = bal["free"].get("USDC", 0)
-        st.session_state.xrp = bal["free"].get("XRP", 0)
+        usdc = bal["free"].get("USDC", 0)
+        xrp  = bal["free"].get("XRP", 0)
+        
+        st.session_state.price = price
+        st.session_state.usdc = usdc
+        st.session_state.xrp = xrp
 
         if not st.session_state.run: return
 
         for i, bot in st.session_state.bots.items():
             if not bot["actif"]: continue
 
-            # ACHAT
             if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
-                if st.session_state.usdc >= bot["mise"]:
-                    qty = float(exchange.amount_to_precision(symbol, (bot["mise"] * 0.99) / price))
+                if usdc >= bot["mise"]:
+                    qty = float(exchange.amount_to_precision(symbol, (bot["mise"] * 0.985) / price))
                     exchange.create_market_buy_order(symbol, qty)
-                    bot["qty"] = qty
-                    bot["etape"] = "ATTENTE_VENTE"
+                    bot["qty"], bot["etape"] = qty, "ATTENTE_VENTE"
                     save_config(st.session_state.bots)
-                    log(f"✅ [Bot {i}] ACHAT à {price}")
+                    log(f"[Bot {i}] ACHAT OK")
 
-            # VENTE
             elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
-                if bot["qty"] > 0:
-                    qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
-                    exchange.create_market_sell_order(symbol, qty_sell)
-                    profit = ((price - bot["p_achat"]) * bot["qty"]) - (bot["mise"] * 0.004)
-                    bot["gain_cumule"] += profit
-                    bot["cycles"] += 1
-                    bot["qty"] = 0
-                    bot["etape"] = "ATTENTE_ACHAT"
-                    save_config(st.session_state.bots)
-                    log(f"💰 [Bot {i}] VENTE OK | Profit: {profit:.4f}")
-
+                qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.99))
+                exchange.create_market_sell_order(symbol, qty_sell)
+                gain = ((bot["p_vente"] - bot["p_achat"]) * bot["qty"]) - (bot["mise"] * 0.006)
+                bot["gain_cumule"] += gain
+                bot["cycles"] += 1
+                bot["qty"], bot["etape"] = 0, "ATTENTE_ACHAT"
+                save_config(st.session_state.bots)
+                log(f"[Bot {i}] VENTE OK gain={gain:.4f}")
     except Exception as e:
-        log(f"⚠️ Erreur: {str(e)}")
+        log(f"Erreur: {e}")
 
 run_cycle()
 
 # ------------------------------------------------------------
-# INTERFACE (UI)
+# UI (CORRECTIONS APPLIQUÉES ICI)
 # ------------------------------------------------------------
 st.title("🚀 XRP Sniper Pro")
 
 with st.sidebar:
-    st.header("⚙️ Contrôle")
-    if not st.session_state.run:
-        if st.button("▶️ DÉMARRER", use_container_width=True):
-            st.session_state.run = True
-            st.rerun()
-    else:
-        if st.button("🛑 STOPPER", use_container_width=True):
-            st.session_state.run = False
-            st.rerun()
-    
-    st.divider()
-    id_bot = st.selectbox("Bot #", range(1, 51))
+    id_bot = st.selectbox("Bot n°", range(1, 51))
     bot = st.session_state.bots[id_bot]
     bot["actif"] = st.toggle("Activer", bot["actif"])
-    bot["p_achat"] = st.number_input("Achat", value=float(bot["p_achat"]), format="%.4f")
-    bot["p_vente"] = st.number_input("Vente", value=float(bot["p_vente"]), format="%.4f")
-    bot["mise"] = st.number_input("Mise (USDC)", value=float(bot["mise"]))
-    if st.button("💾 Sauver"):
-        save_config(st.session_state.bots)
-        st.toast("Sauvegardé !")
+    bot["p_achat"] = st.number_input("Prix Achat", value=float(bot["p_achat"]), format="%.4f")
+    bot["p_vente"] = st.number_input("Prix Vente", value=float(bot["p_vente"]), format="%.4f")
+    bot["mise"] = st.number_input("Mise", value=float(bot["mise"]))
+    if st.button("💾 Sauvegarder"): save_config(st.session_state.bots)
+    st.button("🚀 Démarrer", on_click=lambda: st.session_state.update(run=True))
+    st.button("🛑 Stop", on_click=lambda: st.session_state.update(run=False))
 
-# Metrics
-p = st.session_state.get("price", 0)
-d = st.session_state.get("diff", 0)
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Prix XRP", f"{p:.5f}", delta=f"{d:.5f}")
-m2.metric("USDC", f"{st.session_state.get('usdc', 0):.2f}")
-m3.metric("XRP", f"{st.session_state.get('xrp', 0):.2f}")
-m4.metric("Total Profit", f"{sum(b['gain_cumule'] for b in st.session_state.bots.values()):.4f}")
+p, u, x = st.session_state.get("price", 0), st.session_state.get("usdc", 0), st.session_state.get("xrp", 0)
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Prix XRP", f"{p:.4f}")
+c2.metric("USDC", f"{u:.2f}")
+c3.metric("XRP", f"{x:.2f}")
+c4.metric("Gain Total", f"{sum(b['gain_cumule'] for b in st.session_state.bots.values()):.2f}")
 
-# Table des bots corrigée
 st.divider()
-st.subheader("🤖 Bots Actifs")
-h0, h1, h2, h3, h4, h5, h6 = st.columns([0.5, 1, 1, 1, 1, 1, 1])
-for col, text in zip([h0,h1,h2,h3,h4,h5,h6], ["ID", "Statut", "Achat", "Vente", "Mise", "Cycles", "Gain"]):
-    col.write(f"**{text}**")
+
+# CORRECTION DE L'AFFICHAGE DES COLONNES
+cols_ratio = [0.5, 1.2, 1, 1, 0.8, 0.8, 1, 1]
+h = st.columns(cols_ratio)
+titles = ["ID", "État", "Achat", "Vente", "Mise", "Qty", "Cycles", "Gain"]
+for col, t in zip(h, titles): col.write(f"**{t}**")
 
 for i, b in st.session_state.bots.items():
-    if b.get("actif"):
-        c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1, 1, 1, 1, 1, 1])
-        c0.write(str(i))
-        c1.write("🔵 VENTE" if b["etape"] == "ATTENTE_VENTE" else "🟢 ACHAT")
-        c2.write(f"{b['p_achat']:.4f}")
-        c3.write(f"{b['p_vente']:.4f}")
-        c4.write(f"{b['mise']:.2f}")
-        c5.write(str(b['cycles']))
-        c6.write(f"{b['gain_cumule']:.4f}")
+    if b["actif"]:
+        row = st.columns(cols_ratio)
+        row[0].write(str(i))
+        row[1].write(b["etape"])
+        row[2].write(f"{b['p_achat']:.4f}")
+        row[3].write(f"{b['p_vente']:.4f}")
+        row[4].write(f"{b['mise']}")
+        row[5].write(f"{b['qty']:.2f}")
+        row[6].write(str(b['cycles']))
+        row[7].write(f"{b['gain_cumule']:.4f}")
 
-st.divider()
 st.subheader("📜 Logs")
 st.code("\n".join(st.session_state.logs[::-1]))
