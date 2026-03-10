@@ -118,17 +118,63 @@ else:
     st.markdown("### 🔴 **BOTS ARRÊTÉS** | Aucun trade actif")
 
 # ---- SIDEBAR : CONTRÔLES ----
-with st.sidebar:
-    st.header("⚙️ CONFIG BOT")
+# ------------------------------------------------------------
+# CONFIGURATION SIDEBAR (avec clés uniques par session)
+# ------------------------------------------------------------
+import uuid
+if "session_uid" not in st.session_state:
+    st.session_state.session_uid = str(uuid.uuid4())[:8]
 
-    id_bot = st.sidebar.selectbox("Bot n°", range(1, 51), key=f"bot_select_{time.time()}")
+with st.sidebar:
+    st.header("⚙️ CONFIG BOT")
+
+    # Sélection du bot
+    id_bot = st.selectbox(
+        "Bot n°",
+        range(1, 51),
+        key=f"bot_select_sidebar_{st.session_state.session_uid}"
+    )
     bot = st.session_state.bots[id_bot]
 
-    bot["actif"] = st.toggle("Activer", bot["actif"], key=f"actif_{id_bot}")
-    bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f", key=f"p_achat_{id_bot}")
-    bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f", key=f"p_vente_{id_bot}")
-    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"], format="%.4f", key=f"mise_{id_bot}")
-   
+    # Activation du bot
+    bot["actif"] = st.toggle(
+        "Activer",
+        bot["actif"],
+        key=f"actif_{id_bot}_{st.session_state.session_uid}"
+    )
+
+    # Paramètres du bot
+    bot["p_achat"] = st.number_input(
+        "Prix Achat",
+        value=bot["p_achat"],
+        format="%.4f",
+        key=f"p_achat_{id_bot}_{st.session_state.session_uid}"
+    )
+    bot["p_vente"] = st.number_input(
+        "Prix Vente",
+        value=bot["p_vente"],
+        format="%.4f",
+        key=f"p_vente_{id_bot}_{st.session_state.session_uid}"
+    )
+    bot["mise"] = st.number_input(
+        "Mise (USDC)",
+        value=bot["mise"],
+        format="%.4f",
+        key=f"mise_{id_bot}_{st.session_state.session_uid}"
+    )
+
+    # --- Bouton Sauvegarder ---
+    if st.button("💾 Sauvegarder", key=f"save_{id_bot}_{st.session_state.session_uid}"):
+        save_config(st.session_state.bots)
+        st.toast(f"Bot {id_bot} sauvegardé ✔")
+
+    # --- Bouton Réinitialiser ---
+    if st.button("🗑 Réinitialiser le bot", key=f"reset_{id_bot}_{st.session_state.session_uid}"):
+        reset_bot(id_bot)
+
+    st.divider()
+
+    # --- Boutons Démarrer et Stop ---
     def start_bots():
         st.session_state.run = True
         st.session_state.stop_clicked = False
@@ -141,19 +187,9 @@ with st.sidebar:
         st.session_state.run = False
         st.session_state.stop_clicked = True
 
-    # --- Bouton Sauvegarder ---
-if st.button("💾 Sauvegarder", key=f"save_{id_bot}"):
-    save_config(st.session_state.bots)
-    st.toast(f"Bot {id_bot} sauvegardé ✔")
-# --- Bouton Réinitialiser ---
-if st.button("🗑 Réinitialiser le bot", key=f"reset_{id_bot}"):
-    reset_bot(id_bot)
+    st.button("🚀 Démarrer", on_click=start_bots, key=f"start_{st.session_state.session_uid}")
+    st.button("🛑 Stop", on_click=stop_bots, key=f"stop_{st.session_state.session_uid}")
 
-    if st.button("🗑 Réinitialiser le bot"):
-        reset_bot(id_bot)
-    st.divider()
-    st.button("🚀 Démarrer", on_click=start_bots)
-    st.button("🛑 Stop", on_click=stop_bots)
 
 # ---- MÉTRIQUES RAPIDES ----
 price = st.session_state.get("price")
@@ -338,6 +374,7 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
 
 
 
