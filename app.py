@@ -199,9 +199,23 @@ with st.sidebar:
         st.toast("Sauvegardé ✔")
     if st.button("🗑 Supprimer ce bot"):
         reset_bot(id_bot)
-    st.divider()
-    st.button("🚀 Démarrer", on_click=lambda: st.session_state.update(run=True))
-    st.button("🛑 Stop", on_click=lambda: st.session_state.update(run=False))
+        st.divider()
+    
+    # Bouton pour lancer le système
+    if st.button("🚀 Démarrer le Système", use_container_width=True):
+        st.session_state.run = True
+        st.rerun()
+
+    # LE NOUVEAU BOUTON D'ARRÊT TOTAL
+    if st.button("🛑 STOP & DÉSACTIVER TOUT", type="primary", use_container_width=True):
+        st.session_state.run = False
+        # Cette boucle éteint l'interrupteur de chaque bot un par un
+        for i in st.session_state.bots:
+            st.session_state.bots[i]["actif"] = False
+        save_config(st.session_state.bots)
+        st.success("Tous les bots sont à l'arrêt.")
+        st.rerun()
+
 
 price = st.session_state.get("price")
 usdc  = st.session_state.get("usdc", 0)
@@ -231,4 +245,5 @@ for i, b in st.session_state.bots.items():
         r[5].write(f"{b['etape']}")
         r[6].write(f"{b['cycles']}")
         r[7].write(f"{b['gain_cumule']:.2f}")
+
 
