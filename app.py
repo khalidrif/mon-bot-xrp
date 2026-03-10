@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+import threading
 from datetime import datetime
 
 # ------------------------------------------------------------
@@ -14,7 +15,7 @@ DB_FILE = "config_bots_xrp_async.json"
 symbol = "XRP/USDC"
 
 # ------------------------------------------------------------
-# SAUVEGARDE / CHARGEMENT CONFIG
+# JSON CONFIG
 # ------------------------------------------------------------
 def save_config(bots):
     with open(DB_FILE, "w") as f:
@@ -24,14 +25,14 @@ def load_config():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
-                data = json.load(f)
-                return {int(k): v for k, v in data.items()}
+                d = json.load(f)
+                return {int(k): v for k, v in d.items()}
         except:
             return None
     return None
 
 # ------------------------------------------------------------
-# INIT DES BOTS (50)
+# INIT BOTS
 # ------------------------------------------------------------
 if "bots" not in st.session_state:
     saved = load_config()
@@ -49,8 +50,7 @@ if "bots" not in st.session_state:
                 "cycles": 0,
                 "gain_cumule": 0.0,
                 "last_trigger": 0
-            }
-            for i in range(1, 51)
+            } for i in range(1, 51)
         }
 
 if "run" not in st.session_state:
@@ -63,7 +63,7 @@ if "async_started" not in st.session_state:
     st.session_state.async_started = False
 
 # ------------------------------------------------------------
-# CONNEXION KRAKEN (clé READ+TRADE)
+# CONNEXION KRAKEN
 # ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
@@ -78,7 +78,7 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# LOOP TICKER ASYNC
+# LOOP PRIX (ASYNC)
 # ------------------------------------------------------------
 async def fetch_price_loop():
     while True:
@@ -90,7 +90,7 @@ async def fetch_price_loop():
         await asyncio.sleep(1)
 
 # ------------------------------------------------------------
-# LOOP BOT ASYNC
+# LOOP BOT (ASYNC)
 # ------------------------------------------------------------
 async def bot_loop(bot_id):
     while True:
@@ -102,27 +102,24 @@ async def bot_loop(bot_id):
 
         price = st.session_state.ticker_price
         if price is None:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.1)
             continue
 
         now = time.time()
-
-        # anti-double ordre
         if now - bot["last_trigger"] < 1:
             await asyncio.sleep(0.05)
             continue
 
-        # -------------------------------------------------
-        #  ACHAT
-        # -------------------------------------------------
+        # ---------------------- ACHAT ----------------------
         if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
 
             bal = exchange.fetch_balance()
             usdc = bal["free"].get("USDC", 0)
 
             if usdc >= bot["mise"]:
-                mise_securisee = bot["mise"] * 0.985
-                qty = float(exchange.amount_to_precision(symbol, mise_securisee / price))
+
+                mise_net = bot["mise"] * 0.985
+                qty = float(exchange.amount_to_precision(symbol, mise_net / price))
 
                 try:
                     exchange.create_market_buy_order(symbol, qty)
@@ -135,14 +132,11 @@ async def bot_loop(bot_id):
                 except:
                     pass
 
-        # -------------------------------------------------
-        #  VENTE
-        # -------------------------------------------------
+        # ---------------------- VENTE ----------------------
         if bot["actif"] and bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
 
-            qty = bot.get("qty", 0)
+            qty = bot["qty"]
             if qty > 0:
-
                 qty_sell = float(exchange.amount_to_precision(symbol, qty * 0.99))
 
                 try:
@@ -155,6 +149,7 @@ async def bot_loop(bot_id):
                     bot["qty"] = 0
                     bot["etape"] = "ATTENTE_ACHAT"
                     bot["last_trigger"] = now
+
                     save_config(st.session_state.bots)
 
                 except:
@@ -171,20 +166,21 @@ async def main_async():
         *(bot_loop(i) for i in st.session_state.bots.keys())
     )
 
-if not st.session_state.async_started:
-    st.session_state.async_started = True
-
-    # IMPORTANT : création loop compatible Streamlit
+def start_async_loop():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.create_task(main_async())
+    loop.run_until_complete(main_async())
+
+if not st.session_state.async_started:
+    st.session_state.async_started = True
+    threading.Thread(target=start_async_loop, daemon=True).start()
 
 # ------------------------------------------------------------
 # INTERFACE STREAMLIT
 # ------------------------------------------------------------
 st.title("🚀 XRP Sniper Pro 50 — Version Async")
 
-# --- SIDEBAR ---
+# ---------------- Sidebar -----------------
 with st.sidebar:
     st.header("⚙️ Configuration Bot")
 
@@ -208,9 +204,7 @@ with st.sidebar:
     if st.button("🛑 Stop"):
         st.session_state.run = False
 
-# ------------------------------------------------------------
-# DASHBOARD
-# ------------------------------------------------------------
+# ---------------- Haut --------------------
 price = st.session_state.ticker_price
 
 try:
@@ -223,16 +217,14 @@ except:
 
 total_gain = sum(b["gain_cumule"] for b in st.session_state.bots.values())
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
-c2.metric("USDC Libre", f"{usdc_bal:.2f}")
-c3.metric("Gain total", f"{total_gain:.4f}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Prix XRP", f"{price:.4f}" if price else "...")
+col2.metric("USDC Libre", f"{usdc_bal:.2f}")
+col3.metric("Gain total", f"{total_gain:.4f}")
 
 st.divider()
 
-# ------------------------------------------------------------
-# TABLEAU DES BOTS
-# ------------------------------------------------------------
+# ---------------- Tableau BOTS ---------------
 cols = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1])
 headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
 
