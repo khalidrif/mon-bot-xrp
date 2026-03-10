@@ -12,9 +12,21 @@ DB_FILE = "config_bots_xrp_stable.json"
 symbol = "XRP/USDC"
 
 # ------------------------------------------------------------
-# AUTO REFRESH FLUIDE (OFFICIEL STREAMLIT)
+# AUTO REFRESH CLOUD-SAFE (NO BLINK, NO ERROR)
 # ------------------------------------------------------------
-st.autorefresh(interval=2000, key="refresh_app")
+def auto_refresh():
+    refresh_rate = 2000  # 2 secondes
+    st.markdown(f"""
+        <script>
+            setTimeout(function() {{
+                document.getElementById('refresh_btn').click();
+            }}, {refresh_rate});
+        </script>
+    """, unsafe_allow_html=True)
+
+    st.button("Refresh", key="refresh_btn")
+
+auto_refresh()
 
 # ------------------------------------------------------------
 # JSON CONFIG
@@ -58,7 +70,7 @@ if "run" not in st.session_state:
     st.session_state.run = False
 
 # ------------------------------------------------------------
-# KRAKEN
+# CONNEXION KRAKEN
 # ------------------------------------------------------------
 @st.cache_resource
 def get_exchange():
@@ -73,7 +85,7 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# 1 CYCLE TRADING
+# RUN 1 CYCLE TRADING
 # ------------------------------------------------------------
 def run_cycle():
     try:
@@ -95,6 +107,7 @@ def run_cycle():
         return
 
     for i, bot in st.session_state.bots.items():
+
         # ACHAT
         if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT":
             if price and price <= bot["p_achat"] and usdc >= bot["mise"]:
@@ -125,13 +138,15 @@ def run_cycle():
                 except:
                     pass
 
-# Exécuter un cycle
+# ------------------------------------------------------------
+# Exécuter un cycle AVANT l'UI
+# ------------------------------------------------------------
 run_cycle()
 
 # ------------------------------------------------------------
 # UI
 # ------------------------------------------------------------
-st.title("🚀 XRP Sniper Pro 50 — Version Stable (fluide & sans clignotement)")
+st.title("🚀 XRP Sniper Pro 50 — Version stable (sans clignotement, 100% Cloud)")
 
 # Sidebar
 with st.sidebar:
@@ -141,9 +156,9 @@ with st.sidebar:
     bot = st.session_state.bots[id_bot]
 
     bot["actif"] = st.toggle("Activer", value=bot["actif"])
-    bot["p_achat"] = st.number_input("Prix achat", value=bot["p_achat"], format="%.4f")
-    bot["p_vente"] = st.number_input("Prix vente", value=bot["p_vente"], format="%.4f")
-    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"], min_value=1.0)
+    bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
+    bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f")
+    bot["mise"] = st.number_input("Mise USDC", value=bot["mise"], min_value=1.0)
 
     if st.button("💾 Sauvegarder"):
         save_config(st.session_state.bots)
@@ -165,15 +180,13 @@ gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
 c1, c2, c3 = st.columns(3)
 c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
 c2.metric("USDC Libre", f"{usdc:.2f}")
-c3.metric("Gain total", f"{gain_total:.4f}")
+c3.metric("Gain Total", f"{gain_total:.4f}")
 
 st.divider()
 
 # Tableau bots
 cols = st.columns([0.5, 1.5, 1, 1, 0.8, 0.8, 1])
-headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
-
-for col, txt in zip(cols, headers):
+for col, txt in zip(cols, ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]):
     col.write(f"**{txt}**")
 
 for i, bot in st.session_state.bots.items():
