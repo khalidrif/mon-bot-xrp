@@ -121,7 +121,7 @@ else:
 with st.sidebar:
     st.header("⚙️ CONFIG BOT")
 
-    id_bot = st.selectbox("Bot n°", range(1, 51), key="bot_select_sidebar")
+    id_bot = st.sidebar.selectbox("Bot n°", range(1, 51), key=f"bot_select_{time.time()}")
     bot = st.session_state.bots[id_bot]
 
     bot["actif"] = st.toggle("Activer", bot["actif"], key=f"actif_{id_bot}")
@@ -338,6 +338,7 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
 
 
 
