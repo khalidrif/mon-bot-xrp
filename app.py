@@ -154,10 +154,10 @@ usdc = st.session_state.get("usdc")
 xrp = st.session_state.get("xrp")
 gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Prix XRP", f"{price:.4f}" if price else "…")
-c2.metric("USDC", f"{usdc:.4f}")
-c3.metric("XRP", f"{xrp:.4f}")
-c4.metric("Gain Total", f"{gain_total:.4f}")
+c1.metric("Prix XRP", f"{price:.4f}" if price else "—")
+c2.metric("USDC", f"{float(usdc):.4f}" if isinstance(usdc,(int,float)) else "0.0000")
+c3.metric("XRP", f"{float(xrp):.4f}" if isinstance(xrp,(int,float)) else "0.0000")
+c4.metric("Gain Total", f"{float(gain_total):.4f}" if isinstance(gain_total,(int,float)) else "0.0000")
 st.divider()
 
 # ---- TABLEAU DES BOTS ----
@@ -311,4 +311,5 @@ st.divider()
 st.subheader("📝 Logs en direct")
 for line in st.session_state.logs[-80:]:
     st.write(line)
+
 
