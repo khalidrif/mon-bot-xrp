@@ -11,14 +11,10 @@ st.set_page_config(page_title="XRP Sniper Pro Stable", layout="wide")
 DB_FILE = "config_bots_xrp_stable.json"
 symbol = "XRP/USDC"
 
-# AUTO-REFRESH INTERNE
-if "last_refresh" not in st.session_state:
-    st.session_state.last_refresh = time.time()
-
-# si 2 secondes sont passées → refresh propre
-if time.time() - st.session_state.last_refresh > 2:
-    st.session_state.last_refresh = time.time()
-    st.experimental_rerun()
+# ------------------------------------------------------------
+# AUTO REFRESH FLUIDE (OFFICIEL STREAMLIT)
+# ------------------------------------------------------------
+st.autorefresh(interval=2000, key="refresh_app")
 
 # ------------------------------------------------------------
 # JSON CONFIG
@@ -77,7 +73,7 @@ def get_exchange():
 exchange = get_exchange()
 
 # ------------------------------------------------------------
-# EXECUTION D’UN CYCLE TRADING
+# 1 CYCLE TRADING
 # ------------------------------------------------------------
 def run_cycle():
     try:
@@ -99,7 +95,6 @@ def run_cycle():
         return
 
     for i, bot in st.session_state.bots.items():
-
         # ACHAT
         if bot["actif"] and bot["etape"] == "ATTENTE_ACHAT":
             if price and price <= bot["p_achat"] and usdc >= bot["mise"]:
@@ -130,15 +125,13 @@ def run_cycle():
                 except:
                     pass
 
-# ------------------------------------------------------------
-# Exécuter un cycle AVANT l'UI
-# ------------------------------------------------------------
+# Exécuter un cycle
 run_cycle()
 
 # ------------------------------------------------------------
 # UI
 # ------------------------------------------------------------
-st.title("🚀 XRP Sniper Pro 50 — Version Stable (sans clignotement)")
+st.title("🚀 XRP Sniper Pro 50 — Version Stable (fluide & sans clignotement)")
 
 # Sidebar
 with st.sidebar:
@@ -164,7 +157,7 @@ with st.sidebar:
     if st.button("🛑 Stop"):
         st.session_state.run = False
 
-# Metrics haut
+# Metrics
 price = st.session_state.get("last_price")
 usdc = st.session_state.get("usdc", 0)
 gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
@@ -178,13 +171,15 @@ st.divider()
 
 # Tableau bots
 cols = st.columns([0.5, 1.5, 1, 1, 0.8, 0.8, 1])
-for a, b in zip(cols, ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]):
-    a.write(f"**{b}**")
+headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
+
+for col, txt in zip(cols, headers):
+    col.write(f"**{txt}**")
 
 for i, bot in st.session_state.bots.items():
     if bot["actif"]:
         c = st.columns([0.5, 1.5, 1, 1, 0.8, 0.8, 1])
-        c[0].write(f"{i}")
+        c[0].write(str(i))
         c[1].write("⏳ Achat" if bot["etape"] == "ATTENTE_ACHAT" else "💰 Vente")
         c[2].write(bot["p_achat"])
         c[3].write(bot["p_vente"])
