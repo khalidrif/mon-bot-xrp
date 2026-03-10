@@ -8,7 +8,10 @@ import os
 st.set_page_config(page_title="XRP Sniper Pro 50", layout="wide")
 DB_FILE = "config_bots_xrp_final.json"
 
-# --- FONCTIONS DE SAUVEGARDE (IMMORTALITÉ) ---
+# --- TITRE PRINCIPAL ---
+st.title("🎯 XRP Sniper Pro 50")
+
+# --- FONCTIONS DE SAUVEGARDE ---
 def save_config(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f)
@@ -68,8 +71,6 @@ with st.sidebar:
     if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False
 
 # --- DASHBOARD CENTRAL ---
-st.title("🎯 XRP Sniper Pro 50")
-
 try:
     ticker = exchange.fetch_ticker(symbol)
     price = ticker['last']
@@ -86,41 +87,41 @@ try:
 
     st.divider()
 
-    # --- TABLEAU DES BOTS (CORRECTIF ICI) ---
+    # --- TABLEAU DES BOTS (CORRECTIF DES COLONNES) ---
     cols_size = [0.5, 1.2, 1, 1, 0.8, 0.6, 1, 0.8]
     h = st.columns(cols_size)
     headers = ["N°", "État", "Achat", "Vente", "Mise", "Cyc.", "Gain Net", "Act."]
     
-    # On écrit chaque titre dans sa colonne respective
-    for col, text in zip(h, headers):
-        col.write(f"**{text}**")
+    # On écrit chaque titre dans sa colonne par son index
+    for idx, text in enumerate(headers):
+        h[idx].write(f"**{text}**")
 
     for i, bot in st.session_state.bots.items():
         if bot["actif"]:
             with st.container(border=True):
                 c = st.columns(cols_size)
-                c.write(f"#{i}")
+                c[0].write(f"#{i}") # Colonne N°
                 
+                # Colonne État
                 if bot["etape"] == "ATTENTE_ACHAT":
-                    c.warning("⏳ ACHAT")
+                    c[1].warning("⏳ ACHAT")
                 else:
-                    c.success("💰 VENTE")
+                    c[1].success("💰 VENTE")
                 
-                c.write(f"{bot['p_achat']:.4f}")
-                c.write(f"{bot['p_vente']:.4f}")
-                c.write(f"{bot['mise']}$")
-                c.write(f"{bot.get('cycles', 0)}")
-                c.write(f"**{bot.get('gain_cumule', 0.0):.3f}$**")
+                c[2].write(f"{bot['p_achat']:.4f}") # Achat
+                c[3].write(f"{bot['p_vente']:.4f}") # Vente
+                c[4].write(f"{bot['mise']}$")      # Mise
+                c[5].write(f"{bot.get('cycles', 0)}") # Cycles
+                c[6].write(f"**{bot.get('gain_cumule', 0.0):.3f}$**") # Gain
                 
-                # Bouton de suppression sur la ligne
+                # Colonne Bouton Supprimer
                 if c[7].button("🗑️", key=f"del_{i}"):
                     st.session_state.bots[i] = {"p_achat": 1.35, "p_vente": 1.38, "mise": 10.0, "etape": "ATTENTE_ACHAT", "actif": False, "cycles": 0, "gain_cumule": 0.0}
                     save_config(st.session_state.bots)
                     st.rerun()
 
-                # --- LOGIQUE DE TRADING ---
+                # --- LOGIQUE ---
                 if st.session_state.run:
-                    # 1. ACHAT AU MARCHÉ
                     if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
                         if usdc_bal >= bot["mise"]:
                             q = float(exchange.amount_to_precision(symbol, bot["mise"] / price))
@@ -128,12 +129,10 @@ try:
                             bot["etape"] = "ATTENTE_VENTE"
                             save_config(st.session_state.bots)
                             st.rerun()
-                    # 2. VENTE AU MARCHÉ
                     elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
                         if xrp_bal_total > 1:
                             q_v = float(exchange.amount_to_precision(symbol, (bot["mise"] / bot["p_achat"]) * 0.99))
                             exchange.create_market_sell_order(symbol, q_v)
-                            # Calcul Gain (Frais 0.6% estimés)
                             gain_net = ((bot["p_vente"] - bot["p_achat"]) * (bot["mise"] / bot["p_achat"])) - (bot["mise"] * 0.006)
                             bot["etape"] = "ATTENTE_ACHAT"
                             bot["cycles"] = bot.get("cycles", 0) + 1
