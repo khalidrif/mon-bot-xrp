@@ -5,7 +5,6 @@ import json
 import os
 import time
 import threading
-from datetime import datetime
 
 # ------------------------------------------------------------
 # CONFIG PAGE
@@ -14,12 +13,14 @@ st.set_page_config(page_title="XRP Sniper Pro Async", layout="wide")
 DB_FILE = "config_bots_xrp_async.json"
 symbol = "XRP/USDC"
 
+
 # ------------------------------------------------------------
 # JSON CONFIG
 # ------------------------------------------------------------
 def save_config(bots):
     with open(DB_FILE, "w") as f:
         json.dump(bots, f)
+
 
 def load_config():
     if os.path.exists(DB_FILE):
@@ -30,6 +31,7 @@ def load_config():
         except:
             return None
     return None
+
 
 # ------------------------------------------------------------
 # INIT BOTS
@@ -62,6 +64,7 @@ if "ticker_price" not in st.session_state:
 if "async_started" not in st.session_state:
     st.session_state.async_started = False
 
+
 # ------------------------------------------------------------
 # CONNEXION KRAKEN
 # ------------------------------------------------------------
@@ -75,10 +78,12 @@ def get_exchange():
     ex.load_markets()
     return ex
 
+
 exchange = get_exchange()
 
+
 # ------------------------------------------------------------
-# LOOP PRIX (ASYNC)
+# LOOP PRIX ASYNC
 # ------------------------------------------------------------
 async def fetch_price_loop():
     while True:
@@ -87,10 +92,12 @@ async def fetch_price_loop():
             st.session_state.ticker_price = ticker["last"]
         except:
             st.session_state.ticker_price = None
+
         await asyncio.sleep(1)
 
+
 # ------------------------------------------------------------
-# LOOP BOT (ASYNC)
+# LOOP BOT ASYNC
 # ------------------------------------------------------------
 async def bot_loop(bot_id):
     while True:
@@ -106,6 +113,8 @@ async def bot_loop(bot_id):
             continue
 
         now = time.time()
+
+        # anti double ordre (1s min)
         if now - bot["last_trigger"] < 1:
             await asyncio.sleep(0.05)
             continue
@@ -117,7 +126,6 @@ async def bot_loop(bot_id):
             usdc = bal["free"].get("USDC", 0)
 
             if usdc >= bot["mise"]:
-
                 mise_net = bot["mise"] * 0.985
                 qty = float(exchange.amount_to_precision(symbol, mise_net / price))
 
@@ -127,6 +135,7 @@ async def bot_loop(bot_id):
                     bot["qty"] = qty
                     bot["etape"] = "ATTENTE_VENTE"
                     bot["last_trigger"] = now
+
                     save_config(st.session_state.bots)
 
                 except:
@@ -136,6 +145,7 @@ async def bot_loop(bot_id):
         if bot["actif"] and bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
 
             qty = bot["qty"]
+
             if qty > 0:
                 qty_sell = float(exchange.amount_to_precision(symbol, qty * 0.99))
 
@@ -157,8 +167,9 @@ async def bot_loop(bot_id):
 
         await asyncio.sleep(0.05)
 
+
 # ------------------------------------------------------------
-# LANCEUR ASYNC COMPATIBLE STREAMLIT
+# LANCEUR ASYNC (THREAD)
 # ------------------------------------------------------------
 async def main_async():
     await asyncio.gather(
@@ -166,31 +177,35 @@ async def main_async():
         *(bot_loop(i) for i in st.session_state.bots.keys())
     )
 
+
 def start_async_loop():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(main_async())
 
+
 if not st.session_state.async_started:
     st.session_state.async_started = True
     threading.Thread(target=start_async_loop, daemon=True).start()
+
 
 # ------------------------------------------------------------
 # INTERFACE STREAMLIT
 # ------------------------------------------------------------
 st.title("🚀 XRP Sniper Pro 50 — Version Async")
 
-# ---------------- Sidebar -----------------
+
+# -------------- SIDEBAR -------------------
 with st.sidebar:
     st.header("⚙️ Configuration Bot")
 
-    id_bot = st.selectbox("Sélectionner bot n°", range(1, 51))
+    id_bot = st.selectbox("Bot n°", range(1, 51))
     bot = st.session_state.bots[id_bot]
 
     bot["actif"] = st.toggle("Activer", value=bot["actif"])
     bot["p_achat"] = st.number_input("Prix achat", value=bot["p_achat"], format="%.4f")
     bot["p_vente"] = st.number_input("Prix vente", value=bot["p_vente"], format="%.4f")
-    bot["mise"] = st.number_input("Mise (USDC)", value=bot["mise"], min_value=1.0)
+    bot["mise"] = st.number_input("Mise USDC", value=bot["mise"], min_value=1.0)
 
     if st.button("💾 Sauvegarder"):
         save_config(st.session_state.bots)
@@ -204,27 +219,27 @@ with st.sidebar:
     if st.button("🛑 Stop"):
         st.session_state.run = False
 
-# ---------------- Haut --------------------
+
+# -------------- DASHBOARD -------------------
 price = st.session_state.ticker_price
 
 try:
     bal = exchange.fetch_balance()
-    usdc_bal = bal["free"].get("USDC", 0)
-    xrp_bal = bal["free"].get("XRP", 0)
+    usdc = bal["free"].get("USDC", 0)
 except:
-    usdc_bal = 0
-    xrp_bal = 0
+    usdc = 0
 
-total_gain = sum(b["gain_cumule"] for b in st.session_state.bots.values())
+gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Prix XRP", f"{price:.4f}" if price else "...")
-col2.metric("USDC Libre", f"{usdc_bal:.2f}")
-col3.metric("Gain total", f"{total_gain:.4f}")
+c1, c2, c3 = st.columns(3)
+c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
+c2.metric("USDC libre", f"{usdc:.2f}")
+c3.metric("Gain total", f"{gain_total:.4f}")
+
 
 st.divider()
 
-# ---------------- Tableau BOTS ---------------
+# -------------- TABLEAU DES BOTS -------------------
 cols = st.columns([0.5, 1.2, 1, 1, 0.8, 0.8, 1])
 headers = ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain"]
 
@@ -243,3 +258,10 @@ for i, bot in st.session_state.bots.items():
         c[4].write(f"{bot['mise']}$")
         c[5].write(bot["cycles"])
         c[6].write(f"{bot['gain_cumule']:.4f}$")
+
+
+# ------------------------------------------------------------
+# 🔁 AUTO-REFRESH (fix du prix qui reste "...")
+# ------------------------------------------------------------
+time.sleep(1)
+st.experimental_rerun()
