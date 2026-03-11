@@ -30,7 +30,7 @@ exchange = get_exchange()
 if "bots" not in st.session_state:
     st.session_state.bots = {
         1: {"id": 1, "actif": True, "p_achat": 1.4, "p_vente": 1.41, "mise": 15.0, "etape": "ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
-        2: {"id": 2, "actif": True, "p_achat": 1.350, "p_vente": 1.380, "mise": 15.0, "etape": "ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        2: {"id": 2, "actif": True, "p_achat": 1.396, "p_vente": 1.4, "mise": 15.0, "etape": "ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
     }
 
 # --- 4. BOUCLE DE TRADING (SÉCURITÉ AUTO-OFF) ---
@@ -143,4 +143,5 @@ for i in sorted(st.session_state.bots.keys()):
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
+
 
