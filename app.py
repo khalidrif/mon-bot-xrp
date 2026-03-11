@@ -5,7 +5,7 @@ import time
 from streamlit_autorefresh import st_autorefresh
 
 # 1. CONFIGURATION
-st.set_page_config(page_title="XRP SNIPER IMMORTAL", layout="wide")
+st.set_page_config(page_title="XRP SNIPER FINAL", layout="wide")
 symbol = "XRP/USDC"
 st_autorefresh(interval=40000, key="bot_refresh")
 
@@ -15,13 +15,17 @@ if "run" not in st.session_state: st.session_state.run = True
 
 def log(msg): st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
-# 2. KRAKEN
+# 2. CONNEXION KRAKEN
 @st.cache_resource
 def get_exchange():
-    return ccxt.kraken({"apiKey": st.secrets["KRAKEN_API_KEY"], "secret": st.secrets["KRAKEN_API_SECRET"], "enableRateLimit": True})
+    return ccxt.kraken({
+        "apiKey": st.secrets["KRAKEN_API_KEY"], 
+        "secret": st.secrets["KRAKEN_API_SECRET"], 
+        "enableRateLimit": True
+    })
 exchange = get_exchange()
 
-# 3. INITIALISATION (MODIFIE TES BOTS ICI)
+# 3. INITIALISATION (MODIFIE ICI SUR GITHUB POUR LES PRIX FIXES)
 if "bots" not in st.session_state:
     st.session_state.bots = {
         1: {"id": 1, "actif": True, "p_achat": 1.320, "p_vente": 1.350, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
@@ -68,7 +72,7 @@ def run_cycle():
 
 run_cycle()
 
-# 5. INTERFACE
+# 5. INTERFACE (TABLEAU & COULEURS)
 st.title("🚀 Sniper Immortel XRP")
 
 m1, m2, m3 = st.columns(3)
@@ -78,7 +82,7 @@ m3.metric("Solde XRP", f"{st.session_state.get('xrp',0):.2f}")
 
 st.divider()
 
-# TABLEAU AVEC TEXTES SIMPLES
+# EN-TÊTE DU TABLEAU
 h = st.columns([0.4, 0.4, 0.7, 0.7, 0.8, 0.8, 0.6, 1.2, 0.4, 0.6])
 h[0].write("**ID**"); h[1].write("**St**"); h[2].write("**Achat**")
 h[3].write("**Vente**"); h[4].write("**Mise**"); h[5].write("**Gain**")
@@ -94,22 +98,26 @@ for i in sorted(st.session_state.bots.keys()):
     r[3].write(f"{bt['p_vente']:.3f}")
     r[4].write(f"{bt['mise'] + bt['gain_cumule']:.1f}$")
     
+    # GAIN (CORRIGÉ SANS TEXTE WHITE)
     g = bt["gain_cumule"]
-    r[5].markdown(f":{'green' if g > 0 else 'white'}[{g:.2f}$]")
+    if g > 0:
+        r[5].markdown(f"**:green[+{g:.2f}$]**")
+    else:
+        r[5].write(f"{g:.2f}$")
+        
     r[6].write(f"{bt['qty']:.1f}")
     
-    # --- LA CORRECTION EST ICI ---
+    # ACTION (ACHAT VERT / VENTE ORANGE)
     if "ACHAT" in bt["etape"]:
-        r[7].markdown("🟢  **ACHAT**")
+        r[7].markdown("🟢 **ACHAT**")
     else:
-        r[7].markdown("🛑 **VENTE**")
+        r[7].markdown("🟠 **VENTE**")
         
     r[8].write(str(bt.get("cycles", 0)))
     
-    if r[9].button("🚀" if not bt["actif"] else "arret", key=f"btn{i}"):
+    if r[9].button("🚀" if not bt["actif"] else "🛑", key=f"btn{i}"):
         st.session_state.bots[i]["actif"] = not bt["actif"]
         st.rerun()
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
-
