@@ -5,127 +5,147 @@ import time
 from streamlit_autorefresh import st_autorefresh
 from streamlit_gsheets import GSheetsConnection
 
-# 1. CONFIG
-st.set_page_config(page_title="XRP SNIPER 50 BOTS", layout="wide")
+# 1. CONFIGURATION
+st.set_page_config(page_title="XRP Sniper REAL TRADING", layout="wide")
 symbol = "XRP/USDC"
 conn = st.connection("gsheets", type=GSheetsConnection)
-st_autorefresh(interval=40000, key="bot_refresh")
+st_autorefresh(interval=30000, key="bot_refresh")
 
-if "pending_orders" not in st.session_state: st.session_state.pending_orders = set()
-if "logs" not in st.session_state: st.session_state.logs = []
-if "run" not in st.session_state: st.session_state.run = False
+if "logs" not in st.session_state:
+    st.session_state.logs = []
 
-def log(msg): st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
+def log(msg):
+    st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
+# 2. CONNEXION KRAKEN
 @st.cache_resource
 def get_exchange():
-    return ccxt.kraken({"apiKey": st.secrets["KRAKEN_API_KEY"], "secret": st.secrets["KRAKEN_API_SECRET"], "enableRateLimit": True})
+    return ccxt.kraken({
+        "apiKey": st.secrets["KRAKEN_API_KEY"],
+        "secret": st.secrets["KRAKEN_API_SECRET"],
+        "enableRateLimit": True,
+    })
 exchange = get_exchange()
 
+# 3. FONCTIONS CLOUD
 def load_config():
     try:
-        df = conn.read(ttl=0)
-        if df.empty: return {}
-        return {int(row['id']): row.to_dict() for _, row in df.iterrows()}
-    except: return {}
+        df = conn.read(ttl=1)
+        bots = {}
+        for _, row in df.iterrows():
+            bots[int(row['id'])] = {
+                "id": int(row['id']), "actif": bool(row['actif']),
+                "p_achat": float(row['p_achat']), "p_vente": float(row['p_vente']),
+                "mise": float(row['mise']), "etape": str(row['etape']),
+                "qty": float(row['qty']), "gain_cumule": float(row['gain_cumule'])
+            }
+        return bots
+    except: return None
 
 def save_config(bots_dict):
     try:
-        df_to_save = pd.DataFrame(list(bots_dict.values()))
-        conn.update(data=df_to_save)
-        st.toast("✅ Cloud Sync OK")
-    except: st.error("❌ Erreur Sync")
+        data = [{"id": i, **b} for i, b in bots_dict.items()]
+        df = pd.DataFrame(data)
+        conn.update(data=df)
+    except: st.error("❌ Erreur Sauvegarde Google Sheets")
 
-# INITIALISATION FORCÉE DES 50 BOTS
-if "bots" not in st.session_state or not st.session_state.bots:
+# 4. INITIALISATION
+if "bots" not in st.session_state:
     cfg = load_config()
-    all_bots = {}
-    for i in range(1, 51):
-        if cfg and i in cfg: all_bots[i] = cfg[i]
-        else: all_bots[i] = {"id": i, "actif": False, "p_achat": 1.35, "p_vente": 1.38, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0}
-    st.session_state.bots = all_bots
+    if cfg: st.session_state.bots = cfg
+    else: st.stop()
 
+if "run" not in st.session_state: st.session_state.run = False
+
+# 5. BOUCLE DE TRADING (PRIX MOBILE)
 def run_cycle():
     try:
-        ticker = exchange.fetch_ticker(symbol, params={'nonce': str(int(time.time()*1000))})
+        ticker = exchange.fetch_ticker(symbol)
+        # Moyenne Bid/Ask pour voir le prix bouger
         price = (ticker["bid"] + ticker["ask"]) / 2
         st.session_state.price = price
+        
         bal = exchange.fetch_balance()
         usdc_dispo = bal["free"].get("USDC", 0.0)
         st.session_state.usdc = usdc_dispo
         st.session_state.xrp = bal["free"].get("XRP", 0.0)
-        log(f"🎯 Flux : {price:.5f}")
-    except: price = st.session_state.get("price", 0)
+        log(f"⚡ Prix Marché : {price:.5f}")
+    except:
+        price = st.session_state.get("price", 0)
+        usdc_dispo = st.session_state.get("usdc", 0)
 
     if not st.session_state.run: return
 
     for i, bot in st.session_state.bots.items():
-        if not bot.get("actif") or i in st.session_state.pending_orders: continue
-        mise_actu = bot.get("mise", 15.0) + bot.get("gain_cumule", 0.0)
+        if not bot["actif"]: continue
         
         if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
-            if usdc_dispo >= mise_actu:
-                st.session_state.pending_orders.add(i)
+            if usdc_dispo >= bot["mise"]:
                 try:
-                    qty = float(exchange.amount_to_precision(symbol, (mise_actu * 0.98) / price))
+                    qty = float(exchange.amount_to_precision(symbol, (bot["mise"] * 0.98) / price))
                     exchange.create_market_buy_order(symbol, qty)
-                    bot.update({"qty": qty, "etape": "ATTENTE_VENTE"})
+                    bot["qty"] = qty; bot["etape"] = "ATTENTE_VENTE"
                     save_config(st.session_state.bots)
-                    log(f"🟢 Bot {i} : ACHAT")
-                finally: st.session_state.pending_orders.discard(i)
+                    log(f"🟢 BOT {i} : ACHAT {qty} XRP")
+                except: log(f"❌ Erreur Achat Bot {i}")
         
         elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
-            st.session_state.pending_orders.add(i)
-            try:
-                qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
-                exchange.create_market_sell_order(symbol, qty_sell)
-                gain = (price * qty_sell) - mise_actu
-                bot.update({"gain_cumule": bot["gain_cumule"] + gain, "cycles": bot.get("cycles",0)+1, "qty": 0, "etape": "ATTENTE_ACHAT"})
-                save_config(st.session_state.bots)
-                log(f"💰 Bot {i} : VENTE +{gain:.2f}$")
-            finally: st.session_state.pending_orders.discard(i)
+            if bot["qty"] > 0:
+                try:
+                    qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
+                    exchange.create_market_sell_order(symbol, qty_sell)
+                    bot["gain_cumule"] += (price * qty_sell) - bot["mise"]
+                    bot["qty"] = 0; bot["etape"] = "ATTENTE_ACHAT"
+                    save_config(st.session_state.bots)
+                    log(f"🔴 BOT {i} : VENTE (Gain: {price * qty_sell - bot['mise']:.2f}$)")
+                except: log(f"❌ Erreur Vente Bot {i}")
 
 run_cycle()
 
-st.title("🚀 SNIPER 50 BOTS CONTROL")
-with st.sidebar:
-    id_bot = st.selectbox("Bot #", range(1, 51))
-    b = st.session_state.bots[id_bot]
-    n_a = st.number_input("Achat", value=float(b["p_achat"]), format="%.4f", key=f"a{id_bot}")
-    n_v = st.number_input("Vente", value=float(b["p_vente"]), format="%.4f", key=f"v{id_bot}")
-    n_m = st.number_input("Mise", value=float(b["mise"]), key=f"m{id_bot}")
-    if st.button("💾 SAUVEGARDER"):
-        st.session_state.bots[id_bot].update({"p_achat": n_a, "p_vente": n_v, "mise": n_m})
-        save_config(st.session_state.bots)
-        st.rerun()
-    if st.button("🚀 START TOUT"): st.session_state.run = True; st.rerun()
-    if st.button("🛑 STOP TOUT"): st.session_state.run = False; st.rerun()
+# 6. INTERFACE (UI)
+st.title("🚀 XRP Sniper REAL TRADING")
+st.caption("Flux 30s | Google Sheets Actif")
 
+with st.sidebar:
+    st.header("⚙️ Config")
+    id_bot = st.selectbox("Choisir Bot", range(1, 51))
+    b = st.session_state.bots[id_bot]
+    b["actif"] = st.toggle("Activer", b["actif"])
+    b["p_achat"] = st.number_input("Prix Achat", value=b["p_achat"], format="%.4f")
+    b["p_vente"] = st.number_input("Prix Vente", value=b["p_vente"], format="%.4f")
+    b["mise"] = st.number_input("Mise ($)", value=b["mise"])
+    if st.button("💾 Sauvegarder"):
+        save_config(st.session_state.bots)
+        st.success("Cerveau mis à jour !")
+    st.divider()
+    if st.button("🚀 DÉMARRER TOUT", use_container_width=True): st.session_state.run = True
+    if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False
+
+# METRICS
 m1, m2, m3 = st.columns(3)
 m1.metric("Prix XRP", f"{st.session_state.get('price',0):.5f}")
-m2.metric("USDC", f"{st.session_state.get('usdc',0):.2f}$")
-m3.metric("XRP", f"{st.session_state.get('xrp',0):.2f}")
+m2.metric("Solde USDC", f"{st.session_state.get('usdc',0):.2f}")
+m3.metric("Solde XRP", f"{st.session_state.get('xrp',0):.2f}")
+
+# TABLEAU DES BOTS (CORRIGÉ AVEC INDEX [])
+st.divider()
+st.subheader("📊 État des 50 Bots")
+titres = st.columns([0.5, 1, 1, 1, 1.5, 1])
+titres[0].write("**ID**"); titres[1].write("**Status**"); titres[2].write("**Achat**")
+titres[3].write("**Vente**"); titres[4].write("**Étape**"); titres[5].write("**Gain**")
+
+for i in range(1, 51):
+    bt = st.session_state.bots.get(i)
+    if not bt: continue
+    row = st.columns([0.5, 1, 1, 1, 1.5, 1])
+    row[0].write(f"#{i}")
+    row[1].write("✅" if bt["actif"] else "⚪")
+    row[2].write(f"{bt['p_achat']:.4f}")
+    row[3].write(f"{bt['p_vente']:.4f}")
+    icon = "🔵" if "ACHAT" in bt["etape"] else "🟢"
+    row[4].write(f"{icon} {bt['etape']}")
+    row[5].write(f"{bt['gain_cumule']:.2f}$")
 
 st.divider()
-h = st.columns([0.5, 0.5, 0.8, 0.8, 0.8, 0.6, 1.2, 0.5, 0.6, 0.6, 1])
-h[0].write("**ID**"); h[1].write("**St**"); h[2].write("**Achat**"); h[3].write("**Vente**"); h[4].write("**Mise**"); h[5].write("**Qty**"); h[6].write("**Étape**"); h[7].write("**Cy**"); h[8].write("**Go**"); h[9].write("**Supp**"); h[10].write("**Gain**")
-
-for i in sorted(st.session_state.bots.keys()):
-    bt = st.session_state.bots[i]
-    r = st.columns([0.5, 0.5, 0.8, 0.8, 0.8, 0.6, 1.2, 0.5, 0.6, 0.6, 1])
-    r[0].write(f"#{i}"); r[1].write("✅" if bt["actif"] else "⚪")
-    r[2].write(f"{bt['p_achat']:.3f}"); r[3].write(f"{bt['p_vente']:.3f}")
-    r[4].write(f"{bt['mise'] + bt['gain_cumule']:.1f}$"); r[5].write(f"{bt['qty']:.1f}")
-    r[6].write(f"{'🔵' if 'ACHAT' in bt['etape'] else '🟢'} {bt['etape'][:6]}")
-    r[7].write(str(bt.get("cycles", 0)))
-    if r[8].button("🚀" if not bt["actif"] else "🛑", key=f"btn{i}"):
-        st.session_state.bots[i]["actif"] = not bt["actif"]
-        save_config(st.session_state.bots); st.rerun()
-    if r[9].button("🗑️", key=f"del{i}"):
-        st.session_state.bots[i].update({"actif":False,"p_achat":1.35,"p_vente":1.38,"mise":15.0,"etape":"ATTENTE_ACHAT","qty":0.0,"gain_cumule":0.0,"cycles":0})
-        save_config(st.session_state.bots); st.rerun()
-    g = bt["gain_cumule"]
-    r[10].markdown(f":{'green' if g > 0 else 'white'}[{g:.2f}$]")
-
-st.divider()
-for m in reversed(st.session_state.logs[-10:]): st.write(m)
+st.subheader("📜 Logs")
+for m in reversed(st.session_state.logs[-15:]): st.write(m)
