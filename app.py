@@ -29,7 +29,10 @@ if "bots" not in st.session_state:
         3: {"id": 3, "actif": False, "p_achat": 1.3800, "p_vente": 1.4200, "mise": 30.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         4: {"id": 4, "actif": False, "p_achat": 1.4200, "p_vente": 1.4500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         5: {"id": 5, "actif": False, "p_achat": 1.4500, "p_vente": 1.5000, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        6: {"id": 6, "actif": False, "p_achat": 1.4500, "p_vente": 1.5000, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+
     }
+    
 
 # 4. BOUCLE DE TRADING
 def run_cycle():
@@ -128,5 +131,6 @@ for i in sorted(st.session_state.bots.keys()):
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
+
 
 
