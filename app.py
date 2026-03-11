@@ -24,7 +24,7 @@ exchange = get_exchange()
 # 3. INITIALISATION (TES BOTS PAR DÉFAUT - NE S'EFFACENT JAMAIS AU REBOOT)
 if "bots" not in st.session_state:
     st.session_state.bots = {
-        1: {"id": 1, "actif": False, "p_achat": 1.3200, "p_vente": 1.3500, "mise": 10.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        1: {"id": 1, "actif": False, "p_achat": 1.387, "p_vente": 1.89, "mise": 10.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         2: {"id": 2, "actif": False, "p_achat": 1.3500, "p_vente": 1.3800, "mise": 20.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         3: {"id": 3, "actif": False, "p_achat": 1.3800, "p_vente": 1.4200, "mise": 30.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         4: {"id": 4, "actif": False, "p_achat": 1.4200, "p_vente": 1.4500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
@@ -128,4 +128,5 @@ for i in sorted(st.session_state.bots.keys()):
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
+
 
