@@ -1,10 +1,4 @@
 streamlit
 ccxt
 pandas
-numpy
 streamlit-autorefresh
-streamlit-kv
-
-
-
-
