@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # === CONFIGURATION ===
 st.set_page_config(page_title="⚡ XRP Sniper Simple", layout="centered")
 symbol = "XRP/USDC"
-st_autorefresh(interval=30000, key="refresh_app")  # rafraîchit toutes les 30 s
+st_autorefresh(interval=30000, key="refresh_app")
 CONFIG_FILE = "bots_config.json"
 
 # === SESSION / LOGS ===
@@ -45,7 +45,7 @@ def get_exchange():
 
 exchange = get_exchange()
 
-# === INITIALISATION DES BOTS ===
+# === INIT DES BOTS ===
 if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
@@ -57,7 +57,7 @@ except Exception:
     price = 0.0
 
 # === INTERFACE ===
-st.title("🚀 XRP Sniper Simple (Finale)")
+st.title("🚀 XRP Sniper Simple (Activable)")
 st.metric("Prix XRP actuel", f"{price:.5f}")
 st.divider()
 
@@ -79,8 +79,9 @@ if st.button("✅ Ajouter ce bot"):
         "p_achat": p_achat_new,
         "p_vente": p_vente_new,
         "mise": mise_new,
-        "gain": 0.0,
-        "etat": "ATTENTE"
+        "etat": "ATTENTE",
+        "actif": True,  # ACTIVE PAR DÉFAUT
+        "gain": 0.0
     }
     save_bots()
     log(f"➕ Bot #{next_id} ajouté (Achat {p_achat_new}, Vente {p_vente_new})")
@@ -95,29 +96,37 @@ if not st.session_state.bots:
     st.info("Aucun bot enregistré.")
 else:
     for i, b in sorted(st.session_state.bots.items()):
-        etat = b.get("etat", "ATTENTE")
-        couleur = "🟢"
-        message = ""
+        # Couleur selon prix et état actif/inactif
+        couleur = "⚫️" if not b.get("actif", True) else "🟢"
+        message = "Inactif" if not b.get("actif", True) else "Actif"
 
-        if price <= b["p_achat"]:
-            couleur = "🟡"
-            message = "Zone d'achat"
-        if price >= b["p_vente"]:
-            couleur = "🔴"
-            message = "Zone de vente"
+        if b.get("actif", True):
+            if price <= b["p_achat"]:
+                couleur = "🟡"
+                message = "Zone d'achat"
+            elif price >= b["p_vente"]:
+                couleur = "🔴"
+                message = "Zone de vente"
 
-        col1, col2 = st.columns([5, 1])
+        col1, col2, col3 = st.columns([4, 1, 1])
         with col1:
             st.info(
-                f"{couleur} **Bot {i}** → "
-                f"Achat : {b['p_achat']:.4f} | Vente : {b['p_vente']:.4f} | "
-                f"Mise : {b['mise']:.2f}$ | {message}"
+                f"{couleur} **Bot {i}** → Achat : {b['p_achat']:.4f} | "
+                f"Vente : {b['p_vente']:.4f} | Mise : {b['mise']:.2f}$ | {message}"
             )
         with col2:
+            # Bouton activer/désactiver
+            label = "🛑" if b.get("actif", True) else "🚀"
+            if st.button(label, key=f"toggle_{i}"):
+                b["actif"] = not b.get("actif", True)
+                save_bots()
+                st.rerun()
+        with col3:
+            # Bouton supprimer
             if st.button("🗑️", key=f"del_{i}"):
                 del st.session_state.bots[i]
                 save_bots()
-                st.warning(f"Bot #{i} supprimé 🗑️")
+                st.warning(f"Bot #{i} supprimé")
                 st.rerun()
 
 # === LOGS ===
