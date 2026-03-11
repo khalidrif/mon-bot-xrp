@@ -6,9 +6,9 @@ import time
 from streamlit_autorefresh import st_autorefresh
 
 # === CONFIGURATION ===
-st.set_page_config(page_title="⚡ XRP Sniper Simple", layout="centered")
+st.set_page_config(page_title="⚡ XRP Sniper Simple (Finale)", layout="centered")
 symbol = "XRP/USDC"
-st_autorefresh(interval=30000, key="refresh_app")
+st_autorefresh(interval=20000, key="refresh_app")  # refresh toutes les 20s (prix + logs)
 CONFIG_FILE = "bots_config.json"
 
 # === SESSION / LOGS ===
@@ -16,6 +16,7 @@ if "logs" not in st.session_state:
     st.session_state.logs = []
 
 def log(msg):
+    """Ajoute une entrée dans l’historique."""
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
 # === SAUVEGARDE / CHARGEMENT ===
@@ -45,20 +46,26 @@ def get_exchange():
 
 exchange = get_exchange()
 
-# === INIT DES BOTS ===
+# === INIT BOTS ===
 if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
-# === PRIX MARCHÉ XRP ===
+# === RÉCUPÉRATION PRIX LIVE ===
 try:
     ticker = exchange.fetch_ticker(symbol)
-    price = (ticker["bid"] + ticker["ask"]) / 2
-except Exception:
-    price = 0.0
+    price_bid = ticker["bid"]
+    price_ask = ticker["ask"]
+    price_mid = (price_bid + price_ask) / 2
+    log(f"📡 Prix reçu : Bid {price_bid:.5f} – Ask {price_ask:.5f}")
+except Exception as e:
+    price_mid = 0.0
+    log(f"⚠️ Erreur récupération prix : {e}")
 
 # === INTERFACE ===
-st.title("🚀 XRP Sniper Simple (Activable)")
-st.metric("Prix XRP actuel", f"{price:.5f}")
+st.title("🚀 XRP Sniper Simple (Finale)")
+st.metric("Prix XRP live", f"{price_mid:.5f}")
+st.caption(f"Dernière mise à jour : {time.strftime('%H:%M:%S')}")
+
 st.divider()
 
 # === AJOUT D’UN BOT ===
@@ -72,19 +79,19 @@ with col2:
 with col3:
     mise_new = st.number_input("Mise ($)", value=10.0, step=1.0)
 
-if st.button("✅ Ajouter ce bot"):
+if st.button("✅ Créer Bot"):
     next_id = max(st.session_state.bots.keys()) + 1 if st.session_state.bots else 1
     st.session_state.bots[next_id] = {
         "id": next_id,
         "p_achat": p_achat_new,
         "p_vente": p_vente_new,
         "mise": mise_new,
+        "gain": 0.0,
         "etat": "ATTENTE",
-        "actif": True,  # ACTIVE PAR DÉFAUT
-        "gain": 0.0
+        "actif": True
     }
     save_bots()
-    log(f"➕ Bot #{next_id} ajouté (Achat {p_achat_new}, Vente {p_vente_new})")
+    log(f"🆕 Bot #{next_id} ajouté : Achat {p_achat_new} – Vente {p_vente_new}")
     st.success(f"Bot #{next_id} créé 🎯")
     st.rerun()
 
@@ -96,40 +103,42 @@ if not st.session_state.bots:
     st.info("Aucun bot enregistré.")
 else:
     for i, b in sorted(st.session_state.bots.items()):
-        # Couleur selon prix et état actif/inactif
-        couleur = "⚫️" if not b.get("actif", True) else "🟢"
-        message = "Inactif" if not b.get("actif", True) else "Actif"
+        actif = b.get("actif", True)
+        couleur, message = "⚫️", "Inactif"
 
-        if b.get("actif", True):
-            if price <= b["p_achat"]:
-                couleur = "🟡"
-                message = "Zone d'achat"
-            elif price >= b["p_vente"]:
-                couleur = "🔴"
-                message = "Zone de vente"
+        if actif:
+            if price_mid <= b["p_achat"]:
+                couleur, message = "🟡", "Zone d'achat"
+            elif price_mid >= b["p_vente"]:
+                couleur, message = "🔴", "Zone de vente"
+            else:
+                couleur, message = "🟢", "Actif et en observation"
 
         col1, col2, col3 = st.columns([4, 1, 1])
         with col1:
             st.info(
-                f"{couleur} **Bot {i}** → Achat : {b['p_achat']:.4f} | "
+                f"{couleur} **Bot {i}** – Achat : {b['p_achat']:.4f} | "
                 f"Vente : {b['p_vente']:.4f} | Mise : {b['mise']:.2f}$ | {message}"
             )
         with col2:
-            # Bouton activer/désactiver
-            label = "🛑" if b.get("actif", True) else "🚀"
-            if st.button(label, key=f"toggle_{i}"):
-                b["actif"] = not b.get("actif", True)
+            # ✅ Activer / désactiver
+            toggle_label = "🛑" if actif else "🚀"
+            if st.button(toggle_label, key=f"toggle_{i}"):
+                st.session_state.bots[i]["actif"] = not actif
                 save_bots()
+                state = "activé" if not actif else "désactivé"
+                log(f"🔁 Bot #{i} {state}.")
                 st.rerun()
         with col3:
-            # Bouton supprimer
+            # 🗑️ Supprimer
             if st.button("🗑️", key=f"del_{i}"):
                 del st.session_state.bots[i]
                 save_bots()
-                st.warning(f"Bot #{i} supprimé")
+                log(f"🗑️ Bot #{i} supprimé.")
                 st.rerun()
 
-# === LOGS ===
+# === HISTORIQUE / LOGS ===
 st.divider()
-for m in reversed(st.session_state.logs[-8:]):
-    st.write(m)
+st.subheader("📜 Historique des tâches")
+for msg in reversed(st.session_state.logs[-12:]):
+    st.write(msg)
