@@ -61,19 +61,31 @@ if "run" not in st.session_state: st.session_state.run = False
 
 # 5. BOUCLE DE TRADING RÉEL
 def run_cycle():
+   # --- NOUVEAU BLOC SANS CACHE ---
     try:
-        ticker = exchange.fetch_ticker(symbol)
+        # On force Kraken à ne pas envoyer de vieux prix
+        ticker = exchange.fetch_ticker(symbol, params={'cache': time.time()})
         price = ticker["last"]
+        
+        # On vérifie si le prix bouge
+        if st.session_state.get("price") != price:
+            log(f"⚡ NOUVEAU PRIX : {price:.4f}")
+        else:
+            log(f"🔄 Prix stable : {price:.4f}")
+
         st.session_state.price = price
         
+        # Mise à jour des soldes en temps réel
         bal = exchange.fetch_balance()
         usdc_dispo = bal["free"].get("USDC", 0.0)
         st.session_state.usdc = usdc_dispo
         st.session_state.xrp = bal["free"].get("XRP", 0.0)
-        log(f"Prix XRP : {price:.4f}")
-    except:
+        
+    except Exception as e:
+        log(f"⚠️ Erreur Flux : {str(e)[:30]}")
         price = st.session_state.get("price")
         usdc_dispo = st.session_state.get("usdc", 0.0)
+
 
     if not st.session_state.run: return
 
@@ -159,3 +171,4 @@ for i in range(1, 51):
 st.divider()
 st.subheader("📜 Logs")
 for m in reversed(st.session_state.logs[-15:]): st.write(m)
+
