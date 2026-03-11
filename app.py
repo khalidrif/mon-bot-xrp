@@ -6,9 +6,9 @@ import time
 from streamlit_autorefresh import st_autorefresh
 
 # === CONFIGURATION ===
-st.set_page_config(page_title="⚡ XRP Sniper Simple (Final)", layout="centered")
+st.set_page_config(page_title="⚡ XRP Sniper Pro - Gains & Boule de neige", layout="centered")
 symbol = "XRP/USDC"
-st_autorefresh(interval=20000, key="refresh_app")  # refresh 20 s
+st_autorefresh(interval=20000, key="refresh_app")
 CONFIG_FILE = "bots_config.json"
 
 # === SESSION / LOGS ===
@@ -30,7 +30,7 @@ def load_bots():
             return {int(k): v for k, v in data.items()}
     return {}
 
-# === KRAKEN ===
+# === CONNEXION KRAKEN ===
 @st.cache_resource
 def get_exchange():
     try:
@@ -40,29 +40,29 @@ def get_exchange():
             "enableRateLimit": True
         })
     except Exception as e:
-        log(f"⚠️ Erreur Kraken : {e}")
+        log(f"⚠️ Kraken : {e}")
         return None
 
 exchange = get_exchange()
 
-# === INIT BOTS ===
+# === INIT DES BOTS ===
 if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
-# === RÉCUPÉRATION PRIX LIVE ===
+# === PRIX LIVE ===
 try:
     ticker = exchange.fetch_ticker(symbol)
-    price_bid = ticker["bid"]
-    price_ask = ticker["ask"]
-    price_mid = (price_bid + price_ask) / 2
-    log(f"📡 Prix reçu : Bid {price_bid:.5f} – Ask {price_ask:.5f}")
+    bid = ticker["bid"]
+    ask = ticker["ask"]
+    mid = (bid + ask) / 2
+    log(f"📡 Prix reçu : Bid {bid:.5f} – Ask {ask:.5f}")
 except Exception as e:
-    price_bid = price_ask = price_mid = 0.0
-    log(f"⚠️ Erreur récupération prix : {e}")
+    bid = ask = mid = 0.0
+    log(f"⚠️ Erreur récupération ticker : {e}")
 
 # === INTERFACE ===
-st.title("🚀 XRP Sniper Simple (Version Finale)")
-st.metric("💰 Prix XRP actuel", f"{price_mid:.5f}")
+st.title("🚀 XRP Sniper Simple - Gains & Boule de neige")
+st.metric("Prix XRP", f"{mid:.5f}")
 st.caption(f"Dernière mise à jour : {time.strftime('%H:%M:%S')}")
 st.divider()
 
@@ -77,72 +77,95 @@ with col2:
 with col3:
     mise_new = st.number_input("Mise ($)", value=10.0, step=1.0)
 
-if st.button("✅ Créer Bot"):
+if st.button("✅ Créer Bot"):
     next_id = max(st.session_state.bots.keys()) + 1 if st.session_state.bots else 1
     st.session_state.bots[next_id] = {
         "id": next_id,
         "p_achat": p_achat_new,
         "p_vente": p_vente_new,
         "mise": mise_new,
-        "gain": 0.0,
-        "etat": "ATTENTE",
-        "actif": True
+        "gain_net": 0.0,
+        "cycles": 0,
+        "actif": True,
+        "etape": "ACHAT"
     }
     save_bots()
-    log(f"🆕 Bot #{next_id} ajouté : Achat {p_achat_new} / Vente {p_vente_new}")
+    log(f"🆕 Bot #{next_id} ajouté (Achat {p_achat_new:.4f} / Vente {p_vente_new:.4f})")
     st.success(f"Bot #{next_id} créé 🎯")
     st.rerun()
 
+# === LOGIQUE SIMULÉE (Boule de neige + cycles + gains) ===
+# 👉 Simulation simple : quand prix <= achat => étape VENTE
+#    puis quand prix >= vente => gain + cycle + mise += gain
+for i, b in st.session_state.bots.items():
+    if not b.get("actif", True):
+        continue
+
+    # ACHAT
+    if b["etape"] == "ACHAT" and mid <= b["p_achat"]:
+        b["etape"] = "VENTE"
+        log(f"🟡 Bot #{i} : condition d'achat atteinte ({mid:.5f})")
+
+    # VENTE
+    elif b["etape"] == "VENTE" and mid >= b["p_vente"]:
+        gain = (b["p_vente"] - b["p_achat"]) / b["p_achat"] * b["mise"]
+        b["gain_net"] += gain
+        b["cycles"] += 1
+        b["mise"] += gain  # effet boule de neige
+        b["etape"] = "ACHAT"  # repart pour un cycle
+        log(f"💰 Bot #{i} : +{gain:.2f}$ gain cycle {b['cycles']} (nouvelle mise {b['mise']:.2f}$)")
+        save_bots()
+
 # === LISTE DES BOTS ===
 st.divider()
-st.subheader("📊 Mes bots")
+st.subheader("📊 Mes Bots")
 
 if not st.session_state.bots:
-    st.info("Aucun bot enregistré.")
+    st.info("Aucun bot actif.")
 else:
     for i, b in sorted(st.session_state.bots.items()):
         actif = b.get("actif", True)
-        couleur, message = "⚫️", "Inactif"
-
+        couleur, zone = ("⚫️", "Inactif") if not actif else ("🟢", "Observation")
         if actif:
-            if price_mid <= b["p_achat"]:
-                couleur, message = "🟡", "Zone d'achat"
-            elif price_mid >= b["p_vente"]:
-                couleur, message = "🔴", "Zone de vente"
-            else:
-                couleur, message = "🟢", "Actif et en observation"
+            if mid <= b["p_achat"]:
+                couleur, zone = ("🟡", "Achat possible")
+            elif mid >= b["p_vente"]:
+                couleur, zone = ("🔴", "Vente possible")
 
-        col1, col2, col3 = st.columns([4, 1, 1])
+        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
         with col1:
             st.info(
-                f"{couleur} **Bot {i}** → Achat : {b['p_achat']:.4f} | "
-                f"Vente : {b['p_vente']:.4f} | Mise : {b['mise']:.2f}$ | {message}"
+                f"{couleur} **Bot {i}** → Achat {b['p_achat']:.4f} | Vente {b['p_vente']:.4f} | "
+                f"Mise : {b['mise']:.2f}$ | Gain : {b['gain_net']:.2f}$ | Cycles : {b['cycles']}"
             )
         with col2:
-            toggle_label = "🛑" if actif else "🚀"
-            if st.button(toggle_label, key=f"toggle_{i}"):
-                st.session_state.bots[i]["actif"] = not actif
+            # Activer / Désactiver
+            toggle = "🛑" if actif else "🚀"
+            if st.button(toggle, key=f"toggle_{i}"):
+                b["actif"] = not actif
                 save_bots()
-                state = "activé" if not actif else "désactivé"
-                log(f"🔁 Bot #{i} {state}.")
+                log(f"🔁 Bot #{i} {'désactivé' if actif else 'activé'}.")
                 st.rerun()
         with col3:
+            # Supprimer
             if st.button("🗑️", key=f"del_{i}"):
                 del st.session_state.bots[i]
                 save_bots()
-                log(f"🗑️ Bot #{i} supprimé.")
+                log(f"🗑️ Bot #{i} supprimé.")
                 st.rerun()
+        with col4:
+            st.write(zone)
 
 # === LOGS ===
 st.divider()
-st.subheader("📜 Historique des tâches récentes")
-for msg in reversed(st.session_state.logs[-10:]):
+st.subheader("📜 Historique")
+for msg in reversed(st.session_state.logs[-12:]):
     st.write(msg)
 
-# === PRIX EN DIRECT (BID / ASK / MID) ===
+# === PRIX DÉTAILLÉ ===
 st.divider()
-st.subheader("💹 Détail du Prix en temps réel")
+st.subheader("💹 Prix temps réel")
 colA, colB, colC = st.columns(3)
-colA.metric("Bid (acheteurs)", f"{price_bid:.5f}")
-colB.metric("Ask (vendeurs)", f"{price_ask:.5f}")
-colC.metric("Prix moyen (Mid)", f"{price_mid:.5f}")
+colA.metric("Bid", f"{bid:.5f}")
+colB.metric("Ask", f"{ask:.5f}")
+colC.metric("Mid", f"{mid:.5f}")
