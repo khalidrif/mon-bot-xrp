@@ -6,7 +6,7 @@ from streamlit_autorefresh import st_autorefresh
 from streamlit_gsheets import GSheetsConnection
 
 # 1. CONFIGURATION
-st.set_page_config(page_title="XRP SNIPER SNOWBALL PRO", layout="wide")
+st.set_page_config(page_title="XRP SNIPER PRO - CONTROL CENTER", layout="wide")
 symbol = "XRP/USDC"
 conn = st.connection("gsheets", type=GSheetsConnection)
 st_autorefresh(interval=30000, key="bot_refresh")
@@ -47,7 +47,7 @@ def save_config(bots_dict):
         data = [{"id": i, **b} for i, b in bots_dict.items()]
         df = pd.DataFrame(data)
         conn.update(data=df)
-    except: st.error("❌ Erreur Sauvegarde Google Sheets")
+    except: st.error("❌ Erreur Sauvegarde Cloud")
 
 # 4. INITIALISATION
 if "bots" not in st.session_state:
@@ -57,13 +57,12 @@ if "bots" not in st.session_state:
 
 if "run" not in st.session_state: st.session_state.run = False
 
-# 5. BOUCLE DE TRADING (BOULE DE NEIGE)
+# 5. BOUCLE DE TRADING
 def run_cycle():
     try:
         ticker = exchange.fetch_ticker(symbol)
-        price = (ticker["bid"] + ticker["ask"]) / 2 # Prix mobile
+        price = (ticker["bid"] + ticker["ask"]) / 2
         st.session_state.price = price
-        
         bal = exchange.fetch_balance()
         usdc_dispo = bal["free"].get("USDC", 0.0)
         st.session_state.usdc = usdc_dispo
@@ -77,95 +76,88 @@ def run_cycle():
 
     for i, bot in st.session_state.bots.items():
         if not bot["actif"]: continue
-        
-        # MISE ACTUELLE (Initiale + Gains)
-        mise_actuelle = bot["mise"] + bot["gain_cumule"]
+        mise_actu = bot["mise"] + bot["gain_cumule"]
 
-        # --- ACHAT ---
         if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
-            if usdc_dispo >= mise_actuelle:
+            if usdc_dispo >= mise_actu:
                 try:
-                    qty = float(exchange.amount_to_precision(symbol, (mise_actuelle * 0.98) / price))
+                    qty = float(exchange.amount_to_precision(symbol, (mise_actu * 0.98) / price))
                     exchange.create_market_buy_order(symbol, qty)
-                    bot["qty"] = qty
-                    bot["etape"] = "ATTENTE_VENTE"
-                    save_config(st.session_state.bots)
-                    log(f"🟢 BOT {i} : ACHAT Snowball {mise_actuelle:.2f}$")
+                    bot["qty"] = qty; bot["etape"] = "ATTENTE_VENTE"
+                    save_config(st.session_state.bots); log(f"🟢 Bot {i} : ACHAT {qty} XRP")
                 except: log(f"❌ Erreur Achat Bot {i}")
-
-        # --- VENTE ---
+        
         elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
             if bot["qty"] > 0:
                 try:
                     qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
                     exchange.create_market_sell_order(symbol, qty_sell)
-                    gain_net = (price * qty_sell) - mise_actuelle
-                    bot["gain_cumule"] += gain_net
-                    bot["qty"] = 0
-                    bot["etape"] = "ATTENTE_ACHAT"
-                    save_config(st.session_state.bots)
-                    log(f"💰 BOT {i} : VENTE ! Gain Net: +{gain_net:.2f}$")
+                    gain = (price * qty_sell) - mise_actu
+                    bot["gain_cumule"] += gain; bot["qty"] = 0; bot["etape"] = "ATTENTE_ACHAT"
+                    save_config(st.session_state.bots); log(f"🔴 Bot {i} : VENTE Gain {gain:.2f}$")
                 except: log(f"❌ Erreur Vente Bot {i}")
 
 run_cycle()
 
 # 6. INTERFACE (UI)
-st.title("🚀 XRP SNIPER PRO - SNOWBALL EDITION")
+st.title("🚀 XRP SNIPER - CONTROL CENTER")
 
 with st.sidebar:
-    st.header("⚙️ Config")
-    id_bot = st.selectbox("Sélectionner Bot", range(1, 51))
+    st.header("⚙️ Config Rapide")
+    id_bot = st.selectbox("Bot", range(1, 51))
     b = st.session_state.bots[id_bot]
-    b["actif"] = st.toggle("Activer le Bot", b["actif"])
-    b["p_achat"] = st.number_input("Prix Achat", value=b["p_achat"], format="%.4f")
-    b["p_vente"] = st.number_input("Prix Vente", value=b["p_vente"], format="%.4f")
-    b["mise"] = st.number_input("Mise de départ ($)", value=b["mise"])
-    if st.button("💾 Sauvegarder sur Cloud"):
-        save_config(st.session_state.bots)
-        st.success("Config enregistrée !")
+    b["p_achat"] = st.number_input("Achat", value=b["p_achat"], format="%.4f")
+    b["p_vente"] = st.number_input("Vente", value=b["p_vente"], format="%.4f")
+    b["mise"] = st.number_input("Mise", value=b["mise"])
+    if st.button("💾 Sauver Config"):
+        save_config(st.session_state.bots); st.success("OK")
     st.divider()
-    if st.button("🚀 DÉMARRER TOUT", use_container_width=True): st.session_state.run = True
+    if st.button("🚀 START TOUT", use_container_width=True): st.session_state.run = True
     if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False
 
 # METRICS
 m1, m2, m3 = st.columns(3)
-m1.metric("Prix XRP", f"{st.session_state.get('price', 0):.5f}")
-m2.metric("Solde USDC", f"{st.session_state.get('usdc', 0):.2f}$")
-m3.metric("Solde XRP", f"{st.session_state.get('xrp', 0):.2f}")
+m1.metric("Prix XRP", f"{st.session_state.get('price',0):.5f}")
+m2.metric("USDC", f"{st.session_state.get('usdc',0):.2f}$")
+m3.metric("XRP", f"{st.session_state.get('xrp',0):.2f}")
 
-# TABLEAU DES BOTS AVEC EFFET BOULE DE NEIGE
+# TABLEAU DE CONTRÔLE INDIVIDUEL
 st.divider()
-st.subheader("📊 Suivi des 50 Bots (Boule de Neige)")
-titres = st.columns([0.5, 0.8, 1, 1, 1, 1, 1, 1])
-titres[0].write("**ID**")
-titres[1].write("**Status**")
-titres[2].write("**Achat**")
-titres[3].write("**Vente**")
-titres[4].write("**Mise Init.**")
-titres[5].write("**Mise Actu.**") # Boule de neige
-titres[6].write("**Étape**")
-titres[7].write("**Profit Net**")
+st.subheader("📊 Gestion des 50 Bots")
+cols = st.columns([0.4, 0.4, 0.7, 0.7, 0.7, 1.2, 0.6, 0.6, 1])
+cols[0].write("**ID**"); cols[1].write("**Stat**"); cols[2].write("**Achat**")
+cols[3].write("**Vente**"); cols[4].write("**Mise**"); cols[5].write("**Étape**")
+cols[6].write("**Go**"); cols[7].write("**Clr**"); cols[8].write("**Gain**")
 
 for i in range(1, 51):
     bt = st.session_state.bots.get(i)
-    if not bt: continue
-    row = st.columns([0.5, 0.8, 1, 1, 1, 1, 1, 1])
-    row[0].write(f"#{i}")
-    row[1].write("✅" if bt["actif"] else "⚪")
-    row[2].write(f"{bt['p_achat']:.4f}")
-    row[3].write(f"{bt['p_vente']:.4f}")
-    row[4].write(f"{bt['mise']:.1f}$")
-    
-    # Mise actuelle (Boule de neige)
-    mise_actu = bt["mise"] + bt["gain_cumule"]
-    row[5].write(f"**{mise_actu:.2f}$**")
-    
+    r = st.columns([0.4, 0.4, 0.7, 0.7, 0.7, 1.2, 0.6, 0.6, 1])
+    r[0].write(f"#{i}")
+    r[1].write("✅" if bt["actif"] else "⚪")
+    r[2].write(f"{bt['p_achat']:.3f}")
+    r[3].write(f"{bt['p_vente']:.3f}")
+    r[4].write(f"{bt['mise'] + bt['gain_cumule']:.1f}$")
     icon = "🔵" if "ACHAT" in bt["etape"] else "🟢"
-    row[6].write(f"{icon} {bt['etape']}")
+    r[5].write(f"{icon} {bt['etape']}")
     
+    # Bouton Start/Stop individuel
+    if bt["actif"]:
+        if r[6].button("🛑", key=f"s_{i}"):
+            st.session_state.bots[i]["actif"] = False
+            save_config(st.session_state.bots); st.rerun()
+    else:
+        if r[6].button("🚀", key=f"g_{i}"):
+            st.session_state.bots[i]["actif"] = True
+            save_config(st.session_state.bots); st.rerun()
+            
+    # Bouton Réinitialiser (🗑️)
+    if r[7].button("🗑️", key=f"r_{i}"):
+        st.session_state.bots[i] = {"id":i,"actif":False,"p_achat":1.35,"p_vente":1.38,"mise":15.0,"etape":"ATTENTE_ACHAT","qty":0.0,"gain_cumule":0.0}
+        save_config(st.session_state.bots); st.rerun()
+
     gain = bt["gain_cumule"]
     color = "green" if gain > 0 else "white"
-    row[7].markdown(f":{color}[{gain:.2f}$]")
+    r[8].markdown(f":{color}[{gain:.2f}$]")
 
 st.divider()
-for m in reversed(st.session_state.logs[-15:]): st.write(m)
+for m in reversed(st.session_state.logs[-10:]): st.write(m)
