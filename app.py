@@ -6,9 +6,9 @@ import time
 from streamlit_autorefresh import st_autorefresh
 
 # === CONFIGURATION ===
-st.set_page_config(page_title="⚡ XRP Sniper Simple (Finale)", layout="centered")
+st.set_page_config(page_title="⚡ XRP Sniper Simple (Final)", layout="centered")
 symbol = "XRP/USDC"
-st_autorefresh(interval=20000, key="refresh_app")  # refresh toutes les 20s (prix + logs)
+st_autorefresh(interval=20000, key="refresh_app")  # refresh 20 s
 CONFIG_FILE = "bots_config.json"
 
 # === SESSION / LOGS ===
@@ -16,7 +16,6 @@ if "logs" not in st.session_state:
     st.session_state.logs = []
 
 def log(msg):
-    """Ajoute une entrée dans l’historique."""
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
 # === SAUVEGARDE / CHARGEMENT ===
@@ -31,7 +30,7 @@ def load_bots():
             return {int(k): v for k, v in data.items()}
     return {}
 
-# === CONNEXION KRAKEN ===
+# === KRAKEN ===
 @st.cache_resource
 def get_exchange():
     try:
@@ -56,16 +55,15 @@ try:
     price_bid = ticker["bid"]
     price_ask = ticker["ask"]
     price_mid = (price_bid + price_ask) / 2
-    log(f"📡 Prix reçu : Bid {price_bid:.5f} – Ask {price_ask:.5f}")
+    log(f"📡 Prix reçu : Bid {price_bid:.5f} – Ask {price_ask:.5f}")
 except Exception as e:
-    price_mid = 0.0
+    price_bid = price_ask = price_mid = 0.0
     log(f"⚠️ Erreur récupération prix : {e}")
 
 # === INTERFACE ===
-st.title("🚀 XRP Sniper Simple (Finale)")
-st.metric("Prix XRP live", f"{price_mid:.5f}")
+st.title("🚀 XRP Sniper Simple (Version Finale)")
+st.metric("💰 Prix XRP actuel", f"{price_mid:.5f}")
 st.caption(f"Dernière mise à jour : {time.strftime('%H:%M:%S')}")
-
 st.divider()
 
 # === AJOUT D’UN BOT ===
@@ -91,7 +89,7 @@ if st.button("✅ Créer Bot"):
         "actif": True
     }
     save_bots()
-    log(f"🆕 Bot #{next_id} ajouté : Achat {p_achat_new} – Vente {p_vente_new}")
+    log(f"🆕 Bot #{next_id} ajouté : Achat {p_achat_new} / Vente {p_vente_new}")
     st.success(f"Bot #{next_id} créé 🎯")
     st.rerun()
 
@@ -117,11 +115,10 @@ else:
         col1, col2, col3 = st.columns([4, 1, 1])
         with col1:
             st.info(
-                f"{couleur} **Bot {i}** – Achat : {b['p_achat']:.4f} | "
+                f"{couleur} **Bot {i}** → Achat : {b['p_achat']:.4f} | "
                 f"Vente : {b['p_vente']:.4f} | Mise : {b['mise']:.2f}$ | {message}"
             )
         with col2:
-            # ✅ Activer / désactiver
             toggle_label = "🛑" if actif else "🚀"
             if st.button(toggle_label, key=f"toggle_{i}"):
                 st.session_state.bots[i]["actif"] = not actif
@@ -130,15 +127,22 @@ else:
                 log(f"🔁 Bot #{i} {state}.")
                 st.rerun()
         with col3:
-            # 🗑️ Supprimer
             if st.button("🗑️", key=f"del_{i}"):
                 del st.session_state.bots[i]
                 save_bots()
-                log(f"🗑️ Bot #{i} supprimé.")
+                log(f"🗑️ Bot #{i} supprimé.")
                 st.rerun()
 
-# === HISTORIQUE / LOGS ===
+# === LOGS ===
 st.divider()
-st.subheader("📜 Historique des tâches")
-for msg in reversed(st.session_state.logs[-12:]):
+st.subheader("📜 Historique des tâches récentes")
+for msg in reversed(st.session_state.logs[-10:]):
     st.write(msg)
+
+# === PRIX EN DIRECT (BID / ASK / MID) ===
+st.divider()
+st.subheader("💹 Détail du Prix en temps réel")
+colA, colB, colC = st.columns(3)
+colA.metric("Bid (acheteurs)", f"{price_bid:.5f}")
+colB.metric("Ask (vendeurs)", f"{price_ask:.5f}")
+colC.metric("Prix moyen (Mid)", f"{price_mid:.5f}")
