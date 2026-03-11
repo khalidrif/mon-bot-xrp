@@ -75,10 +75,10 @@ def run_cycle():
     if not st.session_state.run: return
 
     for i, bot in st.session_state.bots.items():
-        if not bot["actif"]: continue
-        mise_actu = bot["mise"] + bot["gain_cumule"]
+        if not bot.get("actif", False): continue
+        mise_actu = bot.get("mise", 15.0) + bot.get("gain_cumule", 0.0)
 
-        if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
+        if bot.get("etape") == "ATTENTE_ACHAT" and price <= bot.get("p_achat"):
             if usdc_dispo >= mise_actu:
                 try:
                     qty = float(exchange.amount_to_precision(symbol, (mise_actu * 0.98) / price))
@@ -87,8 +87,8 @@ def run_cycle():
                     save_config(st.session_state.bots); log(f"🟢 Bot {i} : ACHAT {qty} XRP")
                 except: log(f"❌ Erreur Achat Bot {i}")
         
-        elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
-            if bot["qty"] > 0:
+        elif bot.get("etape") == "ATTENTE_VENTE" and price >= bot.get("p_vente"):
+            if bot.get("qty", 0) > 0:
                 try:
                     qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
                     exchange.create_market_sell_order(symbol, qty_sell)
@@ -105,12 +105,13 @@ st.title("🚀 XRP SNIPER - CONTROL CENTER")
 with st.sidebar:
     st.header("⚙️ Config Rapide")
     id_bot = st.selectbox("Bot", range(1, 51))
-    b = st.session_state.bots[id_bot]
-    b["p_achat"] = st.number_input("Achat", value=b["p_achat"], format="%.4f")
-    b["p_vente"] = st.number_input("Vente", value=b["p_vente"], format="%.4f")
-    b["mise"] = st.number_input("Mise", value=b["mise"])
-    if st.button("💾 Sauver Config"):
-        save_config(st.session_state.bots); st.success("OK")
+    b_sel = st.session_state.bots.get(id_bot, {})
+    if b_sel:
+        b_sel["p_achat"] = st.number_input("Achat", value=b_sel.get("p_achat", 1.35), format="%.4f")
+        b_sel["p_vente"] = st.number_input("Vente", value=b_sel.get("p_vente", 1.38), format="%.4f")
+        b_sel["mise"] = st.number_input("Mise", value=b_sel.get("mise", 15.0))
+        if st.button("💾 Sauver Config"):
+            save_config(st.session_state.bots); st.success("OK")
     st.divider()
     if st.button("🚀 START TOUT", use_container_width=True): st.session_state.run = True
     if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False
@@ -121,27 +122,34 @@ m1.metric("Prix XRP", f"{st.session_state.get('price',0):.5f}")
 m2.metric("USDC", f"{st.session_state.get('usdc',0):.2f}$")
 m3.metric("XRP", f"{st.session_state.get('xrp',0):.2f}")
 
-# TABLEAU DE CONTRÔLE INDIVIDUEL
+# TABLEAU DE CONTRÔLE INDIVIDUEL (SÉCURISÉ)
 st.divider()
 st.subheader("📊 Gestion des 50 Bots")
-cols = st.columns([0.4, 0.4, 0.7, 0.7, 0.7, 1.2, 0.6, 0.6, 1])
-cols[0].write("**ID**"); cols[1].write("**Stat**"); cols[2].write("**Achat**")
-cols[3].write("**Vente**"); cols[4].write("**Mise**"); cols[5].write("**Étape**")
-cols[6].write("**Go**"); cols[7].write("**Clr**"); cols[8].write("**Gain**")
+cols_head = st.columns([0.4, 0.4, 0.7, 0.7, 0.7, 1.2, 0.6, 0.6, 1])
+cols_head[0].write("**ID**"); cols_head[1].write("**Stat**"); cols_head[2].write("**Achat**")
+cols_head[3].write("**Vente**"); cols_head[4].write("**Mise**"); cols_head[5].write("**Étape**")
+cols_head[6].write("**Go**"); cols_head[7].write("**Clr**"); cols_head[8].write("**Gain**")
 
 for i in range(1, 51):
     bt = st.session_state.bots.get(i)
+    if bt is None: continue
+    
     r = st.columns([0.4, 0.4, 0.7, 0.7, 0.7, 1.2, 0.6, 0.6, 1])
     r[0].write(f"#{i}")
-    r[1].write("✅" if bt["actif"] else "⚪")
-    r[2].write(f"{bt['p_achat']:.3f}")
-    r[3].write(f"{bt['p_vente']:.3f}")
-    r[4].write(f"{bt['mise'] + bt['gain_cumule']:.1f}$")
-    icon = "🔵" if "ACHAT" in bt["etape"] else "🟢"
-    r[5].write(f"{icon} {bt['etape']}")
+    is_actif = bt.get("actif", False)
+    r[1].write("✅" if is_actif else "⚪")
+    r[2].write(f"{bt.get('p_achat', 0):.3f}")
+    r[3].write(f"{bt.get('p_vente', 0):.3f}")
     
-    # Bouton Start/Stop individuel
-    if bt["actif"]:
+    mise_actu = bt.get('mise', 15.0) + bt.get('gain_cumule', 0.0)
+    r[4].write(f"{mise_actu:.1f}$")
+    
+    etape = bt.get('etape', 'ATTENTE_ACHAT')
+    icon = "🔵" if "ACHAT" in etape else "🟢"
+    r[5].write(f"{icon} {etape}")
+    
+    # Boutons avec clés uniques
+    if is_actif:
         if r[6].button("🛑", key=f"s_{i}"):
             st.session_state.bots[i]["actif"] = False
             save_config(st.session_state.bots); st.rerun()
@@ -150,12 +158,11 @@ for i in range(1, 51):
             st.session_state.bots[i]["actif"] = True
             save_config(st.session_state.bots); st.rerun()
             
-    # Bouton Réinitialiser (🗑️)
     if r[7].button("🗑️", key=f"r_{i}"):
         st.session_state.bots[i] = {"id":i,"actif":False,"p_achat":1.35,"p_vente":1.38,"mise":15.0,"etape":"ATTENTE_ACHAT","qty":0.0,"gain_cumule":0.0}
         save_config(st.session_state.bots); st.rerun()
 
-    gain = bt["gain_cumule"]
+    gain = bt.get('gain_cumule', 0.0)
     color = "green" if gain > 0 else "white"
     r[8].markdown(f":{color}[{gain:.2f}$]")
 
