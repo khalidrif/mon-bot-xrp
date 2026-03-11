@@ -29,7 +29,7 @@ exchange = get_exchange()
 # --- 3. INITIALISATION DES BOTS (MODIFIE ICI SUR GITHUB) ---
 if "bots" not in st.session_state:
     st.session_state.bots = {
-        1: {"id": 1, "actif": True, "p_achat": 1.402, "p_vente": 1.408, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        1: {"id": 1, "actif": True, "p_achat": 1.402, "p_vente": 1.408, "mise": 10.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         2: {"id": 2, "actif": True, "p_achat": 1.350, "p_vente": 1.380, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
     }
 
@@ -151,4 +151,5 @@ for i in sorted(st.session_state.bots.keys()):
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
+
 
