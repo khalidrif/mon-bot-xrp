@@ -19,19 +19,14 @@ def log(msg):
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
 # ------------------------------------------------------------
-# AUTO-REFRESH STREAMLIT CLOUD SAFE (NO ERROR, NO FLICKER)
 # ------------------------------------------------------------
-def auto_refresh():
-    st.markdown("""
-        <script>
-            setTimeout(function() {
-                document.getElementById('refresh_button').click();
-            }, 2000);
-        </script>
-    """, unsafe_allow_html=True)
-    st.button("refresh", key="refresh_button")
+# RAFRAÎCHISSEMENT AUTOMATIQUE (30 secondes)
+# ------------------------------------------------------------
+from streamlit_autorefresh import st_autorefresh
 
-auto_refresh()
+# Actualise le bot toutes les 30 secondes pour éviter d'être banni par Kraken
+st_autorefresh(interval=30 * 1000, key="bot_refresh")
+
 
 # ------------------------------------------------------------
 # JSON CONFIG AVEC BACKUP & PROTECTION
@@ -276,5 +271,6 @@ for i, bot in st.session_state.bots.items():
 st.subheader("📝 LOGS EN DIRECT")
 for line in st.session_state.logs[-40:]:
     st.write(line)
+
 
 
