@@ -5,26 +5,23 @@ import json
 import os
 from streamlit_autorefresh import st_autorefresh
 
-# === CONFIGURATION DE L’APPLICATION ===
+# === CONFIGURATION APPLICATION ===
 st.set_page_config(
     page_title="⚡ XRP SNIPER AUTO‑OFF Mobile",
-    layout="centered",  # meilleur affichage iPhone
+    layout="centered",       # format iPhone
     initial_sidebar_state="collapsed"
 )
 symbol = "XRP/USDC"
-st_autorefresh(interval=40000, key="bot_refresh")  # 40s
-
+st_autorefresh(interval=40000, key="bot_refresh")
 CONFIG_FILE = "bots_config.json"
 
-
-# === SESSION / LOGS ===
+# === SESSION INIT ===
 if "logs" not in st.session_state: st.session_state.logs = []
 if "run" not in st.session_state: st.session_state.run = True
 if "global_lock" not in st.session_state: st.session_state.global_lock = False
 
 def log(msg):
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
-
 
 # === SAUVEGARDE / CHARGEMENT ===
 def save_bots_to_file():
@@ -35,13 +32,17 @@ def load_bots_from_file():
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r") as f:
             data = json.load(f)
-            # conversion des clés str -> int
-            bots = {int(k): v for k, v in data.items()}
+            # Corrige le TypeError : conversion str -> int
+            bots = {}
+            for k, v in data.items():
+                try:
+                    bots[int(k)] = v
+                except Exception:
+                    log(f"⚠️ Clé invalide ignorée : {k}")
             return bots
     return None
 
-
-# === CONNEXION KRAKEN ===
+# === CONNEXION KRANKEN ===
 @st.cache_resource
 def get_exchange():
     return ccxt.kraken({
@@ -49,11 +50,9 @@ def get_exchange():
         "secret": st.secrets["KRAKEN_API_SECRET"],
         "enableRateLimit": True
     })
-
 exchange = get_exchange()
 
-
-# === INITIALISATION DES BOTS ===
+# === INIT BOTS ===
 if "bots" not in st.session_state:
     bots_loaded = load_bots_from_file()
     if bots_loaded:
@@ -62,13 +61,13 @@ if "bots" not in st.session_state:
     else:
         st.session_state.bots = {
             1: {"id": 1, "actif": True, "p_achat": 1.400, "p_vente": 1.410, "mise": 15.0,
-                "etape": "ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0, "last_action_time": 0}
+                "etape": "ACHAT", "qty": 0.0, "gain_cumule": 0.0,
+                "cycles": 0, "last_action_time": 0}
         }
         save_bots_to_file()
         log("💾 Configuration par défaut créée.")
 
-
-# === FONCTION DE TRADING ===
+# === LOGIQUE TRADING ===
 def run_cycle():
     if st.session_state.global_lock:
         log("⛔️ Cycle bloqué (verrou global actif).")
@@ -90,19 +89,18 @@ def run_cycle():
         return
 
     now = time.time()
-
     for i in sorted(st.session_state.bots.keys()):
         bot = st.session_state.bots[i]
         if not bot.get("actif"):
             continue
 
-        # anti double exécution
+        # Anti double exécution
         if now - bot.get("last_action_time", 0) < 10:
             continue
 
         mise_actu = bot["mise"] + bot["gain_cumule"]
 
-        # === LOGIQUE ACHAT ===
+        # --- Achat ---
         if bot["etape"] == "ACHAT" and st.session_state.price <= bot["p_achat"]:
             if st.session_state.usdc >= mise_actu and not st.session_state.global_lock:
                 st.session_state.global_lock = True
@@ -119,13 +117,13 @@ def run_cycle():
                     log(f"✅ Bot {i} : LIMIT ACHAT {p_target}")
                 except Exception as e:
                     bot["actif"] = True
-                    log(f"❌ Achat {i} : {e}")
+                    log(f"❌ Erreur Achat {i}: {e}")
                 finally:
                     st.session_state.global_lock = False
                     save_bots_to_file()
                 break
 
-        # === LOGIQUE VENTE ===
+        # --- Vente ---
         elif bot["etape"] == "VENTE" and st.session_state.price >= bot["p_vente"]:
             if bot.get("qty", 0) > 0 and not st.session_state.global_lock:
                 st.session_state.global_lock = True
@@ -145,7 +143,7 @@ def run_cycle():
                     log(f"💰 Bot {i} : LIMIT VENTE {p_target}")
                 except Exception as e:
                     bot["actif"] = True
-                    log(f"❌ Vente {i} : {e}")
+                    log(f"❌ Erreur Vente {i}: {e}")
                 finally:
                     st.session_state.global_lock = False
                     save_bots_to_file()
@@ -153,12 +151,10 @@ def run_cycle():
 
     log("🕒 Cycle terminé – en attente du refresh.")
 
-
-# === EXÉCUTION ===
+# === EXÉCUTION DU CYCLE ===
 run_cycle()
 
-
-# === INTERFACE PRINCIPALE ===
+# === INTERFACE ===
 st.title("🚀 XRP Sniper Auto‑Off")
 st.caption(f"Dernière mise à jour : {time.strftime('%H:%M:%S')}")
 st.metric("Prix XRP", f"{st.session_state.get('price', 0):.5f}")
@@ -167,37 +163,37 @@ st.metric("Solde XRP", f"{st.session_state.get('xrp', 0):.2f}")
 
 st.divider()
 
-
 # === MENU GESTION DES BOTS ===
 st.header("⚙️ Gestion des bots")
 
 if st.session_state.bots:
-    bot_id = st.selectbox("Sélectionne un bot", sorted(st.session_state.bots.keys()))
+    bot_id = st.selectbox("Sélectionner un bot", sorted(st.session_state.bots.keys()))
     bot = st.session_state.bots[bot_id]
     st.subheader(f"Bot #{bot_id}")
     bot["p_achat"] = st.number_input("Prix d'achat", value=float(bot["p_achat"]), step=0.0001)
     bot["p_vente"] = st.number_input("Prix de vente", value=float(bot["p_vente"]), step=0.0001)
     bot["mise"] = st.number_input("Mise (USDC)", value=float(bot["mise"]), step=1.0)
 
-    c1, c2 = st.columns(2)
-    with c1:
+    col1, col2 = st.columns(2)
+    with col1:
         if st.button("💾 Sauvegarder ce bot"):
             save_bots_to_file()
-            st.success(f"Bot #{bot_id} enregistré ✅")
-    with c2:
+            st.success(f"Bot #{bot_id} sauvegardé ✅")
+    with col2:
         if st.button("🗑️ Supprimer ce bot"):
             del st.session_state.bots[bot_id]
             save_bots_to_file()
             st.warning(f"Bot #{bot_id} supprimé 🗑️")
             st.experimental_rerun()
+
 else:
-    st.info("Aucun bot pour le moment, créez-en un ci-dessous 👇")
+    st.info("Aucun bot pour le moment. Créez‑en un 👇")
 
 st.divider()
 
-# === AJOUT DE NOUVEAU BOT ===
+# === AJOUT D’UN NOUVEAU BOT ===
 st.subheader("➕ Créer un nouveau bot")
-next_id = max(st.session_state.bots.keys()) + 1 if st.session_state.bots else 1
+next_id = max(map(int, st.session_state.bots.keys())) + 1 if st.session_state.bots else 1
 p_achat_new = st.number_input("Prix d'achat", value=1.400, step=0.0001, key="p_achat_new")
 p_vente_new = st.number_input("Prix de vente", value=1.410, step=0.0001, key="p_vente_new")
 mise_new = st.number_input("Mise (USDC)", value=10.0, step=1.0, key="mise_new")
@@ -218,7 +214,6 @@ if st.button("🆕 Créer le bot"):
     save_bots_to_file()
     st.success(f"✅ Bot #{next_id} créé et sauvegardé.")
     st.experimental_rerun()
-
 
 st.divider()
 for m in reversed(st.session_state.logs[-12:]):
