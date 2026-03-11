@@ -33,6 +33,8 @@ if "bots" not in st.session_state:
         3: {"id": 3, "actif": False, "p_achat": 1.380, "p_vente": 1.420, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         4: {"id": 4, "actif": False, "p_achat": 1.420, "p_vente": 1.450, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         5: {"id": 5, "actif": False, "p_achat": 1.450, "p_vente": 1.500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        6: {"id": 6, "actif": False, "p_achat": 1.38, "p_vente": 1.39, "mise": 10.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+
     }
 
 # Force le moteur sur "START" au démarrage
@@ -136,3 +138,4 @@ for i in sorted(st.session_state.bots.keys()):
 st.divider()
 for m in reversed(st.session_state.logs[-10:]):
     st.write(m)
+
