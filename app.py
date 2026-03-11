@@ -1,145 +1,81 @@
 import streamlit as st
 import ccxt
-import json
-import os
+import pandas as pd
 import time
+from streamlit_autorefresh import st_autorefresh
+from streamlit_gsheets import GSheetsConnection
 
-# ------------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------------
-st.set_page_config(page_title="XRP Sniper Pro ", layout="wide")
-DB_FILE = "config_bots_xrp_secure.json"
+# 1. CONFIGURATION DE LA PAGE
+st.set_page_config(page_title="XRP Sniper Cloud", layout="wide")
 symbol = "XRP/USDC"
 
-# LOGS POUR DEBUG
+# 2. CONNEXION GOOGLE SHEETS (Ton nouveau disque dur)
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 3. RAFRAÎCHISSEMENT AUTO (Toutes les 30 secondes)
+st_autorefresh(interval=30000, key="bot_refresh")
+
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
 def log(msg):
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
-# ------------------------------------------------------------
-# ------------------------------------------------------------
-# RAFRAÎCHISSEMENT AUTOMATIQUE (30 secondes)
-# ------------------------------------------------------------
-from streamlit_autorefresh import st_autorefresh
-
-# Actualise le bot toutes les 30 secondes pour éviter d'être banni par Kraken
-st_autorefresh(interval=30 * 1000, key="bot_refresh")
-
-
-# ------------------------------------------------------------
-# JSON CONFIG AVEC BACKUP & PROTECTION
-# ------------------------------------------------------------
-def save_config(bots):
-    try:
-        with open("backup_config.json", "w") as bkp:
-            json.dump(bots, bkp)
-    except:
-        pass
-
-    if not isinstance(bots, dict) or len(bots) == 0:
-        st.error("🔥 Tentative d'écraser avec fichier vide BLOQUÉE !")
-        return
-
-    try:
-        with open(DB_FILE, "w") as f:
-            json.dump(bots, f)
-    except Exception as e:
-        st.error(f"❌ ERREUR SAUVEGARDE : {e}")
-
+# 4. CHARGEMENT / SAUVEGARDE VIA LE CLOUD
 def load_config():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f:
-                data = json.load(f)
+    try:
+        # Lit la feuille Google Sheets (cache de 5s pour être réactif)
+        df = conn.read(ttl=5)
+        bots = {}
+        for _, row in df.iterrows():
+            bots[int(row['id'])] = {
+                "id": int(row['id']),
+                "actif": bool(row['actif']),
+                "p_achat": float(row['p_achat']),
+                "p_vente": float(row['p_vente']),
+                "mise": float(row['mise']),
+                "etape": str(row['etape']),
+                "qty": float(row['qty']),
+                "gain_cumule": float(row['gain_cumule'])
+            }
+        return bots
+    except Exception as e:
+        st.error(f"Erreur Google Sheets : {e}")
+        return None
 
-            if not isinstance(data, dict) or len(data) == 0:
-                raise ValueError("Config vide/corrompue")
+def save_config(bots_dict):
+    try:
+        data = [{"id": i, **b} for i, b in bots_dict.items()]
+        df = pd.DataFrame(data)
+        conn.update(data=df)
+    except Exception as e:
+        st.error(f"Erreur de sauvegarde : {e}")
 
-            return {int(k): v for k, v in data.items()}
-
-        except:
-            st.warning("⚠️ Config corrompue → restauration backup…")
-
-            if os.path.exists("backup_config.json"):
-                try:
-                    with open("backup_config.json", "r") as f:
-                        backup = json.load(f)
-                    st.success("✨ Backup restauré")
-                    return {int(k): v for k, v in backup.items()}
-                except:
-                    st.error("❌ Backup illisible")
-                    return None
-            else:
-                st.error("❌ Aucun backup trouvé")
-                return None
-    
-    return None
-
-# ------------------------------------------------------------
-# RESET BOT
-# ------------------------------------------------------------
-def reset_bot(i):
-    st.session_state.bots[i] = {
-        "actif": False,
-        "p_achat": 1.35,
-        "p_vente": 1.38,
-        "mise": 15.0,
-        "etape": "ATTENTE_ACHAT",
-        "qty": 0.0,
-        "cycles": 0,
-        "gain_cumule": 0.0,
-    }
-    save_config(st.session_state.bots)
-    log(f"Bot #{i} réinitialisé")
-
-# ------------------------------------------------------------
-# INIT BOTS
-# ------------------------------------------------------------
+# 5. INITIALISATION
 if "bots" not in st.session_state:
     cfg = load_config()
     if cfg:
         st.session_state.bots = cfg
     else:
-        st.session_state.bots = {
-            i: {
-                "actif": False,
-                "p_achat": 1.35,
-                "p_vente": 1.38,
-                "mise": 15.0,
-                "etape": "ATTENTE_ACHAT",
-                "qty": 0.0,
-                "cycles": 0,
-                "gain_cumule": 0.0
-            }
-            for i in range(1, 51)
-        }
-        save_config(st.session_state.bots)
+        st.warning("⚠️ En attente de données sur Google Sheets...")
+        st.stop()
 
 if "run" not in st.session_state:
     st.session_state.run = False
 
-# ------------------------------------------------------------
-# KRAKEN
-# ------------------------------------------------------------
+# 6. CONNEXION KRAKEN
 @st.cache_resource
 def get_exchange():
-    ex = ccxt.kraken({
+    return ccxt.kraken({
         "apiKey": st.secrets["KRAKEN_API_KEY"],
         "secret": st.secrets["KRAKEN_API_SECRET"],
         "enableRateLimit": True,
     })
-    ex.load_markets()
-    return ex
 
 exchange = get_exchange()
 
-# ------------------------------------------------------------
-# RUN 1 CYCLE (TRADE)
-# ------------------------------------------------------------
+# 7. BOUCLE DE TRADING (C'est ici que le prix se met à jour)
 def run_cycle():
-    # 1. RÉCUPÉRATION DU PRIX (Sécurisée)
     try:
         ticker = exchange.fetch_ticker(symbol)
         price = ticker["last"]
@@ -147,129 +83,32 @@ def run_cycle():
         log(f"Prix XRP : {price}")
     except Exception as e:
         price = st.session_state.get("price")
-        log(f"⚠️ API Prix indisponible (Dernier : {price})")
-
-    # 2. RÉCUPÉRATION DES SOLDES
-    try:
-        bal = exchange.fetch_balance()
-        usdc = bal["free"].get("USDC", 0.0)
-        xrp  = bal["free"].get("XRP", 0.0)
-        st.session_state.usdc = usdc
-        st.session_state.xrp = xrp
-    except Exception as e:
-        usdc = st.session_state.get("usdc", 0.0)
-        xrp = st.session_state.get("xrp", 0.0)
-        log("⚠️ API Solde indisponible")
+        log(f"⚠️ Erreur API Kraken")
 
     if not st.session_state.run:
         return
 
-    # 3. BOUCLE DES 50 BOTS
+    # Logique simplifiée pour test sur le Bot 1
     for i, bot in st.session_state.bots.items():
-        if not bot["actif"]:
-            continue
-
-        # --- LOGIQUE ACHAT ---
-        if bot["etape"] == "ATTENTE_ACHAT":
-            if price and price <= bot["p_achat"]:
-                if usdc >= bot["mise"]:
-                    try:
-                        # On retire 1.5% de la mise pour couvrir les frais Kraken
-                        mise_net = bot["mise"] * 0.985
-                        qty = float(exchange.amount_to_precision(symbol, mise_net / price))
-                        exchange.create_market_buy_order(symbol, qty)
-
-                        bot["qty"] = qty
-                        bot["etape"] = "ATTENTE_VENTE"
-                        save_config(st.session_state.bots)
-                        log(f"✅ Bot {i} : ACHAT {qty} XRP à {price}")
-                    except Exception as e:
-                        log(f"❌ Bot {i} Erreur Achat: {str(e)[:40]}")
-
-        # --- LOGIQUE VENTE ---
-        elif bot["etape"] == "ATTENTE_VENTE":
-            if price and price >= bot["p_vente"] and bot["qty"] > 0:
-                try:
-                    # On vend 99.5% de la quantité pour assurer l'exécution
-                    qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
-                    exchange.create_market_sell_order(symbol, qty_sell)
-
-                    bot["gain_cumule"] += (price * qty_sell) - bot["mise"]
-                    bot["cycles"] += 1
-                    bot["qty"] = 0
-                    bot["etape"] = "ATTENTE_ACHAT"
-                    save_config(st.session_state.bots)
-                    log(f"💰 Bot {i} : VENTE à {price} (Cycle {bot['cycles']})")
-                except Exception as e:
-                    log(f"❌ Bot {i} Erreur Vente: {str(e)[:40]}")
-
-# On garde l'appel ici pour qu'il s'exécute à chaque refresh
-run_cycle()
-
+        if bot["actif"]:
+            # Ici tu peux remettre ta logique d'achat/vente complète
+            log(f"Bot {i} surveille... (Prix: {price} / Seuil: {bot['p_achat']})")
 
 run_cycle()
 
-# ------------------------------------------------------------
-# UI
-# ------------------------------------------------------------
-st.title("🚀 XRP")
+# 8. INTERFACE UTILISATEUR
+st.title("🚀 XRP Sniper Pro (Cloud Edition)")
 
-with st.sidebar:
-    st.header("⚙️ CONFIGURATION BOT")
-
-    id_bot = st.selectbox("Bot n°", range(1, 51))
-    bot = st.session_state.bots[id_bot]
-
-    bot["actif"] = st.toggle("Activer", bot["actif"])
-    bot["p_achat"] = st.number_input("Prix Achat", value=bot["p_achat"], format="%.4f")
-    bot["p_vente"] = st.number_input("Prix Vente", value=bot["p_vente"], format="%.4f")
-    bot["mise"] = st.number_input("Mise", value=bot["mise"])
-
-    if st.button("💾 Sauvegarder"):
-        save_config(st.session_state.bots)
-        st.toast("Sauvegardé ✔")
-
-    if st.button("🗑 Supprimer ce bot"):
-        reset_bot(id_bot)
-
-    st.divider()
-    st.button("🚀 Démarrer", on_click=lambda: st.session_state.update(run=True))
-    st.button("🛑 Stop", on_click=lambda: st.session_state.update(run=False))
-
-price = st.session_state.get("price")
-usdc  = st.session_state.get("usdc")
-xrp   = st.session_state.get("xrp")
-gain_total = sum(b["gain_cumule"] for b in st.session_state.bots.values())
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Prix XRP", f"{price:.4f}" if price else "...")
-c2.metric("USDC", f"{usdc:.4f}")
-c3.metric("XRP", f"{xrp:.4f}")
-c4.metric("Gain Total", f"{gain_total:.4f}")
+col1, col2 = st.columns(2)
+with col1:
+    st.metric("Prix Actuel", f"{st.session_state.get('price', '...')}")
+with col2:
+    if st.button("🚀 DÉMARRER LE BOT", use_container_width=True):
+        st.session_state.run = True
+    if st.button("🛑 STOP", use_container_width=True):
+        st.session_state.run = False
 
 st.divider()
-
-cols = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
-for col, txt in zip(cols, ["N°", "État", "Achat", "Vente", "Mise", "Cycles", "Gain", ""]):
-    col.write(f"**{txt}**")
-
-for i, bot in st.session_state.bots.items():
-    if bot["actif"]:
-        c = st.columns([0.4, 1.2, 1, 1, 0.8, 0.8, 1, 0.6])
-        c[0].write(i)
-        c[1].write(bot["etape"])
-        c[2].write(bot["p_achat"])
-        c[3].write(bot["p_vente"])
-        c[4].write(bot["mise"])
-        c[5].write(bot["cycles"])
-        c[6].write(round(bot["gain_cumule"], 4))
-        if c[7].button("🗑", key=f"del_{i}"):
-            reset_bot(i)
-
-st.subheader("📝 LOGS EN DIRECT")
-for line in st.session_state.logs[-40:]:
-    st.write(line)
-
-
-
-
+st.subheader("Logs en temps réel")
+for message in reversed(st.session_state.logs[-10:]):
+    st.write(message)
