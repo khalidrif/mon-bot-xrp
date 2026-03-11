@@ -5,14 +5,14 @@ import time
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="XRP SNIPER PRO SECURE", layout="wide")
+st.set_page_config(page_title="XRP SNIPER LIMIT PRO", layout="wide")
 symbol = "XRP/USDC"
 st_autorefresh(interval=40000, key="bot_refresh")
 
-# Initialisation des verrous et logs
-if "pending_orders" not in st.session_state: st.session_state.pending_orders = set()
+# Initialisation des logs et du verrou global anti-double
 if "logs" not in st.session_state: st.session_state.logs = []
 if "run" not in st.session_state: st.session_state.run = True 
+if "global_lock" not in st.session_state: st.session_state.global_lock = False
 
 def log(msg): st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
@@ -26,15 +26,18 @@ def get_exchange():
     })
 exchange = get_exchange()
 
-# --- 3. INITIALISATION (TES BOTS IMMORTELS) ---
+# --- 3. INITIALISATION DES BOTS (MODIFIE ICI SUR GITHUB) ---
 if "bots" not in st.session_state:
     st.session_state.bots = {
-        1: {"id": 1, "actif": True, "p_achat": 1.4, "p_vente": 1.4050, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        1: {"id": 1, "actif": True, "p_achat": 1.320, "p_vente": 1.350, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
         2: {"id": 2, "actif": True, "p_achat": 1.350, "p_vente": 1.380, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
     }
 
-# --- 4. BOUCLE DE TRADING (TRIPLE VERROU ANTI-DÉDOUBLEUR) ---
+# --- 4. BOUCLE DE TRADING (SÉCURITÉ MAXIMALE) ---
 def run_cycle():
+    # Si un ordre est déjà en cours de traitement, on bloque tout le cycle
+    if st.session_state.global_lock: return
+
     try:
         ticker = exchange.fetch_ticker(symbol, params={'nonce': str(int(time.time()*1000))})
         price = float((ticker["bid"] + ticker["ask"]) / 2)
@@ -48,58 +51,60 @@ def run_cycle():
 
     if not st.session_state.run: return
 
-    for i, bot in st.session_state.bots.items():
-        # VERROU 1 : Ignorer si bot inactif ou déjà en cours de transaction
-        if not bot.get("actif") or i in st.session_state.pending_orders: continue
+    for i in sorted(st.session_state.bots.keys()):
+        bot = st.session_state.bots[i]
+        if not bot.get("actif"): continue
         
         mise_actu = float(bot["mise"] + bot["gain_cumule"])
-        p_achat = float(bot["p_achat"])
-        p_vente = float(bot["p_vente"])
+        p_achat_target = float(bot["p_achat"])
+        p_vente_target = float(bot["p_vente"])
 
-        # --- ACHAT ---
-        if bot["etape"] == "ATTENTE_ACHAT" and price <= p_achat:
+        # --- LOGIQUE ACHAT LIMIT (PRIX FIXE) ---
+        if bot["etape"] == "ATTENTE_ACHAT" and price <= p_achat_target:
             if usdc_dispo >= mise_actu:
-                st.session_state.pending_orders.add(i) # VERROU 2 : On bloque l'ID
+                st.session_state.global_lock = True # VERROU GLOBAL ACTIVÉ
                 try:
-                    qty = float(exchange.amount_to_precision(symbol, (mise_actu * 0.98) / price))
-                    bot["etape"] = "EN_COURS" # VERROU 3 : On change l'état AVANT l'ordre
+                    qty = float(exchange.amount_to_precision(symbol, (mise_actu * 0.98) / p_achat_target))
                     
-                    exchange.create_market_buy_order(symbol, qty)
+                    # Ordre LIMIT pour garantir le prix exact
+                    exchange.create_limit_buy_order(symbol, qty, p_achat_target)
                     
                     bot.update({"qty": qty, "etape": "ATTENTE_VENTE"})
-                    log(f"✅ Bot {i} : ACHAT RÉUSSI")
-                    time.sleep(2) # Pause de sécurité
-                except:
-                    bot["etape"] = "ATTENTE_ACHAT"
-                    log(f"❌ Erreur Achat {i}")
-                finally:
-                    st.session_state.pending_orders.discard(i)
+                    log(f"✅ Bot {i} : LIMIT ACHAT placé à {p_achat_target:.5f}")
+                    
+                    time.sleep(3) # Pause forcée pour laisser Kraken respirer
+                    st.rerun() # On force un rafraîchissement propre
+                except: log(f"❌ Erreur Achat {i}")
+                finally: 
+                    st.session_state.global_lock = False # LIBÉRATION
+                break # UN SEUL ORDRE PAR CYCLE MAXIMUM
 
-        # --- VENTE ---
-        elif bot["etape"] == "ATTENTE_VENTE" and price >= p_vente:
+        # --- LOGIQUE VENTE LIMIT ---
+        elif bot["etape"] == "ATTENTE_VENTE" and price >= p_vente_target:
             if bot.get("qty", 0) > 0:
-                st.session_state.pending_orders.add(i) # VERROU 2
+                st.session_state.global_lock = True
                 try:
                     qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
-                    bot["etape"] = "EN_COURS" # VERROU 3
                     
-                    exchange.create_market_sell_order(symbol, qty_sell)
+                    # Ordre LIMIT vente
+                    exchange.create_limit_sell_order(symbol, qty_sell, p_vente_target)
                     
-                    gain = (price * qty_sell) - mise_actu
+                    gain = (p_vente_target * qty_sell) - mise_actu
                     bot.update({"gain_cumule": bot["gain_cumule"] + gain, "cycles": bot.get("cycles",0)+1, "qty": 0, "etape": "ATTENTE_ACHAT"})
-                    log(f"💰 Bot {i} : VENTE RÉUSSIE (+{gain:.2f}$)")
-                    time.sleep(2) # Pause de sécurité
-                except:
-                    bot["etape"] = "ATTENTE_VENTE"
-                    log(f"❌ Erreur Vente {i}")
-                finally:
-                    st.session_state.pending_orders.discard(i)
+                    log(f"💰 Bot {i} : LIMIT VENTE placé à {p_vente_target:.5f}")
+                    
+                    time.sleep(3)
+                    st.rerun()
+                except: log(f"❌ Erreur Vente {i}")
+                finally: 
+                    st.session_state.global_lock = False
+                break
 
 run_cycle()
 
-# --- 5. INTERFACE (UI FIXE) ---
-st.title("🚀 Sniper Pro Immortal XRP")
-st.caption(f"Rafraîchissement : {time.strftime('%H:%M:%S')}")
+# --- 5. INTERFACE (UI) ---
+st.title("🚀 Sniper Pro - Précision LIMIT")
+st.caption(f"Dernier rafraîchissement : {time.strftime('%H:%M:%S')}")
 
 m1, m2, m3 = st.columns(3)
 m1.metric("Prix XRP", f"{st.session_state.get('price',0):.5f}")
@@ -108,10 +113,11 @@ m3.metric("Solde XRP", f"{st.session_state.get('xrp',0):.2f}")
 
 st.divider()
 
-# TABLEAU AVEC INDEXATION [] POUR ÉVITER LES ERREURS
+# TABLEAU INDEXÉ
 h = st.columns([0.4, 0.4, 0.7, 0.7, 0.8, 0.8, 0.6, 1.2, 0.4, 0.6])
-titres = ["**ID**", "**St**", "**Achat**", "**Vente**", "**Mise**", "**Gain**", "**Qty**", "**Action**", "**Cy**", "**Go**"]
-for col, t in zip(h, titres): col.write(t)
+h[0].write("**ID**"); h[1].write("**St**"); h[2].write("**Achat**")
+h[3].write("**Vente**"); h[4].write("**Mise**"); h[5].write("**Gain**")
+h[6].write("**Qty**"); h[7].write("**Action**"); h[8].write("**Cy**"); h[9].write("**Go**")
 
 for i in sorted(st.session_state.bots.keys()):
     bt = st.session_state.bots[i]
@@ -132,8 +138,7 @@ for i in sorted(st.session_state.bots.keys()):
     
     # Action (Achat VERT 🟢 / Vente ORANGE 🟠)
     if "ACHAT" in bt["etape"]: r[7].markdown("🟢 **ACHAT**")
-    elif "VENTE" in bt["etape"]: r[7].markdown("🟠 **VENTE**")
-    else: r[7].write("⌛ ...")
+    else: r[7].markdown("🟠 **VENTE**")
         
     r[8].write(str(bt.get("cycles", 0)))
     
@@ -143,4 +148,3 @@ for i in sorted(st.session_state.bots.keys()):
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
-
