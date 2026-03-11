@@ -62,24 +62,33 @@ if "run" not in st.session_state: st.session_state.run = False
 # 5. BOUCLE DE TRADING RÉEL
 def run_cycle():
    # --- NOUVEAU BLOC SANS CACHE ---
+  def run_cycle():
     try:
-        # On force Kraken à ne pas envoyer de vieux prix
-        ticker = exchange.fetch_ticker(symbol, params={'cache': time.time()})
-        price = ticker["last"]
+        # On demande le ticker frais
+        ticker = exchange.fetch_ticker(symbol)
         
-        # On vérifie si le prix bouge
-        if st.session_state.get("price") != price:
-            log(f"⚡ NOUVEAU PRIX : {price:.4f}")
+        # --- LA MODIFICATION EST ICI ---
+        # On calcule la moyenne entre le prix d'achat et de vente du marché
+        price = (ticker["bid"] + ticker["ask"]) / 2
+        
+        # On compare avec 5 chiffres après la virgule
+        old_price = st.session_state.get("price", 0)
+        
+        if abs(price - old_price) > 0.00001:
+            log(f"⚡ PRIX MOBILE : {price:.5f}")
         else:
-            log(f"🔄 Prix stable : {price:.4f}")
+            log(f"🔄 Prix stable : {price:.5f}")
 
         st.session_state.price = price
         
-        # Mise à jour des soldes en temps réel
+        # Mise à jour des soldes
         bal = exchange.fetch_balance()
-        usdc_dispo = bal["free"].get("USDC", 0.0)
-        st.session_state.usdc = usdc_dispo
+        st.session_state.usdc = bal["free"].get("USDC", 0.0)
         st.session_state.xrp = bal["free"].get("XRP", 0.0)
+        
+    except Exception as e:
+        log(f"⚠️ Flux API : {str(e)[:20]}")
+
         
     except Exception as e:
         log(f"⚠️ Erreur Flux : {str(e)[:30]}")
@@ -172,6 +181,7 @@ st.divider()
 st.subheader("📜 Logs")
 for m in reversed(st.session_state.logs[-15:]): st.write(m)
 st.caption("Version du bot : MISE À JOUR SANS CACHE - 05:05")
+
 
 
 
