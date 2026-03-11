@@ -3,4 +3,5 @@ ccxt
 pandas
 numpy
 streamlit-autorefresh
+st-gsheets-connection
 
