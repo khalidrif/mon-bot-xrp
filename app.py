@@ -6,7 +6,7 @@ import os
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(page_title="XRP SNIPER AUTO-OFF (persistant)", layout="wide")
+st.set_page_config(page_title="XRP SNIPER AUTO-OFF (persistance + ajout dynamique)", layout="wide")
 symbol = "XRP/USDC"
 st_autorefresh(interval=40000, key="bot_refresh")  # refresh toutes les 40s
 
@@ -55,8 +55,6 @@ if "bots" not in st.session_state:
     else:
         st.session_state.bots = {
             1: {"id": 1, "actif": True, "p_achat": 1.400, "p_vente": 1.410, "mise": 15.0,
-                "etape": "ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0, "last_action_time": 0},
-            2: {"id": 2, "actif": True, "p_achat": 1.396, "p_vente": 1.400, "mise": 15.0,
                 "etape": "ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0, "last_action_time": 0}
         }
         save_bots_to_file()
@@ -155,7 +153,7 @@ run_cycle()
 
 
 # --- 8. INTERFACE ---
-st.title("🚀 XRP Sniper Auto‑Off (avec sauvegarde locale)")
+st.title("🚀 XRP Sniper Auto‑Off (ajout de bots + sauvegarde persistante)")
 st.caption(f"Dernière mise à jour : {time.strftime('%H:%M:%S')}")
 
 m1, m2, m3 = st.columns(3)
@@ -165,19 +163,50 @@ m3.metric("Solde XRP", f"{st.session_state.get('xrp', 0):.2f}")
 
 st.divider()
 
-# --- 9. MENU DE MODIFICATION DES BOTS ---
-with st.expander("⚙️ Modifier les paramètres des bots"):
-    for i in sorted(st.session_state.bots.keys()):
-        bot = st.session_state.bots[i]
-        st.subheader(f"Bot #{i}")
-        bot["p_achat"] = st.number_input(f"Prix d'achat #{i}", value=float(bot["p_achat"]), step=0.0001)
-        bot["p_vente"] = st.number_input(f"Prix de vente #{i}", value=float(bot["p_vente"]), step=0.0001)
-        bot["mise"] = st.number_input(f"Mise (USDC) #{i}", value=float(bot["mise"]), step=1.0)
-        st.write("---")
 
-    if st.button("💾 Sauvegarder les paramètres"):
+# --- 9. MENU DE MODIFICATION & AJOUT ---
+with st.expander("⚙️ Gérer les paramètres des bots"):
+    # --- Modifier un bot existant ---
+    if st.session_state.bots:
+        bot_id = st.selectbox("Choisir le bot à modifier", sorted(st.session_state.bots.keys()))
+        bot = st.session_state.bots[bot_id]
+        st.subheader(f"Modifier Bot #{bot_id}")
+        bot["p_achat"] = st.number_input("Prix d'achat", value=float(bot["p_achat"]), step=0.0001)
+        bot["p_vente"] = st.number_input("Prix de vente", value=float(bot["p_vente"]), step=0.0001)
+        bot["mise"] = st.number_input("Mise (USDC)", value=float(bot["mise"]), step=1.0)
+        if st.button("💾 Sauvegarder ce bot"):
+            save_bots_to_file()
+            st.success(f"Bot #{bot_id} sauvegardé ✅")
+    st.divider()
+
+    # --- Ajouter un nouveau bot ---
+    st.subheader("➕ Ajouter un nouveau bot")
+    next_id = max(st.session_state.bots.keys()) + 1 if st.session_state.bots else 1
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        p_achat_new = st.number_input("Prix d'achat", value=1.400, step=0.0001, key="p_achat_new")
+    with col2:
+        p_vente_new = st.number_input("Prix de vente", value=1.410, step=0.0001, key="p_vente_new")
+    with col3:
+        mise_new = st.number_input("Mise (USDC)", value=10.0, step=1.0, key="mise_new")
+
+    if st.button("🆕 Créer le bot"):
+        st.session_state.bots[next_id] = {
+            "id": next_id,
+            "actif": True,
+            "p_achat": p_achat_new,
+            "p_vente": p_vente_new,
+            "mise": mise_new,
+            "etape": "ACHAT",
+            "qty": 0.0,
+            "gain_cumule": 0.0,
+            "cycles": 0,
+            "last_action_time": 0
+        }
         save_bots_to_file()
-        st.success("Configuration sauvegardée dans bots_config.json ✅")
+        st.success(f"✅ Bot #{next_id} créé et sauvegardé.")
+        st.experimental_rerun()
+
 
 st.divider()
 
