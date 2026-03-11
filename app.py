@@ -139,45 +139,42 @@ exchange = get_exchange()
 # RUN 1 CYCLE (TRADE)
 # ------------------------------------------------------------
 def run_cycle():
-
+    # 1. RÉCUPÉRATION DU PRIX (Sécurisée)
     try:
         ticker = exchange.fetch_ticker(symbol)
         price = ticker["last"]
-        log(f"Prix reçu : {price}")
+        st.session_state.price = price
+        log(f"Prix XRP : {price}")
     except Exception as e:
-        price = None
-        log(f"[ERREUR TICKER] {e}")
+        price = st.session_state.get("price")
+        log(f"⚠️ API Prix indisponible (Dernier : {price})")
 
+    # 2. RÉCUPÉRATION DES SOLDES
     try:
         bal = exchange.fetch_balance()
-        usdc = bal["free"].get("USDC", 0)
-        xrp  = bal["free"].get("XRP", 0)
-        log(f"USDC={usdc} | XRP={xrp}")
+        usdc = bal["free"].get("USDC", 0.0)
+        xrp  = bal["free"].get("XRP", 0.0)
+        st.session_state.usdc = usdc
+        st.session_state.xrp = xrp
     except Exception as e:
-        usdc = 0
-        xrp = 0
-        log(f"[ERREUR BALANCE] {e}")
-
-    st.session_state.price = price
-    st.session_state.usdc = usdc
-    st.session_state.xrp = xrp
+        usdc = st.session_state.get("usdc", 0.0)
+        xrp = st.session_state.get("xrp", 0.0)
+        log("⚠️ API Solde indisponible")
 
     if not st.session_state.run:
-        log("Bots arrêtés")
         return
 
-    # Boucle des 50 bots
+    # 3. BOUCLE DES 50 BOTS
     for i, bot in st.session_state.bots.items():
         if not bot["actif"]:
             continue
 
-        log(f"[Bot {i}] État={bot['etape']} Achat={bot['p_achat']} Vente={bot['p_vente']}")
-
-        # ACHAT
+        # --- LOGIQUE ACHAT ---
         if bot["etape"] == "ATTENTE_ACHAT":
             if price and price <= bot["p_achat"]:
                 if usdc >= bot["mise"]:
                     try:
+                        # On retire 1.5% de la mise pour couvrir les frais Kraken
                         mise_net = bot["mise"] * 0.985
                         qty = float(exchange.amount_to_precision(symbol, mise_net / price))
                         exchange.create_market_buy_order(symbol, qty)
@@ -185,29 +182,30 @@ def run_cycle():
                         bot["qty"] = qty
                         bot["etape"] = "ATTENTE_VENTE"
                         save_config(st.session_state.bots)
-                        log(f"[Bot {i}] ACHAT OK qty={qty}")
+                        log(f"✅ Bot {i} : ACHAT {qty} XRP à {price}")
                     except Exception as e:
-                        log(f"[Bot {i}] ERREUR ACHAT : {e}")
-                else:
-                    log(f"[Bot {i}] Solde insuffisant USDC={usdc}")
+                        log(f"❌ Bot {i} Erreur Achat: {str(e)[:40]}")
 
-        # VENTE
-        if bot["etape"] == "ATTENTE_VENTE":
+        # --- LOGIQUE VENTE ---
+        elif bot["etape"] == "ATTENTE_VENTE":
             if price and price >= bot["p_vente"] and bot["qty"] > 0:
                 try:
-                    qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.99))
+                    # On vend 99.5% de la quantité pour assurer l'exécution
+                    qty_sell = float(exchange.amount_to_precision(symbol, bot["qty"] * 0.995))
                     exchange.create_market_sell_order(symbol, qty_sell)
 
-                    gain = ((bot["p_achat"] - bot["p_vente"]) * bot["qty"]) - (bot["mise"] * 0.006)
-
-                    bot["gain_cumule"] += gain
+                    bot["gain_cumule"] += (price * qty_sell) - bot["mise"]
                     bot["cycles"] += 1
                     bot["qty"] = 0
                     bot["etape"] = "ATTENTE_ACHAT"
                     save_config(st.session_state.bots)
-                    log(f"[Bot {i}] VENTE OK gain={gain}")
+                    log(f"💰 Bot {i} : VENTE à {price} (Cycle {bot['cycles']})")
                 except Exception as e:
-                    log(f"[Bot {i}] ERREUR VENTE : {e}")
+                    log(f"❌ Bot {i} Erreur Vente: {str(e)[:40]}")
+
+# On garde l'appel ici pour qu'il s'exécute à chaque refresh
+run_cycle()
+
 
 run_cycle()
 
@@ -271,6 +269,7 @@ for i, bot in st.session_state.bots.items():
 st.subheader("📝 LOGS EN DIRECT")
 for line in st.session_state.logs[-40:]:
     st.write(line)
+
 
 
 
