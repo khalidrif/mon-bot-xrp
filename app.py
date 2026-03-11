@@ -5,7 +5,7 @@ import time
 from streamlit_autorefresh import st_autorefresh
 
 # 1. CONFIGURATION
-st.set_page_config(page_title="XRP SNIPER IMMORTAL SECRETS", layout="wide")
+st.set_page_config(page_title="XRP SNIPER GITHUB", layout="wide")
 symbol = "XRP/USDC"
 st_autorefresh(interval=40000, key="bot_refresh")
 
@@ -15,26 +15,28 @@ if "run" not in st.session_state: st.session_state.run = False
 
 def log(msg): st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
-# 2. CONNEXION KRAKEN
+# 2. KRAKEN
 @st.cache_resource
 def get_exchange():
-    return ccxt.kraken({
-        "apiKey": st.secrets["KRAKEN_API_KEY"], 
-        "secret": st.secrets["KRAKEN_API_SECRET"], 
-        "enableRateLimit": True
-    })
+    return ccxt.kraken({"apiKey": st.secrets["KRAKEN_API_KEY"], "secret": st.secrets["KRAKEN_API_SECRET"], "enableRateLimit": True})
 exchange = get_exchange()
 
-# 3. INITIALISATION (LIT LES SECRETS POUR NE JAMAIS PERDRE LES PRIX)
+# 3. INITIALISATION (MODIFIE TES PRIX ICI SUR GITHUB)
 if "bots" not in st.session_state:
-    try:
-        # On charge les bots configurés dans les Secrets Streamlit
-        st.session_state.bots = {int(k): dict(v) for k, v in st.secrets["bots"].items()}
-    except:
-        st.error("⚠️ Erreur : Aucun bot trouvé dans tes Secrets Streamlit !")
-        st.stop()
+    st.session_state.bots = {
+        1: {"id": 1, "actif": False, "p_achat": 1.3200, "p_vente": 1.3500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        2: {"id": 2, "actif": False, "p_achat": 1.3500, "p_vente": 1.3800, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        3: {"id": 3, "actif": False, "p_achat": 1.3800, "p_vente": 1.4200, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        4: {"id": 4, "actif": False, "p_achat": 1.4200, "p_vente": 1.4500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        5: {"id": 5, "actif": False, "p_achat": 1.4500, "p_vente": 1.5000, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        6: {"id": 6, "actif": False, "p_achat": 1.5000, "p_vente": 1.5500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        7: {"id": 7, "actif": False, "p_achat": 1.5500, "p_vente": 1.6000, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        8: {"id": 8, "actif": False, "p_achat": 1.6000, "p_vente": 1.6500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        9: {"id": 9, "actif": False, "p_achat": 1.6500, "p_vente": 1.7000, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+        10: {"id": 10, "actif": False, "p_achat": 1.7000, "p_vente": 1.7500, "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, "gain_cumule": 0.0, "cycles": 0},
+    }
 
-# 4. BOUCLE DE TRADING (PRIX RÉEL)
+# 4. BOUCLE DE TRADING
 def run_cycle():
     try:
         ticker = exchange.fetch_ticker(symbol, params={'nonce': str(int(time.time()*1000))})
@@ -52,7 +54,6 @@ def run_cycle():
         if not bot.get("actif") or i in st.session_state.pending_orders: continue
         mise_actu = bot.get("mise", 15.0) + bot.get("gain_cumule", 0.0)
         
-        # ACHAT
         if bot["etape"] == "ATTENTE_ACHAT" and price <= bot["p_achat"]:
             st.session_state.pending_orders.add(i)
             try:
@@ -62,7 +63,6 @@ def run_cycle():
                 log(f"🟢 Bot {i} : ACHAT OK")
             finally: st.session_state.pending_orders.discard(i)
         
-        # VENTE
         elif bot["etape"] == "ATTENTE_VENTE" and price >= bot["p_vente"]:
             if bot.get("qty", 0) > 0:
                 st.session_state.pending_orders.add(i)
@@ -77,14 +77,14 @@ def run_cycle():
 run_cycle()
 
 # 5. INTERFACE
-st.title("🚀 Sniper Immortel (Mode Secrets)")
+st.title("🚀 Armée de Snipers (Mode GitHub)")
 st.caption(f"Dernière mise à jour : {time.strftime('%H:%M:%S')}")
 
 with st.sidebar:
     st.header("⚙️ Contrôle Global")
     if st.button("🚀 START TOUT", use_container_width=True): st.session_state.run = True; st.rerun()
     if st.button("🛑 STOP TOUT", use_container_width=True): st.session_state.run = False; st.rerun()
-    st.info("💡 Pour modifier les prix à vie, change les valeurs dans 'Secrets' sur Streamlit.")
+    st.info("💡 Modifie les prix sur GitHub pour les changer à vie.")
 
 # METRICS
 m1, m2, m3 = st.columns(3)
@@ -93,33 +93,45 @@ m2.metric("Solde USDC", f"{st.session_state.get('usdc',0):.2f}$")
 m3.metric("Solde XRP", f"{st.session_state.get('xrp',0):.2f}")
 
 st.divider()
-# TABLEAU INDEXÉ
+
+# TABLEAU CORRIGÉ (INDEX [])
 h = st.columns([0.4, 0.4, 0.7, 0.7, 0.8, 0.8, 0.6, 1.2, 0.4, 0.6, 0.6])
-titres = ["ID", "St", "Achat", "Vente", "Mise", "Gain", "Qty", "Étape", "Cy", "Go", "Reset"]
-for col, t in zip(h, titres): col.write(f"**{t}**")
+h[0].write("**ID**"); h[1].write("**St**"); h[2].write("**Achat**")
+h[3].write("**Vente**"); h[4].write("**Mise**"); h[5].write("**Gain**")
+h[6].write("**Qty**"); h[7].write("**Étape**"); h[8].write("**Cy**")
+h[9].write("**Go**"); h[10].write("**Res**")
 
 for i in sorted(st.session_state.bots.keys()):
     bt = st.session_state.bots[i]
     r = st.columns([0.4, 0.4, 0.7, 0.7, 0.8, 0.8, 0.6, 1.2, 0.4, 0.6, 0.6])
-    r.write(f"#{i}"); r.write("✅" if bt["actif"] else "⚪")
-    r.write(f"{bt['p_achat']:.3f}"); r.write(f"{bt['p_vente']:.3f}")
-    r.write(f"{bt['mise'] + bt['gain_cumule']:.1f}$")
-    g = bt["gain_cumule"]
-    r.markdown(f":{'green' if g > 0 else 'white'}[{g:.2f}$]")
-    r.write(f"{bt['qty']:.1f}")
-    icon = "🔵" if "ACHAT" in bt["etape"] else "🟢"
-    r.write(f"{icon} {bt['etape'][:6]}")
-    r.write(str(bt.get("cycles", 0)))
     
-    # Bouton ON/OFF individuel
-    if r.button("🚀" if not bt["actif"] else "🛑", key=f"btn{i}"):
+    r[0].write(f"#{i}")
+    r[1].write("✅" if bt["actif"] else "⚪")
+    r[2].write(f"{bt['p_achat']:.3f}")
+    r[3].write(f"{bt['p_vente']:.3f}")
+    
+    mise_totale = bt['mise'] + bt['gain_cumule']
+    r[4].write(f"{mise_totale:.1f}$")
+    
+    g = bt["gain_cumule"]
+    color = "green" if g > 0 else "white"
+    r[5].markdown(f":{color}[{g:.2f}$]")
+    
+    r[6].write(f"{bt['qty']:.1f}")
+    
+    icon = "🔵" if "ACHAT" in bt["etape"] else "🟢"
+    r[7].write(f"{icon} {bt['etape'][:6]}")
+    r[8].write(str(bt.get("cycles", 0)))
+    
+    if r[9].button("🚀" if not bt["actif"] else "🛑", key=f"btn{i}"):
         st.session_state.bots[i]["actif"] = not bt["actif"]
         st.rerun()
     
-    # Bouton Reset (recharge les prix des Secrets)
-    if r.button("🔄", key=f"res{i}"):
-        st.session_state.bots[i] = dict(st.secrets["bots"][str(i)])
+    if r[10].button("🔄", key=f"res{i}"):
+        # Reset simple : réinitialise l'étape et les gains en session
+        st.session_state.bots[i].update({"actif":False, "etape":"ATTENTE_ACHAT", "qty":0.0, "gain_cumule":0.0, "cycles":0})
         st.rerun()
 
 st.divider()
-for m in reversed(st.session_state.logs[-10:]): st.write(m)
+for m in reversed(st.session_state.logs[-10:]):
+    st.write(m)
