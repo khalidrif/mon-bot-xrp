@@ -171,7 +171,8 @@ for i in range(1, 51):
 st.divider()
 st.subheader("📜 Logs")
 for m in reversed(st.session_state.logs[-15:]): st.write(m)
-    st.caption("Version du bot : MISE À JOUR SANS CACHE - 05:05")
+st.caption("Version du bot : MISE À JOUR SANS CACHE - 05:05")
+
 
 
 
