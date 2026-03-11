@@ -32,7 +32,7 @@ def get_exchange():
     })
 exchange = get_exchange()
 
-# 3. FONCTIONS CLOUD (SÉCURISÉES SANS CACHE)
+# 3. FONCTIONS CLOUD (SÉCURISÉES)
 def load_config():
     try:
         df = conn.read(ttl=0) 
@@ -42,9 +42,12 @@ def load_config():
             idx = int(row['id'])
             bots[idx] = {
                 "id": idx, "actif": bool(row.get('actif', False)),
-                "p_achat": float(row.get('p_achat', 1.35)), "p_vente": float(row.get('p_vente', 1.38)),
-                "mise": float(row.get('mise', 15.0)), "etape": str(row.get('etape', 'ATTENTE_ACHAT')),
-                "qty": float(row.get('qty', 0)), "gain_cumule": float(row.get('gain_cumule', 0)),
+                "p_achat": float(row.get('p_achat', 1.35)), 
+                "p_vente": float(row.get('p_vente', 1.38)),
+                "mise": float(row.get('mise', 15.0)), 
+                "etape": str(row.get('etape', 'ATTENTE_ACHAT')),
+                "qty": float(row.get('qty', 0)), 
+                "gain_cumule": float(row.get('gain_cumule', 0)),
                 "cycles": int(row.get('cycles', 0))
             }
         return bots
@@ -53,29 +56,28 @@ def load_config():
 
 def save_config(bots_dict):
     try:
+        # On prépare les données proprement pour Google Sheets
         data = [v for k, v in sorted(bots_dict.items())]
-        df = pd.DataFrame(data)
-        conn.update(data=df)
-        st.toast("✅ Cloud Synchronisé")
-    except:
-        st.error("❌ Erreur de sauvegarde Cloud")
+        df_to_save = pd.DataFrame(data)
+        
+        # Force le formatage (id en entier, le reste en nombre)
+        df_to_save['id'] = df_to_save['id'].astype(int)
+        df_to_save['actif'] = df_to_save['actif'].astype(bool)
+        
+        # ON FORCE LA SAUVEGARDE
+        conn.update(data=df_to_save)
+        st.toast("✅ Cloud Synchronisé !")
+    except Exception as e:
+        st.error(f"❌ Erreur de sauvegarde Cloud : {str(e)[:100]}")
 
-# 4. INITIALISATION (ANTI-PERTE & FORCE 50 BOTS)
+# 4. INITIALISATION (ANTI-PERTE)
 if "bots" not in st.session_state or not st.session_state.bots:
-    cfg = load_config()
-    all_bots = {}
-    for i in range(1, 51):
-        if cfg and i in cfg:
-            all_bots[i] = cfg[i]
-        else:
-            all_bots[i] = {
-                "id": i, "actif": False, "p_achat": 1.35, "p_vente": 1.38,
-                "mise": 15.0, "etape": "ATTENTE_ACHAT", "qty": 0.0, 
-                "gain_cumule": 0.0, "cycles": 0
-            }
-    st.session_state.bots = all_bots
+    st.session_state.bots = load_config()
+    # Si Sheets est vide, on crée les 50 par défaut
+    if not st.session_state.bots:
+        st.session_state.bots = {i: {"id":i,"actif":False,"p_achat":1.35,"p_vente":1.38,"mise":15.0,"etape":"ATTENTE_ACHAT","qty":0.0,"gain_cumule":0.0,"cycles":0} for i in range(1,51)}
 
-# 5. BOUCLE DE TRADING (RÉEL + ANTI-DOUBLE)
+# 5. BOUCLE DE TRADING (SÉCURISÉE)
 def run_cycle():
     try:
         ticker = exchange.fetch_ticker(symbol, params={'nonce': str(int(time.time()*1000))})
@@ -85,7 +87,7 @@ def run_cycle():
         usdc_dispo = bal["free"].get("USDC", 0.0)
         st.session_state.usdc = usdc_dispo
         st.session_state.xrp = bal["free"].get("XRP", 0.0)
-        log(f"⚡ Prix Marché : {price:.5f}")
+        log(f"🎯 Flux Direct : {price:.5f}")
     except:
         price = st.session_state.get("price", 0)
 
@@ -97,7 +99,7 @@ def run_cycle():
         
         mise_actu = bot.get("mise", 15.0) + bot.get("gain_cumule", 0.0)
 
-        # --- ACHAT ---
+        # ACHAT
         if bot.get("etape") == "ATTENTE_ACHAT" and price <= bot.get("p_achat"):
             if usdc_dispo >= mise_actu:
                 st.session_state.pending_orders.add(i)
@@ -109,7 +111,7 @@ def run_cycle():
                 except: pass
                 finally: st.session_state.pending_orders.discard(i)
 
-        # --- VENTE ---
+        # VENTE (ANTI-DOUBLE)
         elif bot.get("etape") == "ATTENTE_VENTE" and price >= bot.get("p_vente"):
             if bot.get("qty", 0) > 0:
                 st.session_state.pending_orders.add(i)
@@ -126,12 +128,12 @@ def run_cycle():
 run_cycle()
 
 # 6. INTERFACE (UI)
-st.title("🚀 XRP SNIPER TOTAL CONTROL")
+st.title("🚀 SNIPER PRO CONTROL")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
     id_bot = st.selectbox("Bot #", range(1, 51))
-    b = st.session_state.bots.get(id_bot)
+    b = st.session_state.bots.get(id_bot, {"p_achat":1.35, "p_vente":1.38, "mise":15.0})
     
     new_achat = st.number_input("Achat", value=float(b.get("p_achat", 1.35)), format="%.4f", key=f"a_{id_bot}")
     new_vente = st.number_input("Vente", value=float(b.get("p_vente", 1.38)), format="%.4f", key=f"v_{id_bot}")
@@ -156,13 +158,14 @@ m1.metric("Prix XRP", f"{p_val:.5f}")
 m2.metric("Solde USDC", f"{st.session_state.get('usdc', 0):.2f}$")
 m3.metric("Solde XRP", f"{st.session_state.get('xrp', 0):.2f}")
 
-# TABLEAU DE GESTION
+# TABLEAU DE GESTION (INDEXÉ FIXE)
 st.divider()
 st.subheader("📊 État des Bots")
 h = st.columns([0.4, 0.4, 0.7, 0.7, 0.8, 0.8, 0.6, 1.2, 0.4, 0.5, 0.5])
-h[0].write("**ID**"); h[1].write("**St**"); h[2].write("**Achat**"); h[3].write("**Vente**")
-h[4].write("**Mise**"); h[5].write("**Gain**"); h[6].write("**Qty**"); h[7].write("**Étape**")
-h[8].write("**Cy**"); h[9].write("**Go**"); h[10].write("**Supp**")
+h[0].write("**ID**"); h[1].write("**St**"); h[2].write("**Achat**")
+h[3].write("**Vente**"); h[4].write("**Mise**"); h[5].write("**Gain**")
+h[6].write("**Qty**"); h[7].write("**Étape**"); h[8].write("**Cy**")
+h[9].write("**Go**"); h[10].write("**Supp**")
 
 for i in sorted(st.session_state.bots.keys()):
     bt = st.session_state.bots[i]
@@ -170,17 +173,23 @@ for i in sorted(st.session_state.bots.keys()):
     r[0].write(f"#{i}")
     r[1].write("✅" if bt.get("actif") else "⚪")
     r[2].write(f"{bt.get('p_achat'):.3f}"); r[3].write(f"{bt.get('p_vente'):.3f}")
-    r[4].write(f"{bt.get('mise') + bt.get('gain_cumule'):.1f}$")
+    
+    mise_actu = bt.get('mise', 15.0) + bt.get('gain_cumule', 0.0)
+    r[4].write(f"{mise_actu:.1f}$")
+    
     g = bt.get("gain_cumule", 0.0)
     if g > 0: r[5].markdown(f"🟢 **+{g:.2f}$**")
     else: r[5].write(f"{g:.2f}$")
+    
     r[6].write(f"{bt.get('qty', 0.0):.1f}")
     icon = "🔵" if "ACHAT" in bt.get("etape") else "🟢"
     r[7].write(f"{icon} {bt.get('etape')[:6]}")
     r[8].write(str(bt.get("cycles", 0)))
+    
     if r[9].button("🚀" if not bt.get("actif") else "🛑", key=f"btn_{i}"):
         st.session_state.bots[i]["actif"] = not bt.get("actif")
         save_config(st.session_state.bots); st.rerun()
+            
     if r[10].button("🗑️", key=f"del_{i}"):
         st.session_state.bots[i].update({"actif":False,"p_achat":1.35,"p_vente":1.38,"mise":15.0,"etape":"ATTENTE_ACHAT","qty":0.0,"gain_cumule":0.0,"cycles":0})
         save_config(st.session_state.bots); st.rerun()
