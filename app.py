@@ -71,7 +71,7 @@ if "bots" not in st.session_state:
 if "run" not in st.session_state: 
     st.session_state.run = False
 
-# 5. BOUCLE DE TRADING (RÉALITÉ DU MARCHÉ)
+# 5. BOUCLE DE TRADING (PRIX RÉEL)
 def run_cycle():
     try:
         ticker = exchange.fetch_ticker(symbol, params={'nonce': str(int(time.time()*1000))})
@@ -92,7 +92,6 @@ def run_cycle():
         if not bot.get("actif", False): continue
         mise_actu = bot.get("mise", 15.0) + bot.get("gain_cumule", 0.0)
 
-        # --- ACHAT ---
         if bot.get("etape") == "ATTENTE_ACHAT" and price <= bot.get("p_achat"):
             if usdc_dispo >= mise_actu:
                 try:
@@ -102,7 +101,6 @@ def run_cycle():
                     save_config(st.session_state.bots); log(f"🟢 Bot {i} : ACHAT {qty} XRP")
                 except: log(f"❌ Erreur Achat Bot {i}")
         
-        # --- VENTE ---
         elif bot.get("etape") == "ATTENTE_VENTE" and price >= bot.get("p_vente"):
             if bot.get("qty", 0) > 0:
                 try:
@@ -145,47 +143,47 @@ m1.metric("Prix XRP", f"{p_val:.5f}")
 m2.metric("Solde USDC", f"{st.session_state.get('usdc', 0):.2f}$")
 m3.metric("Solde XRP", f"{st.session_state.get('xrp', 0):.2f}")
 
-# TABLEAU DE GESTION
+# TABLEAU DE GESTION (CORRIGÉ AVEC INDEX)
 st.divider()
 st.subheader("📊 Gestion des 50 Bots")
 h = st.columns([0.4, 0.4, 0.7, 0.7, 0.7, 0.6, 1.2, 0.4, 0.5, 0.5, 1])
-h.write("**ID**"); h.write("**St**"); h.write("**Achat**"); h.write("**Vente**")
-h.write("**Mise**"); h.write("**Qty**"); h.write("**Étape**")
-h.write("**Cy**"); h.write("**Go**"); h.write("**Clr**"); h.write("**Gain**")
+h[0].write("**ID**"); h[1].write("**St**"); h[2].write("**Achat**"); h[3].write("**Vente**")
+h[4].write("**Mise**"); h[5].write("**Qty**"); h[6].write("**Étape**")
+h[7].write("**Cy**"); h[8].write("**Go**"); h[9].write("**Clr**"); h[10].write("**Gain**")
 
 for i in range(1, 51):
     bt = st.session_state.bots.get(i)
     if not bt: continue
     r = st.columns([0.4, 0.4, 0.7, 0.7, 0.7, 0.6, 1.2, 0.4, 0.5, 0.5, 1])
-    r.write(f"#{i}")
+    r[0].write(f"#{i}")
     is_actif = bt.get("actif", False)
-    r.write("✅" if is_actif else "⚪")
-    r.write(f"{bt.get('p_achat'):.3f}"); r.write(f"{bt.get('p_vente'):.3f}")
+    r[1].write("✅" if is_actif else "⚪")
+    r[2].write(f"{bt.get('p_achat'):.3f}"); r[3].write(f"{bt.get('p_vente'):.3f}")
     
     mise_actu = bt.get('mise', 15.0) + bt.get('gain_cumule', 0.0)
-    r.write(f"{mise_actu:.1f}$")
-    r.write(f"{bt.get('qty', 0.0):.1f}")
+    r[4].write(f"{mise_actu:.1f}$")
+    r[5].write(f"{bt.get('qty', 0.0):.1f}")
     
     etape = bt.get('etape', 'ATTENTE_ACHAT')
     icon = "🔵" if "ACHAT" in etape else "🟢"
-    r.write(f"{icon} {etape[:6]}")
-    r.write(str(bt.get("cycles", 0)))
+    r[6].write(f"{icon} {etape[:6]}")
+    r[7].write(str(bt.get("cycles", 0)))
     
     if is_actif:
-        if r.button("🛑", key=f"s_{i}"):
+        if r[8].button("🛑", key=f"s_{i}"):
             st.session_state.bots[i]["actif"] = False
             save_config(st.session_state.bots); st.rerun()
     else:
-        if r.button("🚀", key=f"g_{i}"):
+        if r[8].button("🚀", key=f"g_{i}"):
             st.session_state.bots[i]["actif"] = True
             save_config(st.session_state.bots); st.rerun()
             
-    if r.button("🗑️", key=f"r_{i}"):
+    if r[9].button("🗑️", key=f"r_{i}"):
         st.session_state.bots[i] = {"id":i,"actif":False,"p_achat":1.35,"p_vente":1.38,"mise":15.0,"etape":"ATTENTE_ACHAT","qty":0.0,"gain_cumule":0.0,"cycles":0}
         save_config(st.session_state.bots); st.rerun()
 
     g = bt.get("gain_cumule", 0.0)
-    r.markdown(f":{'green' if g > 0 else 'white'}[{g:.2f}$]")
+    r[10].markdown(f":{'green' if g > 0 else 'white'}[{g:.2f}$]")
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
