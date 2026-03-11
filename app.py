@@ -100,15 +100,16 @@ for i in sorted(st.session_state.bots.keys()):
     
     # --- LA CORRECTION EST ICI ---
     if "ACHAT" in bt["etape"]:
-        r[7].markdown("🔵 **ACHAT**")
+        r[7].markdown("🟢  **ACHAT**")
     else:
-        r[7].markdown("🟢 **VENTE**")
+        r[7].markdown("🛑 **VENTE**")
         
     r[8].write(str(bt.get("cycles", 0)))
     
-    if r[9].button("🚀" if not bt["actif"] else "🛑", key=f"btn{i}"):
+    if r[9].button("🚀" if not bt["actif"] else "arret", key=f"btn{i}"):
         st.session_state.bots[i]["actif"] = not bt["actif"]
         st.rerun()
 
 st.divider()
 for m in reversed(st.session_state.logs[-10:]): st.write(m)
+
