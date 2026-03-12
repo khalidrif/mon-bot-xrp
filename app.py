@@ -145,18 +145,31 @@ for i, b in st.session_state.bots.items():
         qty_precision = 4
 
     # Étape achat
+        # === ACHAT AVEC DOUBLE SÉCURITÉ ===
     if b["etape"] == "ACHAT" and mid <= b["p_achat"]:
-        if usdc >= b["mise"]:
+        # Condition : Prix OK + Argent OK + Verrou Global LIBRE
+        if usdc >= (b["mise"] + 0.50) and not st.session_state.achat_en_cours:
+            
+            # 1. ON FERME LE VERROU GLOBAL ET L'ÉTAPE DU BOT
+            st.session_state.achat_en_cours = True
+            b["etape"] = "VENTE"
+            save_bots()
+            
             qty = round(b["mise"] / b["p_achat"], qty_precision)
             try:
+                # 2. On envoie l'ordre
                 exchange.create_limit_buy_order(symbol, qty, b["p_achat"])
-                log(f"✅ Bot {i} : Achat réel {qty} XRP @ {b['p_achat']:.5f}")
-                b["etape"] = "VENTE"
-                save_bots()
+                log(f"✅ Bot {i} : Achat UNIQUE réussi ({qty} XRP)")
+                
+                # 3. On libère le verrou global pour le prochain tour
+                st.session_state.achat_en_cours = False
+                
             except Exception as e:
-                log(f"❌ Achat Bot {i} : {e}")
-        else:
-            log(f"⚠️ Bot {i} : Solde USDC insuffisant ({usdc}$)")
+                log(f"❌ Erreur Kraken Bot {i} : {e}")
+                # EN CAS D'ÉCHEC : On réouvre TOUT pour réessayer
+                b["etape"] = "ACHAT"
+                st.session_state.achat_en_cours = False
+                save_bots()
 
     # Étape vente
         # === Étape vente (VERSION SÉCURISÉE ET CORRIGÉE) ===
@@ -241,5 +254,6 @@ c1,c2,c3=st.columns(3)
 c1.metric("Bid", f"{bid:.5f}")
 c2.metric("Ask", f"{ask:.5f}")
 c3.metric("Mid", f"{mid:.5f}")
+
 
 
