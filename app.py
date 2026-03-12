@@ -4,6 +4,13 @@ import json
 import os
 import time
 from streamlit_autorefresh import st_autorefresh
+# === VERROU GLOBAL (Anti-doublon PC/iPhone) ===
+@st.cache_resource
+def obtenir_verrou_serveur():
+    # Ce dictionnaire est partagé entre toutes les fenêtres ouvertes
+    return {"achat_en_cours": False}
+
+verrou_global = obtenir_verrou_serveur()
 
 
 # === CONFIGURATION ===
@@ -259,6 +266,7 @@ c1,c2,c3=st.columns(3)
 c1.metric("Bid", f"{bid:.5f}")
 c2.metric("Ask", f"{ask:.5f}")
 c3.metric("Mid", f"{mid:.5f}")
+
 
 
 
