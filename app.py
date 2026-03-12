@@ -208,22 +208,33 @@ st.divider()
 
 
 # === AFFICHAGE DES BOTS ===
-st.subheader("📊 Mes bots actifs")
-if not st.session_state.bots:
-    st.info("Aucun bot configuré.")
-else:
-    for i, b in sorted(st.session_state.bots.items()):
-        actif = b.get("actif", True)
-        couleur = "⚫️" if not actif else "🟢"
-        if actif and mid <= b["p_achat"]: couleur = "🟡"
-        elif actif and mid >= b["p_vente"]: couleur = "🔴"
+            # === Couleur + pastille selon l’étape ===
+            if b["etape"] == "ACHAT":
+                couleur_etape = "gold"
+                pastille = "🟡"
+            elif b["etape"] == "VENTE":
+                couleur_etape = "red"
+                pastille = "🔴"
+            elif b["etape"] == "EN_COURS_ACHAT":
+                couleur_etape = "orange"
+                pastille = "🟠"
+            elif b["etape"] == "EN_COURS_VENTE":
+                couleur_etape = "mediumorchid"
+                pastille = "🟣"
+            else:
+                couleur_etape = "gray"
+                pastille = "⚪"
 
-        col1, col2, col3 = st.columns([4, 1, 1])
-        with col1:
-            st.info(
-                f"{couleur} **Bot {i}** | Achat {b['p_achat']:.5f} | Vente {b['p_vente']:.5f} | "
-                f"Mise :{b['mise']:.2f}$ | Gain :{b['gain_net']:.2f}$ | Cycles :{b['cycles']} | Étape :{b['etape']}"
+            st.markdown(
+                f"""
+                {couleur} **Bot {i}** |
+                Achat {b['p_achat']:.5f} | Vente {b['p_vente']:.5f} |
+                Mise : {b['mise']:.2f}$ | Gain : {b['gain_net']:.2f}$ | Cycles : {b['cycles']} |
+                Étape : {pastille} <span style='color:{couleur_etape}'><b>{b['etape']}</b></span>
+                """,
+                unsafe_allow_html=True
             )
+
         with col2:
             toggle = "🛑" if actif else "🚀"
             if st.button(toggle, key=f"toggle_{i}"):
@@ -253,6 +264,7 @@ c1,c2,c3=st.columns(3)
 c1.metric("Bid", f"{bid:.5f}")
 c2.metric("Ask", f"{ask:.5f}")
 c3.metric("Mid", f"{mid:.5f}")
+
 
 
 
