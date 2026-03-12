@@ -156,19 +156,34 @@ for i, b in st.session_state.bots.items():
             log(f"⚠️ Bot {i} : Solde USDC insuffisant ({usdc}$)")
 
     # Étape vente
+        # === Étape vente (VERSION SÉCURISÉE ET CORRIGÉE) ===
     elif b["etape"] == "VENTE" and mid >= b["p_vente"]:
+        # 1. On prépare les chiffres
         gain = (b["p_vente"] - b["p_achat"]) / b["p_achat"] * b["mise"]
         qty_sell = round(b["mise"] / b["p_achat"], qty_precision)
-        try:
-            exchange.create_limit_sell_order(symbol, qty_sell, b["p_vente"])
-            log(f"💰 Bot {i} : Vente réelle @ {b['p_vente']:.5f} (+{gain:.2f}$)")
-        except Exception as e:
-            log(f"❌ Vente Bot {i} : {e}")
-        b["gain_net"] += gain
-        b["cycles"] += 1
-        b["mise"] += gain
-        b["etape"] = "ACHAT"
+
+        # 2. LE VERROU : On change l'étape TOUT DE SUITE pour bloquer les doublons
+        b["etape"] = "EN_COURS" 
         save_bots()
+
+        try:
+            # 3. On envoie l'ordre à Kraken
+            exchange.create_limit_sell_order(symbol, qty_sell, b["p_vente"])
+            log(f"💰 Bot {i} : Vente réelle @ {b['p_vente']:.5f} (+{gain:.2f}$)")
+            
+            # 4. ON NE CALCULE LES GAINS QUE SI L'ORDRE A RÉUSSI
+            b["gain_net"] += gain
+            b["cycles"] += 1
+            b["mise"] += gain
+            b["etape"] = "ACHAT" # On autorise le prochain achat
+            save_bots()
+            
+        except Exception as e:
+            log(f"❌ Erreur Vente Bot {i} : {e}")
+            # SI ÇA ÉCHOUE : On remet l'étape en "VENTE" pour réessayer au prochain tour
+            b["etape"] = "VENTE"
+            save_bots()
+
 
 
 # === TOTAL DES GAINS ===
@@ -223,3 +238,4 @@ c1,c2,c3=st.columns(3)
 c1.metric("Bid", f"{bid:.5f}")
 c2.metric("Ask", f"{ask:.5f}")
 c3.metric("Mid", f"{mid:.5f}")
+
