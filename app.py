@@ -14,9 +14,14 @@ st_autorefresh(interval=20000, key="refresh_app")  # rafraîchit toutes les 20�
 
 
 # === LOGS ===
+# Ligne 17 et 18 : On gère les logs
 if "logs" not in st.session_state:
+    st.session_state.logs = []  # <--- Cette ligne doit être décalée !
+
+# Ligne 19 et 20 : On gère ton nouveau verrou
 if "achat_en_cours" not in st.session_state:
-    st.session_state.achat_en_cours = False
+    st.session_state.achat_en_cours = False  # <--- Celle-ci aussi !
+
 
     st.session_state.logs = []
 def log(msg): st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
@@ -254,6 +259,7 @@ c1,c2,c3=st.columns(3)
 c1.metric("Bid", f"{bid:.5f}")
 c2.metric("Ask", f"{ask:.5f}")
 c3.metric("Mid", f"{mid:.5f}")
+
 
 
 
