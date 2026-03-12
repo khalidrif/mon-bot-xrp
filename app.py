@@ -149,7 +149,7 @@ if st.button("✅ Créer le bot"):
 for i, b in st.session_state.bots.items():
     if not b.get("actif"): 
         continue
-    try:
+
            # 1. PRÉCISION
     try:
         market = exchange.market(symbol)
@@ -253,6 +253,7 @@ c1,c2,c3=st.columns(3)
 c1.metric("Bid", f"{bid:.5f}")
 c2.metric("Ask", f"{ask:.5f}")
 c3.metric("Mid", f"{mid:.5f}")
+
 
 
 
