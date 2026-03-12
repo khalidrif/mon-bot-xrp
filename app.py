@@ -153,6 +153,67 @@ for i, b in st.session_state.bots.items():
         market = exchange.market(symbol)
         prec = market.get("precision", {}).get("amount", 4)
         qty_precision = int(prec) if isinstance(prec, (int, float)) else 4
+            # === 1. ÉTAPE ACHAT (SÉCURISÉE PC/IPHONE) ===
+    if b["etape"] == "ACHAT" and mid <= b["p_achat"]:
+        # On vérifie le VERROU GLOBAL (partagé entre tous les appareils)
+        if not verrou_global["achat_en_cours"] and usdc >= (b["mise"] + 0.50):
+            
+            # BLOQUAGE IMMÉDIAT
+            verrou_global["achat_en_cours"] = True
+            b["etape"] = "EN_COURS_ACHAT" 
+            save_bots()
+            
+            try:
+                qty = round(b["mise"] / b["p_achat"], qty_precision)
+                # Envoi de l'ordre UNIQUE à Kraken
+                exchange.create_limit_buy_order(symbol, qty, b["p_achat"])
+                log(f"✅ Bot {i} : Achat UNIQUE envoyé (Verrou actif)")
+                
+                # Succès : On passe à l'étape vente
+                b["etape"] = "VENTE"
+                save_bots()
+                
+            except Exception as e:
+                log(f"❌ Erreur Achat Bot {i} : {e}")
+                # En cas d'échec, on réinitialise pour réessayer au prochain tour
+                b["etape"] = "ACHAT"
+                save_bots()
+            
+            finally:
+                # LIBÉRATION DU VERROU pour les autres fenêtres
+                verrou_global["achat_en_cours"] = False
+
+    # === 2. ÉTAPE VENTE (SÉCURISÉE PC/IPHONE) ===
+    elif b["etape"] == "VENTE" and mid >= b["p_vente"]:
+        # On vérifie aussi le VERROU pour la vente
+        if not verrou_global["achat_en_cours"] and xrp >= (b["mise"] / b["p_achat"] * 0.98):
+            
+            verrou_global["achat_en_cours"] = True
+            b["etape"] = "EN_COURS_VENTE"
+            save_bots()
+
+            try:
+                gain = (b["p_vente"] - b["p_achat"]) / b["p_achat"] * b["mise"]
+                qty_sell = round(b["mise"] / b["p_achat"], qty_precision)
+                
+                exchange.create_limit_sell_order(symbol, qty_sell, b["p_vente"])
+                log(f"💰 Bot {i} : Vente UNIQUE @ {b['p_vente']:.5f} (+{gain:.2f}$)")
+                
+                # Mise à jour des compteurs
+                b["gain_net"] += gain
+                b["cycles"] += 1
+                b["mise"] += gain
+                b["etape"] = "ACHAT"
+                save_bots()
+                
+            except Exception as e:
+                log(f"❌ Erreur Vente Bot {i} : {e}")
+                b["etape"] = "VENTE"
+                save_bots()
+            
+            finally:
+                verrou_global["achat_en_cours"] = False
+
     except Exception:
         qty_precision = 4
 
@@ -266,6 +327,7 @@ c1,c2,c3=st.columns(3)
 c1.metric("Bid", f"{bid:.5f}")
 c2.metric("Ask", f"{ask:.5f}")
 c3.metric("Mid", f"{mid:.5f}")
+
 
 
 
