@@ -5,29 +5,31 @@ import os
 import time
 from streamlit_autorefresh import st_autorefresh
 
+
 # === VERROU GLOBAL ===
 @st.cache_resource
-def obtenir_verrou_serveur():
-    return {"achat_en_cours": False}
+def get_global_lock():
+    return {"trade_lock": False}
 
-verrou_global = obtenir_verrou_serveur()
+verrou = get_global_lock()
 
-# === CONFIGURATION ===
-st.set_page_config(page_title="⚡ DCA Sniper Coinbase", layout="centered")
+
+# === CONFIG ===
+st.set_page_config(page_title="⚡ DCA Multi‑Bots Coinbase", layout="centered")
 symbol = "XRP/USDC"
 CONFIG_FILE = "bots_config.json"
-st_autorefresh(interval=20000, key="refresh_app")
+st_autorefresh(interval=20000, key="refresh")
+
 
 # === LOGS ===
 if "logs" not in st.session_state:
     st.session_state.logs = []
-if "achat_en_cours" not in st.session_state:
-    st.session_state.achat_en_cours = False
 
 def log(msg):
     st.session_state.logs.append(f"{time.strftime('%H:%M:%S')} | {msg}")
 
-# === JSON robust ===
+
+# === JSON ===
 def save_bots():
     try:
         with open(CONFIG_FILE, "w") as f:
@@ -40,12 +42,12 @@ def load_bots():
         return {}
     try:
         with open(CONFIG_FILE, "r") as f:
-            data = json.load(f)
-            return {int(k): v for k, v in data.items()}
+            return {int(k): v for k, v in json.load(f).items()}
     except:
         return {}
 
-# === CONNEXION COINBASE ===
+
+# === COINBASE ===
 @st.cache_resource
 def get_exchange():
     return ccxt.coinbaseadvanced({
@@ -56,29 +58,33 @@ def get_exchange():
 
 exchange = get_exchange()
 
+
 # === INIT BOTS ===
 if "bots" not in st.session_state:
     st.session_state.bots = load_bots()
 
 for b in st.session_state.bots.values():
     b.setdefault("actif", True)
-    b.setdefault("etape", "ACHAT")
+    b.setdefault("p_achat", 0.0)
+    b.setdefault("pct_profit", 3.0)
+    b.setdefault("paliers", [])
     b.setdefault("investi", 0.0)
     b.setdefault("gain_net", 0.0)
     b.setdefault("cycles", 0)
+    b.setdefault("etape", "ACHAT")
 
 save_bots()
 
-# === PRIX LIVE + SOLDES ===
+
+# === PRIX & SOLDES ===
 try:
     ticker = exchange.fetch_ticker(symbol)
     bid, ask = ticker["bid"], ticker["ask"]
     mid = (bid + ask) / 2
 except:
-    bid = ask = mid = 0.0
-    log("Erreur prix Coinbase")
+    mid = bid = ask = 0.0
+    log("Erreur récupération prix")
 
-# Soldes
 try:
     balances = exchange.fetch_balance()
     usdc = float(balances["free"].get("USDC", 0))
@@ -88,36 +94,49 @@ except:
 
 wallet_total = usdc + xrp * mid
 
+
 # === HEADER ===
-st.title("🚀 DCA Sniper Pro – Coinbase")
-col1, col2, col3 = st.columns(3)
-col1.metric("USDC", f"{usdc:.2f}$")
-col2.metric("XRP", f"{xrp:.2f}")
-col3.metric("Valeur totale", f"{wallet_total:.2f}$")
-st.caption(f"Prix XRP {mid:.5f} | MAJ {time.strftime('%H:%M:%S')}")
+st.title("🚀 DCA Sniper Pro – Coinbase (Multi‑Bots)")
+
+c1, c2, c3 = st.columns(3)
+c1.metric("USDC disponible", f"{usdc:.2f}$")
+c2.metric("XRP disponible", f"{xrp:.4f}")
+c3.metric("Valeur totale", f"{wallet_total:.2f}$")
+
+st.caption(f"Prix XRP : {mid:.5f} | MAJ {time.strftime('%H:%M:%S')}")
 st.divider()
 
-# === AJOUT D’UN BOT ===
-st.subheader("➕ Ajouter un bot")
-c1, c2, c3, c4 = st.columns(4)
 
+# === AJOUT BOT ===
+st.subheader("➕ Ajouter un bot")
+
+c1, c2 = st.columns(2)
 with c1:
-    p_achat_new = st.number_input("Prix Achat", value=1.00000, step=0.00001, format="%.5f")
+    p_achat_new = st.number_input("Prix d’achat principal", value=1.00000, step=0.00001, format="%.5f")
 with c2:
-    pct_profit_new = st.number_input("Profit net (%)", value=3.0, step=0.1)
-with c3:
-    max_invest_new = st.number_input("Max investi (USDC)", value=50.0, step=1.0)
-with c4:
-    mise_initiale = st.number_input("Mise initiale ($)", value=10.0, step=0.5)
+    pct_profit_new = st.number_input("Profit (%) pour vendre 100%", value=3.0, step=0.1)
+
+st.write("### 📊 Ajouter des paliers d’achat")
+
+new_paliers = []
+nb = st.number_input("Nombre de paliers", min_value=1, max_value=20, value=1)
+
+for i in range(nb):
+    c1, c2 = st.columns(2)
+    with c1:
+        p = st.number_input(f"Prix Palier {i+1}", value=1.00000, step=0.00001, format="%.5f", key=f"px{i}")
+    with c2:
+        m = st.number_input(f"Montant Palier {i+1} ($)", value=10.0, step=1.0, key=f"mx{i}")
+    new_paliers.append({"prix": p, "montant": m})
 
 if st.button("Créer le bot"):
     next_id = max(st.session_state.bots.keys()) + 1 if st.session_state.bots else 1
+
     st.session_state.bots[next_id] = {
         "id": next_id,
         "p_achat": p_achat_new,
         "pct_profit": pct_profit_new,
-        "max_invest": max_invest_new,
-        "mise": mise_initiale,
+        "paliers": new_paliers,
         "investi": 0.0,
         "gain_net": 0.0,
         "cycles": 0,
@@ -128,89 +147,107 @@ if st.button("Créer le bot"):
     log(f"Bot {next_id} créé.")
     st.rerun()
 
+
 # === LOGIQUE TRADING ===
 for i, b in st.session_state.bots.items():
+
     if not b["actif"]:
         continue
 
-    # Precision Coinbase
+    # Market precision
     try:
         market = exchange.market(symbol)
-        prec = market.get("precision", {}).get("amount", 4)
-        qty_precision = int(prec)
+        qty_precision = int(market.get("precision", {}).get("amount", 4))
     except:
         qty_precision = 4
 
-    # ACHAT
-    if b["etape"] == "ACHAT" and mid <= b["p_achat"]:
+    # === ACHATS PAR PALIERS ===
+    if b["etape"] == "ACHAT":
 
-        montant_possible = b["max_invest"] - b["investi"]
-        montant = min(b["mise"], montant_possible)
+        for pal in b["paliers"]:
+            prix_palier = pal["prix"]
+            montant_palier = pal["montant"]
 
-        if montant > 1 and usdc >= montant and not verrou_global["achat_en_cours"]:
-            verrou_global["achat_en_cours"] = True
-            b["etape"] = "EN_COURS_ACHAT"
-            save_bots()
+            if mid <= prix_palier and usdc >= montant_palier:
+                if not verrou["trade_lock"]:
+                    verrou["trade_lock"] = True
+                    b["etape"] = "EN_COURS_ACHAT"
+                    save_bots()
 
-            try:
-                qty = round(montant / b["p_achat"], qty_precision)
-                exchange.create_limit_buy_order(symbol, qty, b["p_achat"])
-                b["investi"] += montant
-                b["etape"] = "VENTE"
-                log(f"Bot {i} : Achat {qty} XRP pour {montant}$")
-            except Exception as e:
-                log(f"Erreur achat bot {i} : {e}")
-                b["etape"] = "ACHAT"
-            finally:
-                verrou_global["achat_en_cours"] = False
-                save_bots()
+                    try:
+                        qty = round(montant_palier / prix_palier, qty_precision)
+                        exchange.create_limit_buy_order(symbol, qty, prix_palier)
 
-    # VENTE
-    prix_vente_cible = b["p_achat"] * (1 + b["pct_profit"] / 100)
+                        b["investi"] += montant_palier
+                        log(f"Bot {i} : Achat palier ({montant_palier}$) à {prix_palier}")
+                        b["etape"] = "VENTE"
 
-    if b["etape"] == "VENTE" and mid >= prix_vente_cible:
+                    except Exception as e:
+                        log(f"Bot {i} : erreur achat palier : {e}")
+                        b["etape"] = "ACHAT"
 
-        if not verrou_global["achat_en_cours"]:
+                    verrou["trade_lock"] = False
+                    save_bots()
+                    break
 
-            verrou_global["achat_en_cours"] = True
+
+    # === VENTE 100% DU XRP INVESTI ===
+    prix_vente = b["p_achat"] * (1 + b["pct_profit"] / 100)
+
+    if b["etape"] == "VENTE" and mid >= prix_vente:
+
+        if not verrou["trade_lock"] and b["investi"] > 0:
+
+            verrou["trade_lock"] = True
             b["etape"] = "EN_COURS_VENTE"
             save_bots()
 
             try:
                 qty_sell = round(b["investi"] / b["p_achat"], qty_precision)
-                exchange.create_limit_sell_order(symbol, qty_sell, prix_vente_cible)
+                exchange.create_limit_sell_order(symbol, qty_sell, prix_vente)
 
                 gain = b["investi"] * (b["pct_profit"] / 100)
+
                 b["gain_net"] += gain
                 b["cycles"] += 1
-                b["mise"] += gain
-                b["investi"] = 0.0
+                b["investi"] = 0
                 b["etape"] = "ACHAT"
 
-                log(f"Bot {i} : Vente {qty_sell} XRP (+{gain:.2f}$)")
-            except Exception as e:
-                log(f"Erreur vente bot {i} : {e}")
-                b["etape"] = "VENTE"
-            finally:
-                verrou_global["achat_en_cours"] = False
-                save_bots()
+                log(f"Bot {i} : Vente 100% | Gain : {gain:.2f}$")
 
-# === TOTAL GAINS ===
+            except Exception as e:
+                log(f"Bot {i} : erreur vente : {e}")
+                b["etape"] = "VENTE"
+
+            verrou["trade_lock"] = False
+            save_bots()
+
+
+# === GAIN GLOBAL ===
 total_gain = sum(b["gain_net"] for b in st.session_state.bots.values())
-st.success(f"Gains cumulés : {total_gain:.2f}$")
+st.success(f"💰 Gain total cumulé : {total_gain:.2f}$")
 st.divider()
 
-# === AFFICHAGE DES BOTS ===
-st.subheader("Bots actifs")
-for i, b in sorted(st.session_state.bots.items()):
-    col1, col2, col3 = st.columns([4, 1, 1])
-    with col1:
-        st.info(
-            f"Bot {i} | Achat {b['p_achat']:.5f} | Profit {b['pct_profit']}% | "
-            f"Mise {b['mise']:.2f}$ | Max {b['max_invest']:.2f}$ | "
-            f"Investi {b['investi']:.2f}$ | Gain {b['gain_net']:.2f}$ | Cycles {b['cycles']} | {b['etape']}"
-        )
 
+# === AFFICHAGE DES BOTS ===
+st.subheader("📊 Liste des bots")
+
+for i, b in sorted(st.session_state.bots.items()):
+
+    col1, col2, col3 = st.columns([5, 1, 1])
+
+    with col1:
+        text = (
+            f"Bot {i} | Profit {b['pct_profit']}% | Investi {b['investi']:.2f}$ | "
+            f"Gain {b['gain_net']:.2f}$ | Cycles {b['cycles']} | Étape : {b['etape']}"
+        )
+        st.info(text)
+
+        st.write("Paliers :")
+        for p in b["paliers"]:
+            st.write(f"- {p['prix']:.5f} → {p['montant']}$")
+
+    # Toggle
     with col2:
         toggle = "🛑" if b["actif"] else "🚀"
         if st.button(toggle, key=f"toggle_{i}"):
@@ -218,14 +255,16 @@ for i, b in sorted(st.session_state.bots.items()):
             save_bots()
             st.rerun()
 
+    # Delete
     with col3:
         if st.button("🗑️", key=f"del_{i}"):
             del st.session_state.bots[i]
             save_bots()
             st.rerun()
 
+
 # === LOGS ===
 st.divider()
-st.subheader("Journal")
+st.subheader("📜 Journal des événements")
 if st.session_state.logs:
-    st.text_area("Logs", "\n".join(reversed(st.session_state.logs[-200:])), height=220)
+    st.text_area("Logs", "\n".join(reversed(st.session_state.logs[-200:])), height=250)
