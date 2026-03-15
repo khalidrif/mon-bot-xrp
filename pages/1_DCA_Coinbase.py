@@ -13,7 +13,7 @@ def obtenir_verrou_serveur():
 verrou_global = obtenir_verrou_serveur()
 
 # === CONFIGURATION ===
-st.set_page_config(page_title="⚡ DCA Sniper Coinbase", layout="centered")
+st.set_page_config(page_title="⚡ DCA Sniper Coinbas", layout="centered")
 symbol = "XRP/USDC"
 CONFIG_FILE = "bots_config.json"
 st_autorefresh(interval=20000, key="refresh_app")
